@@ -56,7 +56,7 @@ If you leave them unset, the first person to open <http://localhost:3000/admin> 
 
 ### Adding pets
 
-In **Admin → Pets**, add a name, photos and details. The form is split into tabs: Basics (species, age, size, colour, location), Health and behaviour (vaccinated, microchipped, house-trained, special needs, temperament, who they get along with, health notes), Photos and story (up to 10 photos, description, video link) and Adoption (fee, rescue date, and an optional WhatsApp number for pets with a foster). Tick **Urgent** in the sidebar for pets that need a home soon. The first photo is the cover. Mark a pet **Adopted** when it finds a home; it stays visible with an "Adopted" badge, which doubles as social proof. Tick **Featured** to include it in "featured" pet grids.
+In **Admin → Pets**, add a name, photos and details. The form is split into tabs: Basics (species, age, size, colour, location), Health and behaviour (vaccinated, microchipped, house-trained, special needs, temperament, who they get along with, health notes), Photos and story (up to 10 photos, description, video link) and Adoption (fee, rescue date, and an optional WhatsApp number for pets with a foster). Tick **Urgent** in the sidebar for pets that need a home soon. Tick **Unlisted** to keep a pet out of the catalog, pet grids, the public API and search engines while still letting anyone with the direct link open its page, which suits a pet you are not ready to promote. The first photo is the cover. Mark a pet **Adopted** when it finds a home; it stays visible with an "Adopted" badge, which doubles as social proof. Tick **Featured** to include it in "featured" pet grids.
 
 ### Building pages
 
