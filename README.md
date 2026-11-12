@@ -110,7 +110,7 @@ Pages are cached and refresh immediately when you publish; they also revalidate 
 | --- | --- |
 | `npm run dev` | Development server |
 | `npm run build` / `npm start` | Production build and server |
-| `npm run seed` | Sample content (the owner account comes from `SEED_ADMIN_*` on startup) |
+| `npm run seed` | Sample content. Safe to re-run, leaves a real site alone, and refuses to run in production without `SEED_FORCE=1`. The owner account comes from `SEED_ADMIN_*` on startup |
 | `npm run migrate:create` / `npm run migrate` | Create and apply PostgreSQL migrations |
 | `npm run typecheck` / `npm run lint` | Static checks |
 | `npm run generate:types` | Regenerate `src/payload-types.ts` after changing collections |
