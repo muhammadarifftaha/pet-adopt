@@ -57,8 +57,7 @@ export const Pages: CollectionConfig = {
       name: 'slug',
       type: 'text',
       required: true,
-      unique: true,
-      index: true,
+      unique: true, // a unique constraint is already an index
       admin: {
         position: 'sidebar',
         description: 'Lowercase letters, numbers and dashes. Use "home" for the homepage.',

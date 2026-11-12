@@ -20,6 +20,8 @@ export const Pets: CollectionConfig = {
     delete: isOwner,
   },
   defaultSort: '-createdAt',
+  // The catalog filters on status (usually "available") and sorts newest first.
+  indexes: [{ fields: ['status', 'createdAt'] }],
   hooks: {
     beforeValidate: [
       async ({ data, originalDoc, req }) => {
@@ -82,8 +84,7 @@ export const Pets: CollectionConfig = {
     {
       name: 'slug',
       type: 'text',
-      unique: true,
-      index: true,
+      unique: true, // a unique constraint is already an index
       admin: {
         position: 'sidebar',
         description: 'Used in the page address. Leave blank to generate it from the name.',
@@ -96,6 +97,7 @@ export const Pets: CollectionConfig = {
       type: 'select',
       required: true,
       defaultValue: 'available',
+      index: true,
       options: [...STATUSES],
       admin: { position: 'sidebar' },
     },
@@ -103,6 +105,7 @@ export const Pets: CollectionConfig = {
       name: 'featured',
       type: 'checkbox',
       defaultValue: false,
+      index: true,
       admin: { position: 'sidebar', description: 'Show in "featured" pet grids on pages.' },
     },
     {
@@ -113,7 +116,7 @@ export const Pets: CollectionConfig = {
     {
       type: 'row',
       fields: [
-        { name: 'species', type: 'select', required: true, defaultValue: 'cat', options: [...SPECIES] },
+        { name: 'species', type: 'select', required: true, defaultValue: 'cat', index: true, options: [...SPECIES] },
         { name: 'breed', type: 'text' },
         { name: 'sex', type: 'select', defaultValue: 'unknown', options: [...SEXES] },
       ],
