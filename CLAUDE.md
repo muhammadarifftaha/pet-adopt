@@ -45,14 +45,13 @@ Three read-only reviews (security, model design, database) were run, then these 
 - **Pets:** slug generated in `beforeValidate`, kept on partial updates, validated against `SLUG_PATTERN`, non-Latin names get `pet-<id>`. The slug field is deliberately **not** `required`, because the admin form would block blank slugs before the hook runs. Any change refreshes the whole site (`['/', 'layout']`).
 - **Pages:** `drafts.validate: true`, `puckData` validated with `isPuckData`, transient props stripped in `beforeChange`.
 - **Links and settings:** `safeHref` rejects `//host` and `/\host`; social URLs and menu links are validated and rendered through `safeHref`; the WhatsApp number is validated; `(0)` trunk prefixes are dropped.
+- **Queries and indexes:** `pets` has indexes on `status`, `species`, `featured` and a compound `status, createdAt` (plus Payload's own `createdAt`); the duplicate `index: true` next to `unique: true` slugs is gone. Catalog and grid queries `select` only the card fields, sort `['-createdAt', '-id']`, and `populate` media with `url, alt, filename, updatedAt`: Payload builds `url` from `filename`, so leaving `filename` out makes every image url `null`. `queryPetCards` (no paging, no COUNT) feeds the Puck grid. The location filter uses `contains` with LIKE wildcards stripped.
 - **Ops:** security headers in `next.config.ts`, Postgres bound to `127.0.0.1` in `docker-compose.yml`, `migrate` and `migrate:create` scripts, seed renders PNG placeholders instead of SVG.
 
 ## Suggested next steps
 
 - [ ] Browser-test the editor as listed above and fix whatever breaks. The user plans to build the UI elements themself.
 - [ ] Postgres path: start `docker-compose.yml`, run `npm run migrate:create`, commit `src/migrations`, and verify `npm run migrate` on an empty DB. Not done: it needs Postgres running.
-- [ ] Indexes (`status`, `species`, `featured`, `createdAt`), a `['-createdAt', '-id']` sort tie-breaker, and `select` / `populate` on catalog card queries (they currently load full media and the description).
-- [ ] Use `contains` instead of `like` for the location filter (SQLite and Postgres differ).
 - [ ] Make the seed idempotent per step and refuse to run in production.
 - [ ] Model improvements from the review: `birthDate`, adoption fee, temperament, good-with, health notes, an unlisted/draft state, structured city and state, pet SEO fields, field tabs, a roles field on `Users`.
 - [ ] Add a Content-Security-Policy header (needs browser testing with the Payload admin and Next inline scripts).
