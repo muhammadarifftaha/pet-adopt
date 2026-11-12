@@ -134,7 +134,7 @@ async function seedSettings(payload: Payload) {
     data: {
       siteName: 'Happy Tails Rescue',
       tagline: 'Every pet deserves a loving home',
-      primaryColor: '#e8590c',
+      theme: 'sunrise',
       // Placeholder number: replace it in Site settings.
       whatsappNumber: '0120000000',
       whatsappMessage: "Hi! I'm interested in adopting {pet}.",
