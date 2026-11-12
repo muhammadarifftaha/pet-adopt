@@ -1,0 +1,21 @@
+/* Editor-only styles: header actions and the media picker field. */
+.editor-actions { display: flex; align-items: center; gap: 12px; font-size: 14px; }
+.editor-actions a { color: inherit; }
+.editor-actions button { padding: 6px 14px; border: 1px solid #c9ced6; background: #fff; border-radius: 6px; cursor: pointer; font: inherit; }
+.editor-actions button:disabled { opacity: 0.6; cursor: default; }
+.editor-actions .editor-primary { background: #1f2937; border-color: #1f2937; color: #fff; }
+.editor-msg { color: #15803d; }
+.editor-msg-error { color: #b91c1c; }
+
+.media-picker-preview { display: block; width: 100%; max-height: 140px; object-fit: cover; border-radius: 6px; }
+.media-picker-empty { padding: 20px; text-align: center; border: 1px dashed #c9ced6; border-radius: 6px; color: #6b7280; font-size: 13px; }
+.media-picker-actions { display: flex; gap: 8px; margin-top: 8px; }
+.media-picker button { padding: 4px 10px; border: 1px solid #c9ced6; background: #fff; border-radius: 6px; cursor: pointer; font: inherit; font-size: 13px; }
+.media-picker-panel { margin-top: 8px; padding: 8px; border: 1px solid #e5e7eb; border-radius: 6px; background: #f9fafb; }
+.media-picker-upload { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; font-size: 13px; }
+.media-picker-upload input[type='text'] { padding: 6px; border: 1px solid #c9ced6; border-radius: 6px; }
+.media-picker-error { color: #b91c1c; font-size: 13px; margin: 0 0 8px; }
+.media-picker-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; max-height: 220px; overflow: auto; }
+.media-picker-grid button { padding: 0; border: 2px solid transparent; overflow: hidden; aspect-ratio: 4 / 3; }
+.media-picker-grid button:hover { border-color: #e8590c; }
+.media-picker-grid img { width: 100%; height: 100%; object-fit: cover; display: block; }
