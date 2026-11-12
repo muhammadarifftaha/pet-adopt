@@ -608,9 +608,59 @@ export interface SiteSetting {
   tagline?: string | null;
   logo?: (number | null) | Media;
   /**
-   * Hex colour used for buttons and links, for example #e8590c.
+   * Hex colour for buttons and links, for example #e8590c. Leave empty to use the theme's own colour (see the Theme tab). Pale colours are adjusted automatically so text stays readable.
    */
   primaryColor?: string | null;
+  /**
+   * Sunrise: Warm orange, friendly and familiar. The original look. Meadow: Fresh green with soft, rounded shapes and gentle shadows. Ocean: Calm blue, crisp and modern, with tighter corners. Heritage: Deep red with serif headings, square corners and generous space. Studio: Black and white with elegant headings and bold hard-edged shadows.
+   */
+  theme?: ('sunrise' | 'meadow' | 'ocean' | 'heritage' | 'studio') | null;
+  /**
+   * Shows a light/dark button in the header and follows each visitor's device setting. Untick to keep the site light only.
+   */
+  allowModeToggle?: boolean | null;
+  /**
+   * Adjust fonts, shape, spacing and colours on top of the theme. Anything you leave empty follows the theme.
+   */
+  customize?: boolean | null;
+  customTheme?: {
+    /**
+     * Headings and the site name.
+     */
+    headingFont?: ('system' | 'inter' | 'nunito' | 'dm-sans' | 'lora' | 'playfair-display') | null;
+    /**
+     * Everything else.
+     */
+    bodyFont?: ('system' | 'inter' | 'nunito' | 'dm-sans' | 'lora' | 'playfair-display') | null;
+    /**
+     * Cards, photos and fields.
+     */
+    radius?: ('none' | 'sm' | 'md' | 'lg' | 'xl') | null;
+    button?: ('pill' | 'rounded' | 'square') | null;
+    shadow?: ('none' | 'lift' | 'soft' | 'medium' | 'hard') | null;
+    density?: ('compact' | 'comfortable' | 'spacious') | null;
+    textSize?: ('small' | 'medium' | 'large') | null;
+    /**
+     * Hex colours such as #1f2937. Leave a colour empty to keep the preset's.
+     */
+    light?: {
+      primary?: string | null;
+      background?: string | null;
+      surface?: string | null;
+      text?: string | null;
+      tint?: string | null;
+    };
+    /**
+     * Hex colours such as #1f2937. Leave a colour empty to keep the preset's.
+     */
+    dark?: {
+      primary?: string | null;
+      background?: string | null;
+      surface?: string | null;
+      text?: string | null;
+      tint?: string | null;
+    };
+  };
   /**
    * Visitors contact you here. Local numbers (starting with 0) get the default country code added.
    */
@@ -651,6 +701,38 @@ export interface SiteSettingsSelect<T extends boolean = true> {
   tagline?: T;
   logo?: T;
   primaryColor?: T;
+  theme?: T;
+  allowModeToggle?: T;
+  customize?: T;
+  customTheme?:
+    | T
+    | {
+        headingFont?: T;
+        bodyFont?: T;
+        radius?: T;
+        button?: T;
+        shadow?: T;
+        density?: T;
+        textSize?: T;
+        light?:
+          | T
+          | {
+              primary?: T;
+              background?: T;
+              surface?: T;
+              text?: T;
+              tint?: T;
+            };
+        dark?:
+          | T
+          | {
+              primary?: T;
+              background?: T;
+              surface?: T;
+              text?: T;
+              tint?: T;
+            };
+      };
   whatsappNumber?: T;
   whatsappMessage?: T;
   address?: T;
