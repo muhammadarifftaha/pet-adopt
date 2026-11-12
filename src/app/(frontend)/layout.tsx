@@ -5,10 +5,13 @@ import React from 'react'
 
 import { SmartLink } from '@/components/site/SmartLink'
 import { SocialLinks } from '@/components/site/SocialIcons'
+import { ThemeStyle } from '@/components/site/ThemeStyle'
+import { ThemeToggle } from '@/components/site/ThemeToggle'
 import { WhatsAppButton } from '@/components/site/WhatsAppButton'
 import { mediaOf, getSettings } from '@/lib/queries'
 import { fillMessage } from '@/lib/whatsapp'
 
+import './fonts'
 import './styles.css'
 
 const serverURL = process.env.NEXT_PUBLIC_SERVER_URL || 'http://localhost:3000'
@@ -23,12 +26,9 @@ export async function generateMetadata(): Promise<Metadata> {
   }
 }
 
-const HEX = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/
-
 export default async function FrontendLayout({ children }: { children: React.ReactNode }) {
   const settings = await getSettings()
   const logo = mediaOf(settings.logo)
-  const primary = settings.primaryColor && HEX.test(settings.primaryColor) ? settings.primaryColor : '#e8590c'
   const nav = settings.nav?.length
     ? settings.nav
     : [
@@ -36,8 +36,13 @@ export default async function FrontendLayout({ children }: { children: React.Rea
       ]
 
   return (
-    <html lang="en">
-      <body style={{ ['--primary' as string]: primary }}>
+    // suppressHydrationWarning: a small script may set data-mode on <html> (the visitor's saved
+    // light/dark choice) before React loads.
+    <html lang="en" suppressHydrationWarning>
+      <head>
+        <ThemeStyle settings={settings} />
+      </head>
+      <body>
         <header className="site-header">
           <div className="container header-inner">
             <Link href="/" className="brand">
@@ -50,6 +55,7 @@ export default async function FrontendLayout({ children }: { children: React.Rea
                   {item.label}
                 </SmartLink>
               ))}
+              {settings.allowModeToggle !== false && <ThemeToggle />}
               <WhatsAppButton
                 phone={settings.whatsappNumber}
                 message={fillMessage(settings.whatsappMessage, null)}
