@@ -265,6 +265,38 @@ export const Pets: CollectionConfig = {
             },
           ],
         },
+        {
+          label: 'SEO',
+          description: 'How this pet looks in search results and when its link is shared. All optional.',
+          fields: [
+            {
+              name: 'seo',
+              type: 'group',
+              label: false,
+              fields: [
+                {
+                  name: 'title',
+                  type: 'text',
+                  maxLength: 70,
+                  admin: { description: 'Leave empty to use "[name] is looking for a home".' },
+                },
+                {
+                  name: 'description',
+                  type: 'textarea',
+                  maxLength: 160,
+                  admin: { description: 'Leave empty to use a summary built from species, breed, age and location.' },
+                },
+                {
+                  name: 'image',
+                  type: 'upload',
+                  relationTo: 'media',
+                  label: 'Share image',
+                  admin: { description: 'Leave empty to use the first photo.' },
+                },
+              ],
+            },
+          ],
+        },
       ],
     },
   ],

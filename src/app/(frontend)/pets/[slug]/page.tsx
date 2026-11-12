@@ -24,12 +24,15 @@ export async function generateMetadata({ params }: Args): Promise<Metadata> {
   const pet = await getPetBySlug(slug)
   if (!pet) return {}
   const cover = mediaOf(pet.photos?.[0])
+  // Owners can override the search and share text per pet (SEO tab); otherwise build it.
+  const shareImage = mediaOf(pet.seo?.image) ?? cover
   const summary = [labelFor(SPECIES, pet.species), pet.breed, pet.ageDescription, pet.location].filter(Boolean).join(' · ')
-  const title = `${pet.name}${pet.status === 'adopted' ? ' (adopted)' : ' is looking for a home'}`
+  const title = pet.seo?.title || `${pet.name}${pet.status === 'adopted' ? ' (adopted)' : ' is looking for a home'}`
+  const description = pet.seo?.description || summary
   return {
     title,
-    description: summary,
-    openGraph: { title, description: summary, images: cover ? [cover.url] : undefined },
+    description,
+    openGraph: { title, description, images: shareImage ? [shareImage.url] : undefined },
     // Unlisted pets are for people with the link, not for search engines.
     robots: pet.unlisted ? { index: false, follow: false } : undefined,
   }

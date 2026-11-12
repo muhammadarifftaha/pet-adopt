@@ -17,13 +17,15 @@ export const Media: CollectionConfig = {
     // Deleting an image that is still in use would strip a pet's photos or a page's share image.
     beforeDelete: [
       async ({ id, req }) => {
-        const [pets, pages] = await Promise.all([
+        const [pets, petShares, pages] = await Promise.all([
           req.payload.count({ collection: 'pets', where: { photos: { equals: id } }, req }),
+          req.payload.count({ collection: 'pets', where: { 'seo.image': { equals: id } }, req }),
           req.payload.count({ collection: 'pages', where: { 'seo.image': { equals: id } }, req }),
         ])
-        if (pets.totalDocs + pages.totalDocs > 0) {
+        const petCount = pets.totalDocs + petShares.totalDocs
+        if (petCount + pages.totalDocs > 0) {
           throw new Error(
-            `This image is still used by ${pets.totalDocs} pet(s) and ${pages.totalDocs} page(s). Replace it there first.`,
+            `This image is still used by ${petCount} pet(s) and ${pages.totalDocs} page(s). Replace it there first.`,
           )
         }
       },

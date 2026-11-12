@@ -220,6 +220,20 @@ export interface Pet {
    * Optional. Use it when a foster looks after this pet. Leave empty to use the site number.
    */
   contactWhatsApp?: string | null;
+  seo?: {
+    /**
+     * Leave empty to use "[name] is looking for a home".
+     */
+    title?: string | null;
+    /**
+     * Leave empty to use a summary built from species, breed, age and location.
+     */
+    description?: string | null;
+    /**
+     * Leave empty to use the first photo.
+     */
+    image?: (number | null) | Media;
+  };
   updatedAt: string;
   createdAt: string;
 }
@@ -435,6 +449,13 @@ export interface PetsSelect<T extends boolean = true> {
   adoptionFee?: T;
   rescuedAt?: T;
   contactWhatsApp?: T;
+  seo?:
+    | T
+    | {
+        title?: T;
+        description?: T;
+        image?: T;
+      };
   updatedAt?: T;
   createdAt?: T;
 }
