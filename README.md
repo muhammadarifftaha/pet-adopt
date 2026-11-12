@@ -102,7 +102,7 @@ Pages are cached and refresh immediately when you publish; they also revalidate 
 - Social and menu links are checked when saved, and rendered through a safe-link filter that blocks `javascript:` and `data:` URLs.
 - The last owner account cannot be deleted, and an image still used by a pet or page cannot be deleted.
 - There is no per-IP rate limiting. Put one at your reverse proxy or CDN, especially for the login and password-reset endpoints.
-- There is no Content-Security-Policy header yet; basic hardening headers (`nosniff`, framing, referrer) are set in `next.config.ts`.
+- Security headers are set in `next.config.ts`: `nosniff`, no framing by other sites, a strict referrer policy and a Content-Security-Policy. The policy only allows scripts, styles, images and connections from your own site, plus a Google Maps embed, and blocks plugins and eval in production. Inline scripts stay allowed because Next.js and Payload need them and a nonce would end page caching. If you add an embed, analytics script or external image, extend the policy in `next.config.ts`; set `CSP_REPORT_ONLY=1` first to see what it would block without breaking anything.
 
 ## Scripts
 
