@@ -171,7 +171,15 @@ export interface Pet {
    */
   color?: string | null;
   /**
-   * City or area where the pet is, for example "Petaling Jaya, Selangor".
+   * Town or city where the pet is, for example "Petaling Jaya".
+   */
+  city?: string | null;
+  /**
+   * State or region, for example "Selangor". Spell it the same way every time.
+   */
+  state?: string | null;
+  /**
+   * Shown to visitors. Built from city and state when those are set; type here only when you do not use them.
    */
   location?: string | null;
   vaccinated?: boolean | null;
@@ -434,6 +442,8 @@ export interface PetsSelect<T extends boolean = true> {
   size?: T;
   birthDate?: T;
   color?: T;
+  city?: T;
+  state?: T;
   location?: T;
   vaccinated?: T;
   neutered?: T;

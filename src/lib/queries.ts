@@ -99,6 +99,9 @@ export type PetFilters = {
   ageGroup?: string
   size?: string
   location?: string
+  /** Exact city or state, as returned by getLocationOptions(). */
+  city?: string
+  state?: string
   featuredOnly?: boolean
   page?: number
   limit?: number
@@ -116,6 +119,8 @@ function buildWhere(filters: PetFilters): Where {
   // so visitors cannot turn the search into a pattern.
   const location = filters.location?.replace(/[%_\\]/g, '').trim()
   if (location) and.push({ location: { contains: location } })
+  if (filters.city) and.push({ city: { equals: filters.city } })
+  if (filters.state) and.push({ state: { equals: filters.state } })
   if (filters.featuredOnly) and.push({ featured: { equals: true } })
   return { and }
 }
@@ -147,6 +152,27 @@ export async function queryPets(filters: PetFilters = {}) {
       limit: PAGE_SIZE,
       pagingCounter: 1,
     },
+  )
+}
+
+/** Distinct states and cities of the pets visitors can see, for filter dropdowns. */
+export async function getLocationOptions(): Promise<{ states: string[]; cities: string[] }> {
+  return safely(
+    async () => {
+      const payload = await getPayloadClient()
+      const where: Where = { unlisted: { not_equals: true } }
+      const [states, cities] = await Promise.all([
+        payload.findDistinct({ collection: 'pets', field: 'state', where }),
+        payload.findDistinct({ collection: 'pets', field: 'city', where }),
+      ])
+      const clean = (values: Array<string | null | undefined>) =>
+        [...new Set(values.filter((v): v is string => Boolean(v)))].sort((a, b) => a.localeCompare(b))
+      return {
+        states: clean(states.values.map((v) => v.state)),
+        cities: clean(cities.values.map((v) => v.city)),
+      }
+    },
+    { states: [] as string[], cities: [] as string[] },
   )
 }
 

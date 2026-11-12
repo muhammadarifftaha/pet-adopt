@@ -30,6 +30,11 @@ export const Pets: CollectionConfig = {
     beforeValidate: [
       async ({ data, originalDoc, req }) => {
         if (!data) return data
+        // City and state: trim and collapse whitespace so " Petaling  Jaya " and "Petaling Jaya"
+        // are the same value in filters.
+        for (const key of ['city', 'state'] as const) {
+          if (typeof data[key] === 'string') data[key] = data[key].trim().replace(/\s+/g, ' ') || null
+        }
         // Slug: derive it from the name when there is none. A partial update that only
         // sends other fields keeps the stored slug, so public URLs never change by accident.
         const name = data.name ?? originalDoc?.name
@@ -59,6 +64,16 @@ export const Pets: CollectionConfig = {
     ],
     beforeChange: [
       async ({ data, operation, originalDoc }) => {
+        // Keep the display string in `location` in step with the structured fields,
+        // for example "Petaling Jaya, Selangor". A city that equals the state shows once.
+        if (data.city !== undefined || data.state !== undefined) {
+          const city = data.city !== undefined ? data.city : originalDoc?.city
+          const state = data.state !== undefined ? data.state : originalDoc?.state
+          const parts = [city, state].filter((p): p is string => Boolean(p))
+          const unique = parts.filter((p, i) => parts.findIndex((q) => q.toLowerCase() === p.toLowerCase()) === i)
+          if (unique.length) data.location = unique.join(', ')
+        }
+
         // Stamp the adoption date when a pet is marked adopted.
         const status = data.status ?? originalDoc?.status
         if (status === 'adopted') {
@@ -176,9 +191,31 @@ export const Pets: CollectionConfig = {
               ],
             },
             {
+              type: 'row',
+              fields: [
+                {
+                  name: 'city',
+                  type: 'text',
+                  maxLength: 60,
+                  index: true,
+                  admin: { description: 'Town or city where the pet is, for example "Petaling Jaya".' },
+                },
+                {
+                  name: 'state',
+                  type: 'text',
+                  maxLength: 60,
+                  index: true,
+                  admin: { description: 'State or region, for example "Selangor". Spell it the same way every time.' },
+                },
+              ],
+            },
+            {
               name: 'location',
               type: 'text',
-              admin: { description: 'City or area where the pet is, for example "Petaling Jaya, Selangor".' },
+              admin: {
+                description:
+                  'Shown to visitors. Built from city and state when those are set; type here only when you do not use them.',
+              },
             },
           ],
         },
