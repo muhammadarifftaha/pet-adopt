@@ -55,6 +55,14 @@ const samples = [
   { name: 'Luna', species: 'cat', breed: 'Persian mix', sex: 'female', ageGroup: 'senior', ageDescription: '9 years', size: 'medium', location: 'Subang Jaya, Selangor', featured: false, from: '#a78bfa', to: '#ec4899', about: 'Luna is a lap cat who wants a peaceful retirement home. Fully vaccinated and spayed.' },
 ] as const
 
+// Behaviour and health details for the samples, so the extra pet fields have something to show.
+const extras: Record<string, Partial<Omit<Pet, 'id' | 'createdAt' | 'updatedAt'>>> = {
+  Mochi: { temperament: ['playful', 'affectionate'], goodWith: ['kids', 'cats'], houseTrained: true, microchipped: true, urgent: true, color: 'Orange tabby' },
+  Biscuit: { temperament: ['energetic', 'affectionate'], goodWith: ['kids', 'dogs'], houseTrained: true, microchipped: true, color: 'Brown and white' },
+  Clover: { temperament: ['calm', 'shy'], goodWith: ['other-pets'], houseTrained: true, color: 'Grey' },
+  Luna: { temperament: ['calm', 'independent'], goodWith: ['cats'], houseTrained: true, microchipped: true, specialNeeds: true, healthNotes: 'Needs a soft diet and a yearly dental check.', color: 'Cream' },
+}
+
 async function seedPets(payload: Payload) {
   const sampleSlugs = samples.map((s) => slugify(s.name))
 
@@ -100,6 +108,7 @@ async function seedPets(payload: Payload) {
       neutered: sample.ageGroup !== 'baby',
       photos: [media.id],
       description: richText(sample.about),
+      ...extras[sample.name],
     }
     try {
       await payload.create({ collection: 'pets', data: pet })
