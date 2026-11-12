@@ -33,6 +33,22 @@ export const SIZES = [
   { label: 'Large', value: 'large' },
 ] as const
 
+export const TEMPERAMENTS = [
+  { label: 'Calm', value: 'calm' },
+  { label: 'Playful', value: 'playful' },
+  { label: 'Energetic', value: 'energetic' },
+  { label: 'Affectionate', value: 'affectionate' },
+  { label: 'Independent', value: 'independent' },
+  { label: 'Shy', value: 'shy' },
+] as const
+
+export const GOOD_WITH = [
+  { label: 'Children', value: 'kids' },
+  { label: 'Dogs', value: 'dogs' },
+  { label: 'Cats', value: 'cats' },
+  { label: 'Other pets', value: 'other-pets' },
+] as const
+
 export const SOCIAL_PLATFORMS = [
   { label: 'Instagram', value: 'instagram' },
   { label: 'Facebook', value: 'facebook' },

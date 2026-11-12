@@ -1,16 +1,18 @@
 import type { CollectionConfig } from 'payload'
 
 import { isOwner } from '../lib/access'
-import { AGE_GROUPS, SEXES, SIZES, SPECIES, STATUSES } from '../lib/options'
+import { validateWebUrl } from '../lib/links'
+import { AGE_GROUPS, GOOD_WITH, SEXES, SIZES, SPECIES, STATUSES, TEMPERAMENTS } from '../lib/options'
 import { safeRevalidate } from '../lib/revalidate'
 import { SLUG_PATTERN, slugify } from '../lib/slugify'
+import { normalizePhone } from '../lib/whatsapp'
 
 export const Pets: CollectionConfig = {
   slug: 'pets',
   labels: { singular: 'Pet', plural: 'Pets' },
   admin: {
     useAsTitle: 'name',
-    defaultColumns: ['name', 'species', 'status', 'location', 'updatedAt'],
+    defaultColumns: ['name', 'species', 'status', 'featured', 'location', 'updatedAt'],
     listSearchableFields: ['name', 'breed', 'location'],
   },
   access: {
@@ -80,7 +82,7 @@ export const Pets: CollectionConfig = {
     ],
   },
   fields: [
-    { name: 'name', type: 'text', required: true },
+    { name: 'name', type: 'text', required: true, maxLength: 60 },
     {
       name: 'slug',
       type: 'text',
@@ -109,51 +111,149 @@ export const Pets: CollectionConfig = {
       admin: { position: 'sidebar', description: 'Show in "featured" pet grids on pages.' },
     },
     {
+      name: 'urgent',
+      type: 'checkbox',
+      defaultValue: false,
+      admin: { position: 'sidebar', description: 'Needs a home soon. Pages can highlight urgent pets.' },
+    },
+    {
       name: 'adoptedAt',
       type: 'date',
       admin: { position: 'sidebar', readOnly: true, description: 'Set automatically when marked adopted.' },
     },
     {
-      type: 'row',
-      fields: [
-        { name: 'species', type: 'select', required: true, defaultValue: 'cat', index: true, options: [...SPECIES] },
-        { name: 'breed', type: 'text' },
-        { name: 'sex', type: 'select', defaultValue: 'unknown', options: [...SEXES] },
-      ],
-    },
-    {
-      type: 'row',
-      fields: [
-        { name: 'ageGroup', type: 'select', options: [...AGE_GROUPS] },
+      // Tabs only organise the admin form. They do not change where the data is stored.
+      type: 'tabs',
+      tabs: [
         {
-          name: 'ageDescription',
-          type: 'text',
-          admin: { description: 'For example "about 3 months" or "2 years".' },
+          label: 'Basics',
+          fields: [
+            {
+              type: 'row',
+              fields: [
+                { name: 'species', type: 'select', required: true, defaultValue: 'cat', index: true, options: [...SPECIES] },
+                { name: 'breed', type: 'text' },
+                { name: 'sex', type: 'select', defaultValue: 'unknown', options: [...SEXES] },
+              ],
+            },
+            {
+              type: 'row',
+              fields: [
+                { name: 'ageGroup', type: 'select', options: [...AGE_GROUPS] },
+                {
+                  name: 'ageDescription',
+                  type: 'text',
+                  maxLength: 40,
+                  admin: { description: 'For example "about 3 months" or "2 years".' },
+                },
+                { name: 'size', type: 'select', options: [...SIZES] },
+              ],
+            },
+            {
+              type: 'row',
+              fields: [
+                {
+                  name: 'birthDate',
+                  type: 'date',
+                  admin: {
+                    date: { pickerAppearance: 'dayOnly' },
+                    description: 'Optional. An approximate date is fine. Lets pages work out an up-to-date age.',
+                  },
+                },
+                { name: 'color', type: 'text', maxLength: 60, admin: { description: 'Coat colour or markings.' } },
+              ],
+            },
+            {
+              name: 'location',
+              type: 'text',
+              admin: { description: 'City or area where the pet is, for example "Petaling Jaya, Selangor".' },
+            },
+          ],
         },
-        { name: 'size', type: 'select', options: [...SIZES] },
+        {
+          label: 'Health and behaviour',
+          fields: [
+            {
+              type: 'row',
+              fields: [
+                { name: 'vaccinated', type: 'checkbox', defaultValue: false },
+                { name: 'neutered', type: 'checkbox', defaultValue: false, label: 'Neutered / spayed' },
+                { name: 'microchipped', type: 'checkbox', defaultValue: false },
+              ],
+            },
+            {
+              type: 'row',
+              fields: [
+                { name: 'houseTrained', type: 'checkbox', defaultValue: false },
+                { name: 'specialNeeds', type: 'checkbox', defaultValue: false },
+              ],
+            },
+            {
+              name: 'healthNotes',
+              type: 'textarea',
+              maxLength: 500,
+              admin: { description: 'Anything adopters should know: medication, conditions, care needs.' },
+            },
+            { name: 'temperament', type: 'select', hasMany: true, options: [...TEMPERAMENTS] },
+            {
+              name: 'goodWith',
+              type: 'select',
+              hasMany: true,
+              options: [...GOOD_WITH],
+              admin: { description: 'Who this pet is known to get along with.' },
+            },
+          ],
+        },
+        {
+          label: 'Photos and story',
+          fields: [
+            {
+              name: 'photos',
+              type: 'upload',
+              relationTo: 'media',
+              hasMany: true,
+              required: true,
+              minRows: 1,
+              maxRows: 10,
+              admin: { description: 'The first photo is used as the cover image.' },
+            },
+            { name: 'description', type: 'richText' },
+            {
+              name: 'videoUrl',
+              type: 'text',
+              validate: validateWebUrl,
+              admin: { description: 'Optional link to a video, starting with https://.' },
+            },
+          ],
+        },
+        {
+          label: 'Adoption',
+          fields: [
+            {
+              type: 'row',
+              fields: [
+                {
+                  name: 'adoptionFee',
+                  type: 'number',
+                  min: 0,
+                  admin: { description: 'In your local currency. Leave empty if there is no fixed fee.' },
+                },
+                { name: 'rescuedAt', type: 'date', admin: { date: { pickerAppearance: 'dayOnly' } } },
+              ],
+            },
+            {
+              name: 'contactWhatsApp',
+              type: 'text',
+              label: 'WhatsApp number for this pet',
+              validate: (value: string | null | undefined) =>
+                !value || normalizePhone(value) !== '' || 'Enter a valid number, for example +60 12-345 6789.',
+              admin: {
+                description: 'Optional. Use it when a foster looks after this pet. Leave empty to use the site number.',
+              },
+            },
+          ],
+        },
       ],
     },
-    {
-      name: 'location',
-      type: 'text',
-      admin: { description: 'City or area where the pet is, for example "Petaling Jaya, Selangor".' },
-    },
-    {
-      type: 'row',
-      fields: [
-        { name: 'vaccinated', type: 'checkbox', defaultValue: false },
-        { name: 'neutered', type: 'checkbox', defaultValue: false, label: 'Neutered / spayed' },
-      ],
-    },
-    {
-      name: 'photos',
-      type: 'upload',
-      relationTo: 'media',
-      hasMany: true,
-      required: true,
-      minRows: 1,
-      admin: { description: 'The first photo is used as the cover image.' },
-    },
-    { name: 'description', type: 'richText' },
   ],
 }

@@ -142,6 +142,10 @@ export interface Pet {
    */
   featured?: boolean | null;
   /**
+   * Needs a home soon. Pages can highlight urgent pets.
+   */
+  urgent?: boolean | null;
+  /**
    * Set automatically when marked adopted.
    */
   adoptedAt?: string | null;
@@ -155,11 +159,31 @@ export interface Pet {
   ageDescription?: string | null;
   size?: ('small' | 'medium' | 'large') | null;
   /**
+   * Optional. An approximate date is fine. Lets pages work out an up-to-date age.
+   */
+  birthDate?: string | null;
+  /**
+   * Coat colour or markings.
+   */
+  color?: string | null;
+  /**
    * City or area where the pet is, for example "Petaling Jaya, Selangor".
    */
   location?: string | null;
   vaccinated?: boolean | null;
   neutered?: boolean | null;
+  microchipped?: boolean | null;
+  houseTrained?: boolean | null;
+  specialNeeds?: boolean | null;
+  /**
+   * Anything adopters should know: medication, conditions, care needs.
+   */
+  healthNotes?: string | null;
+  temperament?: ('calm' | 'playful' | 'energetic' | 'affectionate' | 'independent' | 'shy')[] | null;
+  /**
+   * Who this pet is known to get along with.
+   */
+  goodWith?: ('kids' | 'dogs' | 'cats' | 'other-pets')[] | null;
   /**
    * The first photo is used as the cover image.
    */
@@ -179,6 +203,19 @@ export interface Pet {
     };
     [k: string]: unknown;
   } | null;
+  /**
+   * Optional link to a video, starting with https://.
+   */
+  videoUrl?: string | null;
+  /**
+   * In your local currency. Leave empty if there is no fixed fee.
+   */
+  adoptionFee?: number | null;
+  rescuedAt?: string | null;
+  /**
+   * Optional. Use it when a foster looks after this pet. Leave empty to use the site number.
+   */
+  contactWhatsApp?: string | null;
   updatedAt: string;
   createdAt: string;
 }
@@ -368,6 +405,7 @@ export interface PetsSelect<T extends boolean = true> {
   slug?: T;
   status?: T;
   featured?: T;
+  urgent?: T;
   adoptedAt?: T;
   species?: T;
   breed?: T;
@@ -375,11 +413,23 @@ export interface PetsSelect<T extends boolean = true> {
   ageGroup?: T;
   ageDescription?: T;
   size?: T;
+  birthDate?: T;
+  color?: T;
   location?: T;
   vaccinated?: T;
   neutered?: T;
+  microchipped?: T;
+  houseTrained?: T;
+  specialNeeds?: T;
+  healthNotes?: T;
+  temperament?: T;
+  goodWith?: T;
   photos?: T;
   description?: T;
+  videoUrl?: T;
+  adoptionFee?: T;
+  rescuedAt?: T;
+  contactWhatsApp?: T;
   updatedAt?: T;
   createdAt?: T;
 }
