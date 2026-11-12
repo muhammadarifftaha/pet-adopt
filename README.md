@@ -81,6 +81,32 @@ The first account is always an admin, and new accounts default to editor. The la
 
 **Admin → Site settings** holds the site name, logo, brand colour, WhatsApp number and message, address, opening hours, social links and header menu. Numbers starting with `0` get the country code from `NEXT_PUBLIC_DEFAULT_COUNTRY_CODE` (default `60`, Malaysia). In the WhatsApp message, `{pet}` is replaced with the pet's name.
 
+### Themes
+
+**Admin → Site settings → Theme** sets the look of the whole site. Only admins can change it.
+
+- **Theme:** pick a preset. Each one bundles light and dark colours, fonts, corner radius, button shape, shadow style, spacing and text size.
+
+  | Preset | Feel |
+  | --- | --- |
+  | Sunrise | Warm orange and familiar. The original look. |
+  | Meadow | Fresh green, rounded Nunito type, soft shadows. |
+  | Ocean | Calm blue, DM Sans, tighter corners. |
+  | Heritage | Deep red, Lora serif headings, square corners, generous space. |
+  | Studio | Black and white, Playfair headings, bold hard-edged shadows. |
+
+- **Light and dark:** visitors get a light/dark button in the header. It follows their device until they choose, and their choice is remembered in their browser only. Untick *Let visitors switch between light and dark* to keep the site light only.
+- **Brand colour (optional)**, in the Brand tab, replaces the theme's colour. Pale colours are adjusted automatically so links and buttons stay readable, and the colour is brightened in dark mode if it would disappear.
+- **Customise this theme:** tick it to adjust fonts, corners, button shape, shadows, spacing, text size and the light and dark colours (brand, page background, cards, text, highlight) on top of the preset. Anything left empty follows the preset. Colours that would make text hard to read are rejected when you save.
+
+Fonts are bundled with the site (served from your own domain, not from Google), so there is no external request and the Content-Security-Policy stays strict.
+
+#### Changing or adding a theme (developers)
+
+Everything lives in [`src/lib/theme.ts`](src/lib/theme.ts). A preset is four base colours per mode plus its shape settings; every other colour (muted text, borders, highlights, badges, link colour) is derived from those, so a new preset is one entry in `PRESETS`. The result is written into the page as CSS variables by `ThemeStyle`, and [`styles.css`](src/app/(frontend)/styles.css) only reads those variables, so components never hard-code colours, radii or shadows. Use the variables in new CSS (`var(--surface)`, `var(--radius)`, `var(--shadow-card)`, `var(--primary-text)` for text in the brand colour, and so on).
+
+To add a font: `pnpm add @fontsource-variable/<name>`, import its `index.css` in [`fonts.ts`](src/app/(frontend)/fonts.ts), and add an entry to `FONTS`. After changing the preset list or the settings fields, run `pnpm generate:types` and `pnpm migrate:create <name>`.
+
 ## Adding your own block
 
 Blocks live in [`src/puck/config.tsx`](src/puck/config.tsx). Add a props type, then an entry under `components` with `fields`, `defaultProps` and a `render` function, and list it in a `categories` group so it shows up in the editor.
@@ -129,7 +155,7 @@ Pages are cached and refresh immediately when you publish; they also revalidate 
 
 ## Known limitations
 
-- The page builder preview renders inside the page (not an iframe), so it uses the real site styles but does not emulate mobile breakpoints. Check mobile on the live page.
+- The page builder preview renders inside the page (not an iframe), so it uses the real site styles and theme (always in light mode) but does not emulate mobile breakpoints. Check mobile and dark mode on the live page.
 - Pages are single-level (`/about`, not `/about/team`).
 - The slug `home` is the homepage, and `admin`, `api`, `edit`, `health` and `pets` are reserved.
 - Photos cannot be SVG. Convert them to PNG or WebP first.
