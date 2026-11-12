@@ -26,7 +26,7 @@ export async function ensureOwner(payload: Payload): Promise<void> {
     await payload.create({ collection: 'users', data: { email, password } })
     payload.logger.info(`Created owner account ${email}`)
   } catch (error) {
-    // Most likely the schema is not there yet (run `npm run migrate` first on Postgres).
+    // Most likely the schema is not there yet (run `pnpm migrate` first on Postgres).
     payload.logger.error(
       { err: error },
       'Could not create the owner account from SEED_ADMIN_EMAIL. Has the database schema been created?',

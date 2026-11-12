@@ -73,8 +73,8 @@ if (process.env.S3_BUCKET) {
 }
 
 // Migrations are per database. SQLite (local development) pushes its schema automatically.
-// PostgreSQL never does: create migrations with `npm run migrate:create` and apply them
-// with `npm run migrate` before starting the server.
+// PostgreSQL never does: create migrations with `pnpm migrate:create` and apply them
+// with `pnpm migrate` before starting the server.
 const migrationDir = path.resolve(dirname, 'migrations')
 
 export default buildConfig({

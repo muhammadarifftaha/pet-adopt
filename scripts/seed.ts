@@ -1,6 +1,6 @@
 /**
  * Adds sample content so a fresh install has something to look at.
- *   npm run seed
+ *   pnpm seed
  *
  * - The first owner account comes from SEED_ADMIN_EMAIL / SEED_ADMIN_PASSWORD (in .env). The
  *   server creates it on startup, and so does this script, when no user exists.

@@ -14,15 +14,15 @@ Built with Next.js, Payload CMS and Puck. All MIT-licensed.
 
 ## Quick start
 
-Requires Node.js 22.23.4 or newer (or 24.22.1+).
+Requires Node.js 22.23.4 or newer (or 24.22.1+) and [pnpm](https://pnpm.io). The project is installed and run with pnpm only; there is no npm lockfile.
 
 ```bash
 git clone <your-fork-url> pet-adopt
 cd pet-adopt
 cp .env.example .env
-npm install
-npm run seed      # optional: sample pets and an About page
-npm run dev
+pnpm install
+pnpm seed      # optional: sample pets and an About page
+pnpm dev
 ```
 
 Open <http://localhost:3000>.
@@ -81,16 +81,16 @@ Keep `render` functions free of hooks and browser-only code: the same components
 1. **Use PostgreSQL.** Set `DATABASE_URL=postgres://...` (Neon, Supabase, your own server). `docker compose up -d` starts a local one for testing; it only listens on `127.0.0.1`, and you can change its password with `POSTGRES_PASSWORD`. SQLite needs a persistent disk, so it only suits a single VPS. On a pooled connection (Neon, Supabase), use the pooler URL and set `DB_POOL_MAX` low (1 to 3) on serverless hosts.
 2. **Run migrations.** With PostgreSQL the schema is never changed automatically; SQLite pushes its own schema in development.
    ```bash
-   npm run migrate:create   # after changing collections; commit the generated files in src/migrations
-   npm run migrate          # on every deploy, before starting the app
+   pnpm migrate:create   # after changing collections; commit the generated files in src/migrations
+   pnpm migrate          # on every deploy, before starting the app
    ```
-   Migrations are per database, so they are generated and applied against PostgreSQL only. The initial one is already committed in `src/migrations`, so a new database only needs `npm run migrate`. Whenever you change a collection or global, run `npm run migrate:create -- <name>` against a Postgres database and commit the new files, or the production schema will fall behind your code.
+   Migrations are per database, so they are generated and applied against PostgreSQL only. The initial one is already committed in `src/migrations`, so a new database only needs `pnpm migrate`. Whenever you change a collection or global, run `pnpm migrate:create <name>` against a Postgres database and commit the new files, or the production schema will fall behind your code.
 3. **Set the required variables.** In production the server refuses to start without them:
    - `PAYLOAD_SECRET`: at least 32 random characters (`openssl rand -hex 32`).
    - `NEXT_PUBLIC_SERVER_URL`: your public URL, such as `https://adopt.example.com`. It is also the only origin allowed to make signed-in requests, so use the exact address visitors and owners use.
    - `SEED_ADMIN_EMAIL` and `SEED_ADMIN_PASSWORD`: so the first owner exists before anyone can reach `/admin` (see above).
 4. **Store uploads somewhere durable.** Without configuration, uploads are written to `./media`, which suits a VPS or a Docker volume. On serverless platforms (Vercel and similar) set the `S3_*` variables for S3, Cloudflare R2 or MinIO. If `S3_BUCKET` is set, the access key and secret are required too, and `S3_REGION` must be a real region for AWS S3 (`auto` is for R2).
-5. `npm run build && npm start`
+5. `pnpm build && pnpm start`
 
 Pages are cached and refresh immediately when you publish; they also revalidate every 60 seconds.
 
@@ -108,13 +108,13 @@ Pages are cached and refresh immediately when you publish; they also revalidate 
 
 | Command | Does |
 | --- | --- |
-| `npm run dev` | Development server |
-| `npm run build` / `npm start` | Production build and server |
-| `npm run seed` | Sample content. Safe to re-run, leaves a real site alone, and refuses to run in production without `SEED_FORCE=1`. The owner account comes from `SEED_ADMIN_*` on startup |
-| `npm run migrate:create` / `npm run migrate` | Create and apply PostgreSQL migrations |
-| `npm run typecheck` / `npm run lint` | Static checks |
-| `npm run generate:types` | Regenerate `src/payload-types.ts` after changing collections |
-| `npm run generate:importmap` | Regenerate the admin import map after adding admin components |
+| `pnpm dev` | Development server |
+| `pnpm build` / `pnpm start` | Production build and server |
+| `pnpm seed` | Sample content. Safe to re-run, leaves a real site alone, and refuses to run in production without `SEED_FORCE=1`. The owner account comes from `SEED_ADMIN_*` on startup |
+| `pnpm migrate:create` / `pnpm migrate` | Create and apply PostgreSQL migrations |
+| `pnpm typecheck` / `pnpm lint` | Static checks |
+| `pnpm generate:types` | Regenerate `src/payload-types.ts` after changing collections |
+| `pnpm generate:importmap` | Regenerate the admin import map after adding admin components |
 
 ## Known limitations
 
@@ -125,7 +125,7 @@ Pages are cached and refresh immediately when you publish; they also revalidate 
 
 ## Contributing
 
-Issues and pull requests are welcome. Please run `npm run typecheck` and `npm run lint` first.
+Issues and pull requests are welcome. Please run `pnpm typecheck` and `pnpm lint` first.
 
 ## License
 
