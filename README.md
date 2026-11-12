@@ -66,6 +66,17 @@ In **Admin → Pets**, add a name, photos and details. The form is split into ta
 
 Built-in blocks: Hero banner, Text, Image gallery, Pet grid (live data, filterable), Call to action, Adopter stories, FAQ, Contact and map, Social links.
 
+### Users and roles
+
+**Admin → Users** lists the people who can sign in. Each has a role:
+
+| Role | Can do |
+| --- | --- |
+| **Admin** | Everything: pets, pages, media, site settings, and adding or removing users and changing roles. |
+| **Editor** | Pets, pages (including publishing) and media. Cannot change site settings or other accounts, can change only their own name and password, and cannot change their own role. |
+
+The first account is always an admin, and new accounts default to editor. The last admin cannot be deleted or demoted, so someone can always manage users. Accounts that existed before roles were added became admins.
+
 ### Site settings
 
 **Admin → Site settings** holds the site name, logo, brand colour, WhatsApp number and message, address, opening hours, social links and header menu. Numbers starting with `0` get the country code from `NEXT_PUBLIC_DEFAULT_COUNTRY_CODE` (default `60`, Malaysia). In the WhatsApp message, `{pet}` is replaced with the pet's name.
@@ -96,11 +107,11 @@ Pages are cached and refresh immediately when you publish; they also revalidate 
 
 ### Security defaults
 
-- Visitors can only read published pages and pet and media data. Everything else needs an owner login, with a five-attempt lockout and two-hour sessions. Session cookies are HTTPS-only in production.
+- Visitors can only read published pages and pet and media data. Everything else needs a login, with a five-attempt lockout and two-hour sessions. Editors cannot touch users or site settings (see Users and roles). Session cookies are HTTPS-only in production.
 - GraphQL is turned off. REST requests are limited to a nesting depth of 3.
 - Uploads must be JPEG, PNG, WebP, AVIF or GIF, up to 10 MB. SVG is blocked because it can carry script.
 - Social and menu links are checked when saved, and rendered through a safe-link filter that blocks `javascript:` and `data:` URLs.
-- The last owner account cannot be deleted, and an image still used by a pet or page cannot be deleted.
+- The last admin account cannot be deleted or demoted, and an image still used by a pet or page cannot be deleted.
 - There is no per-IP rate limiting. Put one at your reverse proxy or CDN, especially for the login and password-reset endpoints.
 - Security headers are set in `next.config.ts`: `nosniff`, no framing by other sites, a strict referrer policy and a Content-Security-Policy. The policy only allows scripts, styles, images and connections from your own site, plus a Google Maps embed, and blocks plugins and eval in production. Inline scripts stay allowed because Next.js and Payload need them and a nonce would end page caching. If you add an embed, analytics script or external image, extend the policy in `next.config.ts`; set `CSP_REPORT_ONLY=1` first to see what it would block without breaking anything.
 
