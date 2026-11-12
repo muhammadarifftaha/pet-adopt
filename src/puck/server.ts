@@ -1,4 +1,4 @@
-import { getSettings, queryPets, toPetCard } from '@/lib/queries'
+import { getSettings, queryPetCards } from '@/lib/queries'
 import type { SiteSetting } from '@/payload-types'
 
 import type { PuckSiteMetadata } from './types'
@@ -19,6 +19,6 @@ export async function buildSiteMetadata(): Promise<PuckSiteMetadata> {
   const settings = await getSettings()
   return {
     site: toSiteMeta(settings),
-    fetchPets: async (filters) => (await queryPets(filters)).docs.map(toPetCard),
+    fetchPets: (filters) => queryPetCards(filters),
   }
 }

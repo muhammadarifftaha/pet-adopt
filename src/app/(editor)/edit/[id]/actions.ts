@@ -5,7 +5,7 @@ import { headers } from 'next/headers'
 
 import { safeRevalidate } from '@/lib/revalidate'
 import { getPayloadClient } from '@/lib/payload'
-import { queryPets, toPetCard, type PetCardData, type PetFilters } from '@/lib/queries'
+import { queryPetCards, type PetCardData, type PetFilters } from '@/lib/queries'
 import { isPuckData, stripTransient } from '@/puck/data'
 
 type Result = { ok: true; message: string } | { ok: false; message: string }
@@ -48,11 +48,10 @@ export async function publishAction(id: number, data: Data): Promise<Result> {
 
 /** Live pets for the editor's pet grid preview. Public data, but inputs are clamped. */
 export async function fetchPetsAction(filters: PetFilters): Promise<PetCardData[]> {
-  const result = await queryPets({
+  return queryPetCards({
     species: typeof filters.species === 'string' ? filters.species.slice(0, 20) : undefined,
     status: typeof filters.status === 'string' ? filters.status.slice(0, 20) : undefined,
     featuredOnly: Boolean(filters.featuredOnly),
     limit: Math.min(Math.max(Number(filters.limit) || 8, 1), 24),
   })
-  return result.docs.map(toPetCard)
 }

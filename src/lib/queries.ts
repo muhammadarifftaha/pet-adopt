@@ -54,7 +54,31 @@ export function mediaOf(value: number | Media | null | undefined): { url: string
   return { url: value.url, alt: value.alt || '' }
 }
 
-export function toPetCard(pet: Pet): PetCardData {
+/** The Pet fields a card needs. Queries select only these (see PET_CARD_SELECT). */
+export type PetCardSource = Pick<
+  Pet,
+  'id' | 'slug' | 'name' | 'species' | 'status' | 'sex' | 'ageDescription' | 'location' | 'photos'
+>
+
+const PET_CARD_SELECT = {
+  name: true,
+  slug: true,
+  species: true,
+  status: true,
+  sex: true,
+  ageDescription: true,
+  location: true,
+  photos: true,
+} as const
+
+// Payload builds `url` from `filename` (and `updatedAt` for cache busting) after reading,
+// so both must be selected along with `alt` or the url comes back null.
+const PET_CARD_POPULATE = { media: { url: true, alt: true, filename: true, updatedAt: true } } as const
+
+// Newest first; the id breaks ties so pages never repeat or skip pets created in the same instant.
+const PET_SORT = ['-createdAt', '-id']
+
+export function toPetCard(pet: PetCardSource): PetCardData {
   return {
     id: pet.id,
     slug: pet.slug || String(pet.id),
@@ -87,7 +111,10 @@ function buildWhere(filters: PetFilters): Where {
   if (filters.sex) and.push({ sex: { equals: filters.sex } })
   if (filters.ageGroup) and.push({ ageGroup: { equals: filters.ageGroup } })
   if (filters.size) and.push({ size: { equals: filters.size } })
-  if (filters.location) and.push({ location: { like: filters.location } })
+  // "contains" is a plain substring match on both SQLite and Postgres. Strip the LIKE wildcards
+  // so visitors cannot turn the search into a pattern.
+  const location = filters.location?.replace(/[%_\\]/g, '').trim()
+  if (location) and.push({ location: { contains: location } })
   if (filters.featuredOnly) and.push({ featured: { equals: true } })
   return and.length ? { and } : {}
 }
@@ -96,17 +123,21 @@ export async function queryPets(filters: PetFilters = {}) {
   return safely(
     async () => {
       const payload = await getPayloadClient()
+      // Cards only need a few fields and the cover photo's url and alt, so don't load the
+      // rich-text description or every image size.
       return await payload.find({
         collection: 'pets',
         where: buildWhere(filters),
         depth: 1,
+        select: PET_CARD_SELECT,
+        populate: PET_CARD_POPULATE,
         limit: filters.limit ?? PAGE_SIZE,
         page: filters.page ?? 1,
-        sort: '-createdAt',
+        sort: PET_SORT,
       })
     },
     {
-      docs: [] as Pet[],
+      docs: [] as PetCardSource[],
       totalDocs: 0,
       totalPages: 1,
       page: 1,
@@ -116,6 +147,24 @@ export async function queryPets(filters: PetFilters = {}) {
       pagingCounter: 1,
     },
   )
+}
+
+/** Pet cards for page-builder grids. No paging, so it skips the extra COUNT query. */
+export async function queryPetCards(filters: PetFilters = {}): Promise<PetCardData[]> {
+  return safely(async () => {
+    const payload = await getPayloadClient()
+    const result = await payload.find({
+      collection: 'pets',
+      where: buildWhere(filters),
+      depth: 1,
+      select: PET_CARD_SELECT,
+      populate: PET_CARD_POPULATE,
+      limit: filters.limit ?? PAGE_SIZE,
+      pagination: false,
+      sort: PET_SORT,
+    })
+    return result.docs.map(toPetCard)
+  }, [] as PetCardData[])
 }
 
 export async function getPetBySlug(slug: string): Promise<Pet | null> {
