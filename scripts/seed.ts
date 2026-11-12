@@ -57,10 +57,10 @@ const samples = [
 
 // Behaviour and health details for the samples, so the extra pet fields have something to show.
 const extras: Record<string, Partial<Omit<Pet, 'id' | 'createdAt' | 'updatedAt'>>> = {
-  Mochi: { temperament: ['playful', 'affectionate'], goodWith: ['kids', 'cats'], houseTrained: true, microchipped: true, urgent: true, color: 'Orange tabby' },
-  Biscuit: { temperament: ['energetic', 'affectionate'], goodWith: ['kids', 'dogs'], houseTrained: true, microchipped: true, color: 'Brown and white' },
-  Clover: { temperament: ['calm', 'shy'], goodWith: ['other-pets'], houseTrained: true, color: 'Grey' },
-  Luna: { temperament: ['calm', 'independent'], goodWith: ['cats'], houseTrained: true, microchipped: true, specialNeeds: true, healthNotes: 'Needs a soft diet and a yearly dental check.', color: 'Cream' },
+  Mochi: { city: 'Petaling Jaya', state: 'Selangor', temperament: ['playful', 'affectionate'], goodWith: ['kids', 'cats'], houseTrained: true, microchipped: true, urgent: true, color: 'Orange tabby' },
+  Biscuit: { city: 'Kuala Lumpur', state: 'Kuala Lumpur', temperament: ['energetic', 'affectionate'], goodWith: ['kids', 'dogs'], houseTrained: true, microchipped: true, color: 'Brown and white' },
+  Clover: { city: 'Shah Alam', state: 'Selangor', temperament: ['calm', 'shy'], goodWith: ['other-pets'], houseTrained: true, color: 'Grey' },
+  Luna: { city: 'Subang Jaya', state: 'Selangor', temperament: ['calm', 'independent'], goodWith: ['cats'], houseTrained: true, microchipped: true, specialNeeds: true, healthNotes: 'Needs a soft diet and a yearly dental check.', color: 'Cream' },
 }
 
 async function seedPets(payload: Payload) {
