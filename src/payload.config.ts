@@ -80,6 +80,9 @@ const migrationDir = path.resolve(dirname, 'migrations')
 export default buildConfig({
   admin: {
     user: Users.slug,
+    // Payload loads profile pictures from gravatar.com by default. That sends a hash of the
+    // owner's email to a third party and needs a hole in the CSP, so use the built-in avatar.
+    avatar: 'default',
     importMap: {
       baseDir: path.resolve(dirname),
     },
