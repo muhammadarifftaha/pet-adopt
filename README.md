@@ -84,7 +84,7 @@ Keep `render` functions free of hooks and browser-only code: the same components
    npm run migrate:create   # after changing collections; commit the generated files in src/migrations
    npm run migrate          # on every deploy, before starting the app
    ```
-   Migrations are per database, so they are generated and applied against PostgreSQL only.
+   Migrations are per database, so they are generated and applied against PostgreSQL only. The initial one is already committed in `src/migrations`, so a new database only needs `npm run migrate`. Whenever you change a collection or global, run `npm run migrate:create -- <name>` against a Postgres database and commit the new files, or the production schema will fall behind your code.
 3. **Set the required variables.** In production the server refuses to start without them:
    - `PAYLOAD_SECRET`: at least 32 random characters (`openssl rand -hex 32`).
    - `NEXT_PUBLIC_SERVER_URL`: your public URL, such as `https://adopt.example.com`. It is also the only origin allowed to make signed-in requests, so use the exact address visitors and owners use.

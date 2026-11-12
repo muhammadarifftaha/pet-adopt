@@ -46,13 +46,13 @@ Three read-only reviews (security, model design, database) were run, then these 
 - **Pages:** `drafts.validate: true`, `puckData` validated with `isPuckData`, transient props stripped in `beforeChange`.
 - **Links and settings:** `safeHref` rejects `//host` and `/\host`; social URLs and menu links are validated and rendered through `safeHref`; the WhatsApp number is validated; `(0)` trunk prefixes are dropped.
 - **Queries and indexes:** `pets` has indexes on `status`, `species`, `featured` and a compound `status, createdAt` (plus Payload's own `createdAt`); the duplicate `index: true` next to `unique: true` slugs is gone. Catalog and grid queries `select` only the card fields, sort `['-createdAt', '-id']`, and `populate` media with `url, alt, filename, updatedAt`: Payload builds `url` from `filename`, so leaving `filename` out makes every image url `null`. `queryPetCards` (no paging, no COUNT) feeds the Puck grid. The location filter uses `contains` with LIKE wildcards stripped.
+- **Postgres migration:** `src/migrations/20261112_051637_initial.*` was generated against the compose Postgres and checked: `npm run migrate` on an empty database, `migrate:down` (drops everything) and `migrate` again all work; the seed and the catalog queries pass on Postgres. `npm run migrate:create -- <name>` is needed after every model change, and the generated `.ts` files trigger ESLint warnings (unused `payload`/`req`) that the config-protection hook would not let me ignore in `eslint.config.mjs`. The compose database `pet_adopt` was migrated and seeded with the samples (no owner); `.env` still points at SQLite.
 - **Seed** (`scripts/seed.ts`): each step checks before it writes, so re-running is safe and finishes a partial run. It adds no pets if any non-sample pet exists, only fills site settings while they are still the defaults, skips an existing `about` page, deletes a sample's picture if its pet fails to save, and refuses to run when `NODE_ENV=production` unless `SEED_FORCE=1`.
 - **Ops:** security headers in `next.config.ts`, Postgres bound to `127.0.0.1` in `docker-compose.yml`, `migrate` and `migrate:create` scripts, seed renders PNG placeholders instead of SVG.
 
 ## Suggested next steps
 
 - [ ] Browser-test the editor as listed above and fix whatever breaks. The user plans to build the UI elements themself.
-- [ ] Postgres path: start `docker-compose.yml`, run `npm run migrate:create`, commit `src/migrations`, and verify `npm run migrate` on an empty DB. Not done: it needs Postgres running.
 - [ ] Model improvements from the review: `birthDate`, adoption fee, temperament, good-with, health notes, an unlisted/draft state, structured city and state, pet SEO fields, field tabs, a roles field on `Users`.
 - [ ] Add a Content-Security-Policy header (needs browser testing with the Payload admin and Next inline scripts).
 - [ ] Delete the stray `.env.example.bak` (identical to the old `.env.example`).
