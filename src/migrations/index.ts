@@ -4,6 +4,7 @@ import * as migration_20261112_053400_add_pet_unlisted from './20261112_053400_a
 import * as migration_20261112_054707_add_pet_seo from './20261112_054707_add_pet_seo';
 import * as migration_20261112_055021_add_pet_city_state from './20261112_055021_add_pet_city_state';
 import * as migration_20261112_055352_add_user_roles from './20261112_055352_add_user_roles';
+import * as migration_20261112_061303_add_site_theme from './20261112_061303_add_site_theme';
 
 export const migrations = [
   {
@@ -34,6 +35,11 @@ export const migrations = [
   {
     up: migration_20261112_055352_add_user_roles.up,
     down: migration_20261112_055352_add_user_roles.down,
-    name: '20261112_055352_add_user_roles'
+    name: '20261112_055352_add_user_roles',
+  },
+  {
+    up: migration_20261112_061303_add_site_theme.up,
+    down: migration_20261112_061303_add_site_theme.down,
+    name: '20261112_061303_add_site_theme'
   },
 ];
