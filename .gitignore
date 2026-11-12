@@ -28,3 +28,6 @@ next-env.d.ts
 
 # local Claude Code settings and preview config
 .claude/
+
+# personal planning notes
+COMPONENTS.md
