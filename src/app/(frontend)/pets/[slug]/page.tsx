@@ -30,6 +30,8 @@ export async function generateMetadata({ params }: Args): Promise<Metadata> {
     title,
     description: summary,
     openGraph: { title, description: summary, images: cover ? [cover.url] : undefined },
+    // Unlisted pets are for people with the link, not for search engines.
+    robots: pet.unlisted ? { index: false, follow: false } : undefined,
   }
 }
 

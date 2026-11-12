@@ -142,6 +142,10 @@ export interface Pet {
    */
   featured?: boolean | null;
   /**
+   * Hide from the catalog, pet grids and search engines. Anyone with the direct link can still open the page.
+   */
+  unlisted?: boolean | null;
+  /**
    * Needs a home soon. Pages can highlight urgent pets.
    */
   urgent?: boolean | null;
@@ -405,6 +409,7 @@ export interface PetsSelect<T extends boolean = true> {
   slug?: T;
   status?: T;
   featured?: T;
+  unlisted?: T;
   urgent?: T;
   adoptedAt?: T;
   species?: T;

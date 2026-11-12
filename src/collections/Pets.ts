@@ -16,7 +16,9 @@ export const Pets: CollectionConfig = {
     listSearchableFields: ['name', 'breed', 'location'],
   },
   access: {
-    read: () => true,
+    // Visitors never get unlisted pets from the API. Owners see everything. (The public pet page
+    // opens unlisted pets by direct link through the Local API, which does not use this rule.)
+    read: ({ req }) => (req.user ? true : { unlisted: { not_equals: true } }),
     create: isOwner,
     update: isOwner,
     delete: isOwner,
@@ -109,6 +111,16 @@ export const Pets: CollectionConfig = {
       defaultValue: false,
       index: true,
       admin: { position: 'sidebar', description: 'Show in "featured" pet grids on pages.' },
+    },
+    {
+      name: 'unlisted',
+      type: 'checkbox',
+      defaultValue: false,
+      admin: {
+        position: 'sidebar',
+        description:
+          'Hide from the catalog, pet grids and search engines. Anyone with the direct link can still open the page.',
+      },
     },
     {
       name: 'urgent',

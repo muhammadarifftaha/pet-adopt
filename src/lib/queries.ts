@@ -105,7 +105,8 @@ export type PetFilters = {
 }
 
 function buildWhere(filters: PetFilters): Where {
-  const and: Where[] = []
+  // Unlisted pets are reachable by link only, so they never show up in listings.
+  const and: Where[] = [{ unlisted: { not_equals: true } }]
   if (filters.species) and.push({ species: { equals: filters.species } })
   if (filters.status) and.push({ status: { equals: filters.status } })
   if (filters.sex) and.push({ sex: { equals: filters.sex } })
@@ -116,7 +117,7 @@ function buildWhere(filters: PetFilters): Where {
   const location = filters.location?.replace(/[%_\\]/g, '').trim()
   if (location) and.push({ location: { contains: location } })
   if (filters.featuredOnly) and.push({ featured: { equals: true } })
-  return and.length ? { and } : {}
+  return { and }
 }
 
 export async function queryPets(filters: PetFilters = {}) {
