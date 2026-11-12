@@ -1,6 +1,6 @@
 import type { GlobalConfig } from 'payload'
 
-import { isOwner } from '../lib/access'
+import { isAdmin } from '../lib/access'
 import { validateLink, validateWebUrl } from '../lib/links'
 import { SOCIAL_PLATFORMS } from '../lib/options'
 import { safeRevalidate } from '../lib/revalidate'
@@ -13,7 +13,8 @@ export const SiteSettings: GlobalConfig = {
   label: 'Site settings',
   access: {
     read: () => true,
-    update: isOwner,
+    // Site-wide settings (WhatsApp number, menu, brand) are for admins only.
+    update: isAdmin,
   },
   hooks: {
     afterChange: [

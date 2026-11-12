@@ -23,7 +23,7 @@ export async function ensureOwner(payload: Payload): Promise<void> {
   try {
     const { totalDocs } = await payload.count({ collection: 'users' })
     if (totalDocs > 0) return
-    await payload.create({ collection: 'users', data: { email, password } })
+    await payload.create({ collection: 'users', data: { email, password, role: 'admin' } })
     payload.logger.info(`Created owner account ${email}`)
   } catch (error) {
     // Most likely the schema is not there yet (run `pnpm migrate` first on Postgres).

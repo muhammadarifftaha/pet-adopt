@@ -49,6 +49,13 @@ export const GOOD_WITH = [
   { label: 'Other pets', value: 'other-pets' },
 ] as const
 
+// Roles for the people who sign in. Admins also manage users and site settings; editors manage
+// pets, pages and media.
+export const ROLES = [
+  { label: 'Admin', value: 'admin' },
+  { label: 'Editor', value: 'editor' },
+] as const
+
 export const SOCIAL_PLATFORMS = [
   { label: 'Instagram', value: 'instagram' },
   { label: 'Facebook', value: 'facebook' },
