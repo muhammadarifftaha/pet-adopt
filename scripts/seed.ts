@@ -1,15 +1,22 @@
 /**
  * Adds sample content so a fresh install has something to look at.
  *   npm run seed
- * The first owner account comes from SEED_ADMIN_EMAIL / SEED_ADMIN_PASSWORD (in .env or the
- * command line). The server creates it on startup, and so does this script, when no user exists.
- * Safe to run twice: it does nothing if pets already exist.
+ *
+ * - The first owner account comes from SEED_ADMIN_EMAIL / SEED_ADMIN_PASSWORD (in .env). The
+ *   server creates it on startup, and so does this script, when no user exists.
+ * - Every step checks first, so the script is safe to run again and finishes a partial run.
+ * - It never touches a real site: if any pet other than the samples exists, no pets are added,
+ *   and site settings are only filled in while they are still the defaults.
+ * - It refuses to run in production unless SEED_FORCE=1, so demo data and the placeholder
+ *   WhatsApp number cannot end up on a live site by accident.
  */
 import { getPayload } from 'payload'
+import type { Payload } from 'payload'
 import sharp from 'sharp'
 
 import config from '../src/payload.config'
 import type { Pet } from '../src/payload-types'
+import { slugify } from '../src/lib/slugify'
 
 const placeholder = (label: string, from: string, to: string) =>
   Buffer.from(
@@ -48,19 +55,28 @@ const samples = [
   { name: 'Luna', species: 'cat', breed: 'Persian mix', sex: 'female', ageGroup: 'senior', ageDescription: '9 years', size: 'medium', location: 'Subang Jaya, Selangor', featured: false, from: '#a78bfa', to: '#ec4899', about: 'Luna is a lap cat who wants a peaceful retirement home. Fully vaccinated and spayed.' },
 ] as const
 
-async function main() {
-  const payload = await getPayload({ config })
+async function seedPets(payload: Payload) {
+  const sampleSlugs = samples.map((s) => slugify(s.name))
 
-  // The owner account from SEED_ADMIN_EMAIL / SEED_ADMIN_PASSWORD is created by
-  // `onInit` in payload.config.ts (src/lib/ensureOwner.ts), which getPayload() just ran.
-
-  const { totalDocs } = await payload.count({ collection: 'pets' })
-  if (totalDocs > 0) {
-    payload.logger.info('Pets already exist, skipping sample content.')
-    process.exit(0)
+  // Any pet that is not one of our samples means this is a real site: leave its pets alone.
+  const others = await payload.count({ collection: 'pets', where: { slug: { not_in: sampleSlugs } } })
+  if (others.totalDocs > 0) {
+    payload.logger.info('Real pets exist, skipping sample pets.')
+    return
   }
 
+  const existing = await payload.find({
+    collection: 'pets',
+    where: { slug: { in: sampleSlugs } },
+    limit: samples.length,
+    depth: 0,
+    select: { slug: true },
+  })
+  const have = new Set(existing.docs.map((d) => d.slug))
+
   for (const sample of samples) {
+    if (have.has(slugify(sample.name))) continue
+
     // Uploads must be raster images (SVG is blocked), so render the placeholder to PNG.
     const buffer = await sharp(placeholder(sample.name, sample.from, sample.to)).png().toBuffer()
     const media = await payload.create({
@@ -68,23 +84,40 @@ async function main() {
       data: { alt: `Placeholder picture for ${sample.name}` },
       file: { data: buffer, mimetype: 'image/png', name: `${sample.name.toLowerCase()}.png`, size: buffer.length },
     })
+
     const pet: Omit<Pet, 'id' | 'createdAt' | 'updatedAt'> = {
-        name: sample.name,
-        status: 'available',
-        species: sample.species,
-        breed: sample.breed,
-        sex: sample.sex,
-        ageGroup: sample.ageGroup,
-        ageDescription: sample.ageDescription,
-        size: sample.size,
-        location: sample.location,
-        featured: sample.featured,
-        vaccinated: true,
-        neutered: sample.ageGroup !== 'baby',
-        photos: [media.id],
-        description: richText(sample.about),
+      name: sample.name,
+      status: 'available',
+      species: sample.species,
+      breed: sample.breed,
+      sex: sample.sex,
+      ageGroup: sample.ageGroup,
+      ageDescription: sample.ageDescription,
+      size: sample.size,
+      location: sample.location,
+      featured: sample.featured,
+      vaccinated: true,
+      neutered: sample.ageGroup !== 'baby',
+      photos: [media.id],
+      description: richText(sample.about),
     }
-    await payload.create({ collection: 'pets', data: pet })
+    try {
+      await payload.create({ collection: 'pets', data: pet })
+      payload.logger.info(`Added sample pet ${sample.name}`)
+    } catch (error) {
+      // Don't leave an orphaned picture behind.
+      await payload.delete({ collection: 'media', id: media.id })
+      throw error
+    }
+  }
+}
+
+async function seedSettings(payload: Payload) {
+  // Settings that were never saved still hold the defaults. Anything else is the owners' work.
+  const current = await payload.findGlobal({ slug: 'site-settings', depth: 0 })
+  if (current.siteName !== 'Pet Adopt' || current.whatsappNumber) {
+    payload.logger.info('Site settings already customised, leaving them alone.')
+    return
   }
 
   await payload.updateGlobal({
@@ -105,6 +138,15 @@ async function main() {
       footerText: 'Adopt, do not shop.',
     },
   })
+  payload.logger.info('Filled in sample site settings')
+}
+
+async function seedAboutPage(payload: Payload) {
+  const existing = await payload.count({ collection: 'pages', where: { slug: { equals: 'about' } } })
+  if (existing.totalDocs > 0) {
+    payload.logger.info('An "about" page already exists, skipping.')
+    return
+  }
 
   await payload.create({
     collection: 'pages',
@@ -124,14 +166,31 @@ async function main() {
       },
     },
   })
+  payload.logger.info('Created the About page')
+}
 
-  payload.logger.info('Sample content created. Open /admin to continue.')
-  process.exit(0)
+async function main() {
+  if (process.env.NODE_ENV === 'production' && !process.env.SEED_FORCE) {
+    console.error('Refusing to add sample content in production. Set SEED_FORCE=1 if you really mean it.')
+    process.exit(1)
+  }
+
+  const payload = await getPayload({ config })
+
+  // The owner account from SEED_ADMIN_EMAIL / SEED_ADMIN_PASSWORD is created by
+  // `onInit` in payload.config.ts (src/lib/ensureOwner.ts), which getPayload() just ran.
+
+  await seedPets(payload)
+  await seedSettings(payload)
+  await seedAboutPage(payload)
+
+  payload.logger.info('Sample content is in place. Open /admin to continue.')
 }
 
 // `payload run` exits once the module has finished evaluating, so await at the top level.
 try {
   await main()
+  process.exit(0)
 } catch (error) {
   console.error(error)
   process.exit(1)
