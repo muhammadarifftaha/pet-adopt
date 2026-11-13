@@ -1,10 +1,11 @@
 import { getAuth } from '@/server/auth'
 import { UserError } from '@/server/result'
-import { clearAttempts, guardSignIn } from '@/server/throttle'
+import { clearAttempts, guardPasswordChange, guardSignIn } from '@/server/throttle'
 
 export const dynamic = 'force-dynamic'
 
 const SIGN_IN = '/api/auth/sign-in/email'
+const CHANGE_PASSWORD = '/api/auth/change-password'
 /** A sign-in body is two short strings. Anything bigger is not a sign-in. */
 const MAX_SIGN_IN_BODY = 10_000
 
@@ -49,6 +50,26 @@ async function handle(request: Request) {
     const response = await auth.handler(request)
     if (response.ok) await clearAttempts(keys)
     return response
+  }
+
+  // "Change password" checks the current password, which makes it a guessing oracle for anyone
+  // holding a stolen or unattended session. It shares one counter per user with
+  // changePasswordAction, so the HTTP route cannot be used to get around that limit.
+  if (request.method === 'POST' && pathname === CHANGE_PASSWORD) {
+    const session = await auth.api.getSession({ headers: request.headers })
+    // No session: Better Auth answers 401 itself, and there is no user to count against.
+    if (session?.user) {
+      let keys: string[]
+      try {
+        ;({ keys } = await guardPasswordChange(session.user.id))
+      } catch (error) {
+        if (error instanceof UserError) return Response.json({ message: error.message }, { status: 429 })
+        throw error
+      }
+      const response = await auth.handler(request)
+      if (response.ok) await clearAttempts(keys)
+      return response
+    }
   }
 
   return auth.handler(request)

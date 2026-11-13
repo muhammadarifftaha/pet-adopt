@@ -57,7 +57,7 @@ function createAuth({ db, t, dialect }: Database) {
       cookiePrefix: 'pet-adopt',
       useSecureCookies: production,
       // Better Auth's own address-based limiter must read the same header as our throttle.
-      ipAddress: { ipAddressHeaders: [CLIENT_IP_HEADER] },
+      ipAddress: { ipAddressHeaders: [CLIENT_IP_HEADER], ipv6Subnet: 64 },
     },
     rateLimit: {
       enabled: true,
@@ -67,7 +67,9 @@ function createAuth({ db, t, dialect }: Database) {
       // Sign-in is limited by src/server/throttle.ts (per email and per client, atomic). Better Auth's
       // own rule keys on one address and would share a single bucket across every owner whenever it
       // cannot read the proxy header, locking everyone out after a few sign-ins.
-      customRules: { '/sign-in/email': false },
+      // Likewise "change password", which Better Auth would otherwise cap at 3 per 10 seconds per
+      // address; it is limited per user by guardPasswordChange (route and action).
+      customRules: { '/sign-in/email': false, '/change-password': false },
     },
     plugins: [admin({ defaultRole: 'editor', adminRoles: ['admin'] }), nextCookies()],
   })

@@ -50,6 +50,27 @@ export const CLIENT_IP_HEADER = (process.env.CLIENT_IP_HEADER || 'x-forwarded-fo
  */
 export const TRUSTED_PROXY_HOPS = Math.max(Math.floor(Number(process.env.TRUSTED_PROXY_HOPS)) || 1, 1)
 
+/**
+ * Whoever holds an IPv6 network usually holds a whole /64 (about 18 quintillion addresses) and can
+ * hop between them freely, so one address is the wrong unit to limit. IPv6 clients are counted by
+ * their /64 prefix instead. IPv4 addresses, and IPv4 written as IPv6 (`::ffff:1.2.3.4`), are
+ * counted individually.
+ */
+export function ipv6Prefix64(address: string): string {
+  const withoutZone = address.split('%')[0]
+  const mapped = withoutZone.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/i)
+  if (mapped) return mapped[1]
+  const [head, tail] = withoutZone.split('::')
+  const front = head ? head.split(':') : []
+  const back = tail ? tail.split(':') : []
+  // "::" stands for as many zero groups as it takes to make eight.
+  const groups = withoutZone.includes('::') ? [...front, ...Array(Math.max(8 - front.length - back.length, 0)).fill('0'), ...back] : front
+  return `${groups
+    .slice(0, 4)
+    .map((group) => group.toLowerCase().replace(/^0+(?=.)/, ''))
+    .join(':')}::/64`
+}
+
 /** The client address, or null when it cannot be determined (no header, or not an IP address). */
 export function clientAddress(headers: Headers): string | null {
   const value = headers.get(CLIENT_IP_HEADER)
@@ -59,7 +80,10 @@ export function clientAddress(headers: Headers): string | null {
     .map((entry) => entry.trim())
     .filter(Boolean)
   const candidate = entries[Math.max(entries.length - TRUSTED_PROXY_HOPS, 0)]
-  return candidate && isIP(candidate) ? candidate : null
+  const version = candidate ? isIP(candidate) : 0
+  if (version === 4) return candidate
+  if (version === 6) return ipv6Prefix64(candidate)
+  return null
 }
 
 let warnedAboutMissingAddress = false

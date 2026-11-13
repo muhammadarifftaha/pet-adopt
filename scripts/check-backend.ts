@@ -138,8 +138,27 @@ await check('client address: trusted hop, bad values and a missing header', asyn
   ok(clientAddress(new Headers({ 'x-forwarded-for': '6.6.6.6, 10.1.1.1' })) === '10.1.1.1', 'the last entry, which a client cannot forge')
   ok(clientAddress(new Headers({ 'x-forwarded-for': 'not-an-ip' })) === null, 'not an IP address')
   ok(clientAddress(new Headers()) === null, 'no header')
+  const addr = (value: string) => clientAddress(new Headers({ 'x-forwarded-for': value }))
+  ok(addr('203.0.113.5') === '203.0.113.5', 'IPv4 is counted individually')
+  ok(addr('2001:db8::1') === '2001:db8:0:0::/64', `IPv6 is counted by /64, got ${addr('2001:db8::1')}`)
+  ok(addr('2001:0DB8:0000:0000:ffff::2') === '2001:db8:0:0::/64', 'another host in the same /64, written differently')
+  ok(addr('2001:db8:0:1::1') === '2001:db8:0:1::/64', 'a different /64 is a different client')
+  ok(addr('::1') === '0:0:0:0::/64', 'loopback')
+  ok(addr('fe80::1%eth0') === 'fe80:0:0:0::/64', 'a zone id is ignored')
+  ok(addr('::ffff:203.0.113.5') === '203.0.113.5', 'IPv4 written as IPv6 counts as that IPv4 address')
   // Without an address there is no per-client bucket, so unidentifiable clients cannot lock each other out.
   for (let i = 0; i < 8; i++) await guardSignIn(`nobody${i}@example.test`, new Headers())
+  const { db, t } = await getDatabase()
+  await db.delete(t.rateLimits)
+})
+
+await check('addresses in one IPv6 /64 share one lockout, so hopping addresses does not help', async () => {
+  const from = (address: string) => new Headers({ 'x-forwarded-for': address })
+  for (const address of ['2001:db8::1', '2001:db8::2', '2001:db8::3', '2001:db8:0:0:aaaa::4', '2001:db8::5']) {
+    await guardSignIn('hop@example.test', from(address))
+  }
+  ok(/Too many attempts/.test(await userError(guardSignIn('hop@example.test', from('2001:db8::6')))), 'the sixth address in the same /64 is locked')
+  await guardSignIn('hop@example.test', from('2001:db8:0:9::1')) // a different /64 is a different client
   const { db, t } = await getDatabase()
   await db.delete(t.rateLimits)
 })
@@ -386,6 +405,45 @@ await check('settings: partial theme updates merge; contrast is checked on the e
   ok(errors['customTheme.light.text'], `expected a contrast error, got ${JSON.stringify(errors)}`)
   await updateSettings({ customTheme: { light: { background: null, surface: null, text: null } } })
   ok(!(await getSettings()).customTheme?.light?.text, 'colours can be cleared one by one')
+})
+
+await check('HTTP route: change-password shares the per-user limit; sign-in needs JSON with an email', async () => {
+  const { POST } = await import('../src/app/api/auth/[...all]/route')
+  await createUser({ email: 'http@example.test', name: 'Http', password: 'http-password-123456', role: 'editor' })
+  const auth = await getAuth()
+  const signed = await auth.api.signInEmail({
+    body: { email: 'http@example.test', password: 'http-password-123456' },
+    headers: ip(60),
+    returnHeaders: true,
+  })
+  const cookie = signed.headers
+    .getSetCookie()
+    .map((c) => c.split(';')[0])
+    .join('; ')
+  const call = (path: string, body: unknown, headers: Record<string, string> = {}, type = 'application/json') =>
+    POST(
+      new Request(`http://localhost:3000/api/auth/${path}`, {
+        method: 'POST',
+        headers: { 'content-type': type, origin: 'http://localhost:3000', 'x-forwarded-for': '192.0.2.60', ...headers },
+        body: typeof body === 'string' ? body : JSON.stringify(body),
+      }),
+    )
+
+  // Guessing the current password over HTTP is limited like the server action: 5, then refused.
+  const wrong = { currentPassword: 'definitely-wrong-password', newPassword: 'a-totally-new-password-1' }
+  const codes: number[] = []
+  for (let i = 0; i < 7; i++) codes.push((await call('change-password', wrong, { cookie })).status)
+  ok(codes.slice(0, 5).every((c) => c !== 429), `the first five guesses reach Better Auth: ${codes}`)
+  ok(codes.slice(5).every((c) => c === 429), `the sixth and seventh are refused: ${codes}`)
+  ok((await call('change-password', wrong)).status === 401, 'without a session Better Auth answers 401')
+
+  // Sign-in over HTTP: JSON with an email only.
+  ok((await call('sign-in/email', 'email=a%40b.c&password=x', {}, 'application/x-www-form-urlencoded')).status === 415, 'form body')
+  ok((await call('sign-in/email', '{nope')).status === 400, 'invalid JSON')
+  ok((await call('sign-in/email', { password: 'x' })).status === 400, 'missing email')
+  ok((await call('sign-in/social', {})).status === 404, 'other sign-in methods are closed')
+  const { db, t } = await getDatabase()
+  await db.delete(t.rateLimits)
 })
 
 // FK enforcement is on (SQLite needs a pragma)
