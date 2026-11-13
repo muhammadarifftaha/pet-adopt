@@ -1,15 +1,28 @@
-// Sign-in throttling. Better Auth rate-limits requests that arrive through its HTTP handler by
-// address, but it knows nothing about accounts, and server actions skip that layer entirely. So
-// every sign-in path (the server action and the HTTP route) goes through `guardSignIn`.
+// Sign-in and password-change throttling.
 //
-// Attempts are counted BEFORE the password is checked, in one atomic upsert, so a burst of parallel
-// guesses cannot all slip past a check-then-record gap. A success clears the account's counter.
+// Better Auth rate-limits requests that arrive through its HTTP handler by address, but it knows
+// nothing about accounts, and server actions skip that layer entirely. So every sign-in path (the
+// server action and the HTTP route) goes through `guardSignIn`.
+//
+// How a sign-in attempt is limited (all counted BEFORE the password is checked, in one atomic
+// upsert each, so a burst of parallel guesses cannot slip past a check-then-record gap):
+//   1. per client address            30 per 10 minutes   (stops one machine trying many accounts)
+//   2. per email + client address     5 per 10 minutes   (the everyday lockout for fumbled passwords)
+//   3. per email, from anywhere     100 per hour         (caps guessing spread over many addresses)
+// The pair key is what makes a lockout hard to abuse: someone typing an owner's email from their own
+// machine locks only themselves out, not the owner. The per-email ceiling is high enough that this
+// stays impractical without making a distributed attack free; `pnpm admin:reset-password` exists
+// for the rare case where an owner is locked out anyway.
+//
+// A lockout does not extend while it is active: it ends `windowMs` after the attempt that reached
+// the limit. Emails are hashed before they become keys, so the table never holds an attacker-sized
+// string and no address list is stored in clear. A success clears that email's counters.
 // Counts live in Better Auth's own `rate_limits` table, so they are shared across instances.
-// Keyed by the typed email (whether or not the account exists, so it cannot be used to probe for
-// accounts) and by client address.
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
+import { isIP } from 'node:net'
 
-import { eq, sql } from 'drizzle-orm'
+import { and, lt, like, or, sql } from 'drizzle-orm'
+import { eq } from 'drizzle-orm'
 
 import { getDatabase } from '@/db/client'
 
@@ -17,10 +30,11 @@ import { UserError } from './result'
 
 export type Throttle = { max: number; windowMs: number }
 
-/** Five attempts per email, then a ten minute lockout (like the old Payload setup). */
-export const ACCOUNT_RULE: Throttle = { max: 5, windowMs: 10 * 60 * 1000 }
-/** A wider net per client, so one address cannot try many different accounts. */
-export const CLIENT_RULE: Throttle = { max: 20, windowMs: 10 * 60 * 1000 }
+export const PAIR_RULE: Throttle = { max: 5, windowMs: 10 * 60 * 1000 }
+export const EMAIL_RULE: Throttle = { max: 100, windowMs: 60 * 60 * 1000 }
+export const CLIENT_RULE: Throttle = { max: 30, windowMs: 10 * 60 * 1000 }
+/** Guessing the current password through "change password" with a stolen session. */
+export const PASSWORD_CHANGE_RULE: Throttle = { max: 5, windowMs: 10 * 60 * 1000 }
 
 /**
  * The header your reverse proxy sets to the real client address (default `x-forwarded-for`, or for
@@ -30,53 +44,124 @@ export const CLIENT_RULE: Throttle = { max: 20, windowMs: 10 * 60 * 1000 }
 export const CLIENT_IP_HEADER = (process.env.CLIENT_IP_HEADER || 'x-forwarded-for').trim().toLowerCase()
 
 /**
- * Best guess at the client address. A proxy appends the address it saw to the END of
- * `x-forwarded-for`, so the last entry is the one a client cannot forge; the first entries are
- * whatever the client sent.
+ * How many proxies between the internet and this app each append to the header. With one proxy
+ * (the usual case) the client address is the last entry; with a CDN in front of a proxy it is the
+ * second to last, and so on. Entries to the left of that are whatever the client sent.
  */
-export function clientAddress(headers: Headers): string {
+export const TRUSTED_PROXY_HOPS = Math.max(Math.floor(Number(process.env.TRUSTED_PROXY_HOPS)) || 1, 1)
+
+/** The client address, or null when it cannot be determined (no header, or not an IP address). */
+export function clientAddress(headers: Headers): string | null {
   const value = headers.get(CLIENT_IP_HEADER)
-  const last = value?.split(',').pop()?.trim()
-  return last || 'unknown'
+  if (!value) return null
+  const entries = value
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+  const candidate = entries[Math.max(entries.length - TRUSTED_PROXY_HOPS, 0)]
+  return candidate && isIP(candidate) ? candidate : null
 }
+
+let warnedAboutMissingAddress = false
 
 /**
  * Counts one attempt on `key` and throws a UserError once the limit is passed. The window restarts
- * from the last attempt, so hammering a locked key keeps it locked for the full time.
+ * once it has fully elapsed. While a key is over the limit its timestamp is left alone, so
+ * hammering a locked key cannot keep it locked beyond `windowMs` after the limit was reached.
  */
 export async function consumeAttempt(key: string, rule: Throttle): Promise<void> {
   const { db, t } = await getDatabase()
   const now = Date.now()
+  const cutoff = now - rule.windowMs
   const [row] = await db
     .insert(t.rateLimits)
     .values({ id: randomUUID(), key, count: 1, lastRequest: now })
     .onConflictDoUpdate({
       target: t.rateLimits.key,
       set: {
-        // One statement: an expired window restarts at 1, otherwise the stored count goes up by 1.
-        count: sql`CASE WHEN ${t.rateLimits.lastRequest} < ${now - rule.windowMs} THEN 1 ELSE ${t.rateLimits.count} + 1 END`,
-        lastRequest: now,
+        // One statement, so concurrent attempts cannot interleave. Every expression reads the OLD
+        // row: an expired window restarts at 1; otherwise the count goes up by 1, and the
+        // timestamp only moves while the key is still under the limit.
+        count: sql`CASE WHEN ${t.rateLimits.lastRequest} < ${cutoff} THEN 1 ELSE ${t.rateLimits.count} + 1 END`,
+        lastRequest: sql`CASE WHEN ${t.rateLimits.lastRequest} < ${cutoff} THEN ${now} WHEN ${t.rateLimits.count} >= ${rule.max} THEN ${t.rateLimits.lastRequest} ELSE ${now} END`,
       },
     })
-    .returning({ count: t.rateLimits.count })
+    .returning({ count: t.rateLimits.count, lastRequest: t.rateLimits.lastRequest })
+
   if (row.count > rule.max) {
-    const minutes = Math.max(Math.ceil(rule.windowMs / 60_000), 1)
+    const minutes = Math.max(Math.ceil((row.lastRequest + rule.windowMs - now) / 60_000), 1)
     throw new UserError(`Too many attempts. Try again in about ${minutes} minute${minutes === 1 ? '' : 's'}.`)
+  }
+  void purgeExpired().catch(() => undefined)
+}
+
+/** Now and then, remove counters nobody will read again, so the table cannot grow without bound. */
+async function purgeExpired(): Promise<void> {
+  if (Math.random() > 0.02) return
+  const { db, t } = await getDatabase()
+  // Our keys only. Better Auth's own rows ("<ip>|<path>") are not ours to delete.
+  await db
+    .delete(t.rateLimits)
+    .where(
+      and(
+        or(like(t.rateLimits.key, 'login:%'), like(t.rateLimits.key, 'chpw:%')),
+        lt(t.rateLimits.lastRequest, Date.now() - 2 * 60 * 60 * 1000),
+      ),
+    )
+}
+
+export async function clearAttempts(keys: string | string[]): Promise<void> {
+  const { db, t } = await getDatabase()
+  for (const key of Array.isArray(keys) ? keys : [keys]) {
+    await db.delete(t.rateLimits).where(eq(t.rateLimits.key, key))
   }
 }
 
-export async function clearAttempts(key: string): Promise<void> {
+/** Lifts every lockout on an email, for every client. Used by `pnpm admin:reset-password`. */
+export async function clearLockoutsFor(email: string): Promise<void> {
   const { db, t } = await getDatabase()
-  await db.delete(t.rateLimits).where(eq(t.rateLimits.key, key))
+  const digest = emailDigest(email)
+  await db
+    .delete(t.rateLimits)
+    .where(or(eq(t.rateLimits.key, `login:email:${digest}`), like(t.rateLimits.key, `login:pair:${digest}|%`)))
+}
+
+const sha256 = (value: string) => createHash('sha256').update(value).digest('hex')
+
+/** Lower-cased and bounded, so any input becomes one short fixed-size key. */
+function emailDigest(email: unknown): string {
+  const normalized = typeof email === 'string' ? email.trim().toLowerCase() : ''
+  return sha256(normalized && normalized.length <= 254 ? normalized : 'invalid')
 }
 
 /**
- * Call before checking a password. Throws a UserError when the email or the client is locked out;
- * otherwise returns the account key to pass to `clearAttempts` after a successful sign-in.
+ * Call before checking a password. Throws a UserError when the client, or the email from this
+ * client, or the email overall, is locked out. Returns the keys to pass to `clearAttempts` after a
+ * successful sign-in.
  */
-export async function guardSignIn(email: string, headers: Headers): Promise<{ accountKey: string }> {
-  const accountKey = `login:email:${email.trim().toLowerCase() || 'unknown'}`
-  await consumeAttempt(accountKey, ACCOUNT_RULE)
-  await consumeAttempt(`login:ip:${clientAddress(headers)}`, CLIENT_RULE)
-  return { accountKey }
+export async function guardSignIn(email: unknown, headers: Headers): Promise<{ keys: string[] }> {
+  const digest = emailDigest(email)
+  const address = clientAddress(headers)
+  if (address) {
+    // First, so junk requests are stopped by the client limit before they can add more rows.
+    await consumeAttempt(`login:ip:${address}`, CLIENT_RULE)
+  } else if (process.env.NODE_ENV === 'production' && !warnedAboutMissingAddress) {
+    warnedAboutMissingAddress = true
+    console.warn(
+      `Sign-in throttling cannot tell clients apart: no valid address in the "${CLIENT_IP_HEADER}" header. ` +
+        'Run the site behind a reverse proxy and set CLIENT_IP_HEADER / TRUSTED_PROXY_HOPS to match it.',
+    )
+  }
+  const pairKey = `login:pair:${digest}|${address ?? 'none'}`
+  const emailKey = `login:email:${digest}`
+  await consumeAttempt(pairKey, PAIR_RULE)
+  await consumeAttempt(emailKey, EMAIL_RULE)
+  return { keys: [pairKey, emailKey] }
+}
+
+/** Call before checking the current password in "change password". Returns the key to clear on success. */
+export async function guardPasswordChange(userId: string): Promise<{ keys: string[] }> {
+  const key = `chpw:${userId}`
+  await consumeAttempt(key, PASSWORD_CHANGE_RULE)
+  return { keys: [key] }
 }

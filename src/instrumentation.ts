@@ -6,7 +6,9 @@ export async function register() {
     const { ensureOwner } = await import('@/server/users')
     await ensureOwner()
   } catch (error) {
-    // Most likely the schema is not there yet (run `pnpm migrate` first on Postgres).
-    console.error('Could not create the owner account from SEED_ADMIN_EMAIL:', error)
+    // Most likely the schema is not there yet (run `pnpm migrate` first on Postgres). Log a short
+    // description, never the error object: database errors carry the bound values.
+    const { logError } = await import('@/server/result')
+    logError(error, 'Could not create the owner account from SEED_ADMIN_EMAIL')
   }
 }

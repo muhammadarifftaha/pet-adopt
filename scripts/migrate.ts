@@ -5,7 +5,10 @@
  * SQLite also migrates itself the first time the app opens it. PostgreSQL never does: run this
  * before starting the server, and again after every `pnpm db:generate`.
  */
-import { closeDatabase, getDatabase } from '../src/db/client'
+// Slow DDL (building an index on a big table) must not be cut off by the app's query timeout.
+process.env.DB_STATEMENT_TIMEOUT_MS ??= '0'
+
+const { closeDatabase, getDatabase } = await import('../src/db/client')
 import { runMigrations } from '../src/db/migrate'
 
 try {

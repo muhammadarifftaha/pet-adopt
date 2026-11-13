@@ -5,6 +5,8 @@ import { clearAttempts, guardSignIn } from '@/server/throttle'
 export const dynamic = 'force-dynamic'
 
 const SIGN_IN = '/api/auth/sign-in/email'
+/** A sign-in body is two short strings. Anything bigger is not a sign-in. */
+const MAX_SIGN_IN_BODY = 10_000
 
 // Better Auth's own /admin/* endpoints (set role, remove user, impersonate...) are switched off.
 // Everything of that kind goes through src/server/users.ts, which keeps the last admin safe.
@@ -17,25 +19,35 @@ async function handle(request: Request) {
 
   const auth = await getAuth()
 
-  // Email sign-in gets the same per-account and per-client lockout as the server action, so the
-  // HTTP route cannot be used to guess passwords around it.
+  // Email sign-in gets the same lockouts as the server action, so the HTTP route cannot be used to
+  // guess passwords around them. The body must be JSON (the only thing Better Auth accepts here)
+  // with an email, so the email we count is always the one Better Auth will check.
   if (request.method === 'POST' && pathname === SIGN_IN) {
-    let email = ''
-    try {
-      const body = (await request.clone().json()) as { email?: unknown }
-      if (typeof body.email === 'string') email = body.email
-    } catch {
-      // Not JSON: Better Auth will reject it. It still counts against this client below.
+    if (!request.headers.get('content-type')?.toLowerCase().startsWith('application/json')) {
+      return Response.json({ message: 'Send the sign-in as JSON.' }, { status: 415 })
     }
-    let accountKey: string
+    if (Number(request.headers.get('content-length') ?? 0) > MAX_SIGN_IN_BODY) {
+      return Response.json({ message: 'Request too large.' }, { status: 413 })
+    }
+    let email: unknown
     try {
-      ;({ accountKey } = await guardSignIn(email, request.headers))
+      email = ((await request.clone().json()) as { email?: unknown } | null)?.email
+    } catch {
+      return Response.json({ message: 'Invalid JSON.' }, { status: 400 })
+    }
+    if (typeof email !== 'string' || !email.trim()) {
+      return Response.json({ message: 'An email is required.' }, { status: 400 })
+    }
+
+    let keys: string[]
+    try {
+      ;({ keys } = await guardSignIn(email, request.headers))
     } catch (error) {
       if (error instanceof UserError) return Response.json({ message: error.message }, { status: 429 })
       throw error
     }
     const response = await auth.handler(request)
-    if (response.ok) await clearAttempts(accountKey)
+    if (response.ok) await clearAttempts(keys)
     return response
   }
 

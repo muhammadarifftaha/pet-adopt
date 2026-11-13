@@ -3,6 +3,7 @@
 // visitor can never ask for unlisted pets.
 import { getPublishedPage as loadPublishedPage } from '@/server/pages'
 import * as pets from '@/server/pets'
+import { describeError } from '@/server/result'
 import type { PetFilters } from '@/server/pets'
 import { DEFAULT_SETTINGS, getSettings as loadSettings } from '@/server/settings'
 import type { MediaItem, Page, Pet, PetPage, PetSummary, SiteSetting } from '@/server/types'
@@ -16,11 +17,31 @@ export const PAGE_SIZE = pets.DEFAULT_PAGE_SIZE
 // Fall back to empty content there; at runtime real errors still surface.
 const isBuildPhase = () => process.env.NEXT_PHASE === 'phase-production-build'
 
+/**
+ * "There is no database to read from yet": unreachable server, missing file, missing table or
+ * database. Anything else (a bug in a query, a wrong column) is a real failure and must not be
+ * hidden behind an empty site.
+ */
+function isDatabaseMissing(error: unknown): boolean {
+  let current: unknown = error
+  for (let depth = 0; depth < 4 && current && typeof current === 'object'; depth++) {
+    const { code, message, cause } = current as { code?: unknown; message?: unknown; cause?: unknown }
+    if (typeof code === 'string' && ['ECONNREFUSED', 'ENOTFOUND', 'ETIMEDOUT', 'SQLITE_CANTOPEN', '42P01', '3D000'].includes(code)) return true
+    if (typeof message === 'string' && /no such table|unable to open database|timeout exceeded when trying to connect/i.test(message)) return true
+    current = cause
+  }
+  return false
+}
+
 async function safely<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
   try {
     return await fn()
   } catch (error) {
-    if (isBuildPhase()) return fallback
+    if (isBuildPhase() && isDatabaseMissing(error)) {
+      // Say so: a build that silently bakes in an empty site is hard to diagnose.
+      console.warn(`Building without a usable database, using empty content: ${describeError(error)}`)
+      return fallback
+    }
     throw error
   }
 }

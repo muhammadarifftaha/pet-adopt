@@ -45,18 +45,45 @@ export const isUniqueViolation = (error: unknown) =>
 export const isForeignKeyViolation = (error: unknown) =>
   hasCode(error, (c) => c === '23503' || c.startsWith('SQLITE_CONSTRAINT_FOREIGNKEY'))
 
+/**
+ * A short, safe description of an error for logs: name, code and the first line of the message,
+ * for the error and its causes. Database errors carry the bound parameters after the first line
+ * ("params: ..."), which can hold password hashes, emails and whole records, so never log the
+ * error object itself.
+ */
+export function describeError(error: unknown): string {
+  const parts: string[] = []
+  let current: unknown = error
+  for (let depth = 0; depth < 4 && current; depth++) {
+    if (current instanceof Error) {
+      const { code } = current as { code?: unknown }
+      const firstLine = current.message.split('\n')[0].slice(0, 300)
+      parts.push(`${current.name}${typeof code === 'string' ? ` [${code}]` : ''}: ${firstLine}`)
+      current = (current as { cause?: unknown }).cause
+    } else {
+      parts.push(String(current).slice(0, 200))
+      break
+    }
+  }
+  return parts.join(' <- ') || 'unknown error'
+}
+
+export function logError(error: unknown, context?: string) {
+  console.error(context ? `${context}: ${describeError(error)}` : describeError(error))
+}
+
 export function toFailure(error: unknown): { ok: false; error: string; fieldErrors?: FieldErrors } {
   if (error instanceof ValidationError) return { ok: false, error: error.message, fieldErrors: error.fieldErrors }
   if (error instanceof UserError) return { ok: false, error: error.message }
-  console.error(error)
+  logError(error)
   return {
     ok: false,
+    // Only a local development server shows the real reason; every other environment, including
+    // staging and test, gets the generic message so a database error never reaches a browser.
     error:
-      process.env.NODE_ENV === 'production'
-        ? 'Something went wrong. Please try again.'
-        : error instanceof Error
-          ? error.message
-          : 'Something went wrong.',
+      process.env.NODE_ENV === 'development' && error instanceof Error
+        ? describeError(error)
+        : 'Something went wrong. Please try again.',
   }
 }
 

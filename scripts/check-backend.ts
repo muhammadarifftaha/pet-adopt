@@ -16,9 +16,17 @@ import { closeDatabase, getDatabase } from '../src/db/client'
 import { getAuth } from '../src/server/auth'
 import { getPublishedPage, listPages, publishPage, saveDraft, savePageDetails, unpublishPage } from '../src/server/pages'
 import { deletePet, getLocationOptions, getPetById, getPetBySlug, queryPets, savePet } from '../src/server/pets'
-import { ValidationError, UserError } from '../src/server/result'
+import { ValidationError, UserError, describeError } from '../src/server/result'
 import { getSettings, updateSettings } from '../src/server/settings'
-import { ACCOUNT_RULE, clearAttempts, clientAddress, consumeAttempt } from '../src/server/throttle'
+import {
+  PAIR_RULE,
+  PASSWORD_CHANGE_RULE,
+  clearAttempts,
+  clientAddress,
+  consumeAttempt,
+  guardPasswordChange,
+  guardSignIn,
+} from '../src/server/throttle'
 import { removeUpload, saveUpload } from '../src/server/uploads'
 import { createUser, deleteUser, ensureOwner, listUsers, resetPassword, updateUser } from '../src/server/users'
 
@@ -68,6 +76,13 @@ await check('ensureOwner creates the first admin, then does nothing', async () =
   ok(users.length === 1 && users[0].role === 'admin', 'one admin expected')
 })
 
+await check('ensureOwner repairs a lone owner left without a password', async () => {
+  // An earlier start was interrupted between creating the user and its password.
+  await db.delete(t.accounts)
+  ok((await ensureOwner()) === 'repaired', 'should repair')
+  ok((await ensureOwner()) === 'skipped', 'then there is nothing left to do')
+})
+
 await check('sign in works, wrong password is refused', async () => {
   const auth = await getAuth()
   const email = process.env.SEED_ADMIN_EMAIL as string
@@ -84,25 +99,74 @@ await check('sign in works, wrong password is refused', async () => {
 
 await check('sign-in attempts are counted atomically: 12 parallel tries, exactly 5 get through', async () => {
   const key = 'login:email:someone@example.test'
-  const results = await Promise.allSettled(Array.from({ length: 12 }, () => consumeAttempt(key, ACCOUNT_RULE)))
+  const results = await Promise.allSettled(Array.from({ length: 12 }, () => consumeAttempt(key, PAIR_RULE)))
   const passed = results.filter((r) => r.status === 'fulfilled').length
   ok(passed === 5, `expected exactly 5 of 12 parallel attempts to pass, got ${passed}`)
-  ok(/Too many attempts/.test(await userError(consumeAttempt(key, ACCOUNT_RULE))), 'the next attempt is locked out')
-  await consumeAttempt('login:email:other@example.test', ACCOUNT_RULE) // other emails are unaffected
+  ok(/Too many attempts/.test(await userError(consumeAttempt(key, PAIR_RULE))), 'the next attempt is locked out')
+  await consumeAttempt('login:email:other@example.test', PAIR_RULE) // other keys are unaffected
   await clearAttempts(key) // a successful sign-in clears the counter
-  await consumeAttempt(key, ACCOUNT_RULE)
+  await consumeAttempt(key, PAIR_RULE)
   // an old lockout expires and the count restarts
   const { db, t } = await getDatabase()
   await db.update(t.rateLimits).set({ count: 9, lastRequest: Date.now() - 11 * 60 * 1000 }).where(eq(t.rateLimits.key, key))
-  await consumeAttempt(key, ACCOUNT_RULE)
+  await consumeAttempt(key, PAIR_RULE)
   const [row] = await db.select().from(t.rateLimits).where(eq(t.rateLimits.key, key))
   ok(row.count === 1, `count should restart after the window, got ${row.count}`)
   await clearAttempts(key)
 })
 
-await check('client address is the last x-forwarded-for entry, which a client cannot forge', async () => {
-  ok(clientAddress(new Headers({ 'x-forwarded-for': '6.6.6.6, 10.1.1.1' })) === '10.1.1.1', 'last entry')
-  ok(clientAddress(new Headers()) === 'unknown', 'missing header')
+await check('lockout is per email AND client: one machine cannot lock the owner out; a lock does not extend; keys are hashed', async () => {
+  const { db, t } = await getDatabase()
+  const attacker = new Headers({ 'x-forwarded-for': '203.0.113.10' })
+  const owner = new Headers({ 'x-forwarded-for': '203.0.113.11' })
+  for (let i = 0; i < 5; i++) await guardSignIn('victim@example.test', attacker)
+  ok(/Too many attempts/.test(await userError(guardSignIn('victim@example.test', attacker))), 'the attacker is locked out')
+  const { keys } = await guardSignIn('victim@example.test', owner) // the real owner, elsewhere, is not
+  const pairRows = () => db.select().from(t.rateLimits).where(eq(t.rateLimits.key, keys[0].replace('203.0.113.11', '203.0.113.10')))
+  const [before] = await pairRows()
+  for (let i = 0; i < 3; i++) await userError(guardSignIn('victim@example.test', attacker))
+  const [after] = await pairRows()
+  ok(before.lastRequest === after.lastRequest && after.count > before.count, 'hammering a locked key must not extend the lock')
+  await clearAttempts(keys) // the owner signs in: their counters clear
+  ok(!(await db.select().from(t.rateLimits)).some((r) => r.key.includes('victim')), 'the email must never appear in a key')
+  const huge = await guardSignIn('x'.repeat(200_000), owner)
+  ok(huge.keys.every((k) => k.length < 200), 'a huge "email" must become a short key')
+  await db.delete(t.rateLimits)
+})
+
+await check('client address: trusted hop, bad values and a missing header', async () => {
+  ok(clientAddress(new Headers({ 'x-forwarded-for': '6.6.6.6, 10.1.1.1' })) === '10.1.1.1', 'the last entry, which a client cannot forge')
+  ok(clientAddress(new Headers({ 'x-forwarded-for': 'not-an-ip' })) === null, 'not an IP address')
+  ok(clientAddress(new Headers()) === null, 'no header')
+  // Without an address there is no per-client bucket, so unidentifiable clients cannot lock each other out.
+  for (let i = 0; i < 8; i++) await guardSignIn(`nobody${i}@example.test`, new Headers())
+  const { db, t } = await getDatabase()
+  await db.delete(t.rateLimits)
+})
+
+await check('password change attempts are limited per user and clear on success', async () => {
+  for (let i = 0; i < PASSWORD_CHANGE_RULE.max; i++) await guardPasswordChange('user-1')
+  ok(/Too many attempts/.test(await userError(guardPasswordChange('user-1'))), 'sixth guess is refused')
+  await guardPasswordChange('user-2') // another user is unaffected
+  await clearAttempts(['chpw:user-1', 'chpw:user-2'])
+  await guardPasswordChange('user-1')
+  await clearAttempts('chpw:user-1')
+})
+
+await check('error logs drop the bound parameters of a failed query', async () => {
+  const text = describeError(new Error('Failed query: insert into "accounts" values ($1)\nparams: secret-hash-123,owner@example.test'))
+  ok(!text.includes('secret-hash') && !text.includes('owner@'), `leaked: ${text}`)
+  ok(text.includes('Failed query'), 'still says what failed')
+})
+
+await check('a transaction started inside another one joins it instead of deadlocking', async () => {
+  const { withTransaction, t } = await getDatabase()
+  await withTransaction(async (tx) => {
+    await withTransaction(async (inner) => {
+      await inner.select().from(t.users).limit(1)
+    })
+    await tx.select().from(t.users).limit(1)
+  })
 })
 
 await check('create an editor; duplicate email refused; sign in as editor', async () => {
@@ -129,6 +193,39 @@ await check('last admin cannot be demoted or deleted; can once there are two', a
   await updateUser(editor.id, { name: 'Ed', role: 'editor' }, { canChangeRole: true })
 })
 
+await check('two admins demoting each other at once never leave zero admins', async () => {
+  const users = await listUsers()
+  const first = users.find((u) => u.role === 'admin')!
+  const second = users.find((u) => u.role === 'editor')!
+  await updateUser(second.id, { name: second.name, role: 'admin' }, { canChangeRole: true }) // two admins now
+  const results = await Promise.allSettled([
+    updateUser(first.id, { name: first.name, role: 'editor' }, { canChangeRole: true }),
+    updateUser(second.id, { name: second.name, role: 'editor' }, { canChangeRole: true }),
+  ])
+  ok(results.filter((r) => r.status === 'fulfilled').length === 1, 'exactly one demotion may succeed')
+  ok((await listUsers()).filter((u) => u.role === 'admin').length === 1, 'one admin must remain')
+  // The same race with deletes: two admins deleting each other.
+  await updateUser(first.id, { name: first.name, role: 'admin' }, { canChangeRole: true })
+  await updateUser(second.id, { name: second.name, role: 'admin' }, { canChangeRole: true })
+  const deletes = await Promise.allSettled([deleteUser(first.id), deleteUser(second.id)])
+  ok(deletes.filter((r) => r.status === 'fulfilled').length === 1, 'exactly one deletion may succeed')
+  ok((await listUsers()).filter((u) => u.role === 'admin').length === 1, 'one admin must remain after the deletes too')
+  // Put the accounts back the way later checks expect them.
+  const survivor = (await listUsers())[0]
+  const ownerSurvived = survivor.id === first.id
+  await createUser({
+    email: ownerSurvived ? 'editor@example.test' : process.env.SEED_ADMIN_EMAIL!,
+    name: ownerSurvived ? 'Ed' : 'Owner',
+    password: 'editor-password-1',
+    role: 'editor',
+  })
+  const afterwards = await listUsers()
+  const owner = afterwards.find((u) => u.email === process.env.SEED_ADMIN_EMAIL)!
+  const editor = afterwards.find((u) => u.email === 'editor@example.test')!
+  await updateUser(owner.id, { name: owner.name, role: 'admin' }, { canChangeRole: true })
+  await updateUser(editor.id, { name: editor.name, role: 'editor' }, { canChangeRole: true })
+})
+
 await check('editors cannot change roles through updateUser', async () => {
   const editor = (await listUsers()).find((u) => u.role === 'editor')!
   await updateUser(editor.id, { name: 'Ed Two', role: 'admin' }, { canChangeRole: false })
@@ -145,6 +242,19 @@ await check('reset password signs the person out and the new password works', as
 
 // --- media --------------------------------------------------------------------------------
 let mediaA = 0
+await check('resetPassword creates a missing credential and ends every session', async () => {
+  const editor = (await listUsers()).find((u) => u.role === 'editor')!
+  const { db, t } = await getDatabase()
+  await db.delete(t.accounts).where(eq(t.accounts.userId, editor.id)) // an account left without a password
+  await resetPassword(editor.id, { password: 'another-password-77' })
+  const auth = await getAuth()
+  await auth.api.signInEmail({ body: { email: 'editor@example.test', password: 'another-password-77' }, headers: ip(5) })
+  ok((await db.select().from(t.sessions).where(eq(t.sessions.userId, editor.id))).length >= 1, 'signed in')
+  await resetPassword(editor.id, { password: 'yet-another-password-88' })
+  ok((await db.select().from(t.sessions).where(eq(t.sessions.userId, editor.id))).length === 0, 'every session must be gone')
+  ok(/not found/i.test(await userError(resetPassword('no-such-user', { password: 'whatever-password-1' }))), 'unknown user')
+})
+
 await check('upload accepts a PNG and rejects SVG, junk and missing alt', async () => {
   const media = await saveUpload({ data: png, alt: 'Orange square' })
   mediaA = media.id
@@ -261,6 +371,21 @@ await check('settings: invalid values give nested field errors; valid update is 
   const again = await getSettings()
   ok(again.customTheme?.radius === 'lg' && again.customTheme?.light?.primary === '#0a7d3c', `customTheme ${JSON.stringify(again.customTheme)}`)
   ok(again.whatsappMessage?.includes('{pet}'), 'default message kept')
+})
+
+await check('settings: partial theme updates merge; contrast is checked on the effective theme; bad shapes are errors', async () => {
+  await updateSettings({ customTheme: { shadow: 'soft' } })
+  const merged = (await getSettings()).customTheme
+  ok(merged?.radius === 'lg' && merged?.shadow === 'soft' && merged?.light?.primary === '#0a7d3c', `not merged: ${JSON.stringify(merged)}`)
+  ok((await fieldErrors(updateSettings({ customTheme: 'garbage' }))).customTheme, 'a string is not a theme')
+  ok((await fieldErrors(updateSettings({ customTheme: { light: 5 } })))['customTheme.light'], 'light must be an object')
+  // Light text on a dark page is fine...
+  await updateSettings({ customTheme: { light: { background: '#101010', surface: '#1a1a1a', text: '#f5f5f5' } } })
+  // ...but changing ONLY the background to near-white makes the text that is already stored unreadable.
+  const errors = await fieldErrors(updateSettings({ customTheme: { light: { background: '#fafafa', surface: '#ffffff' } } }))
+  ok(errors['customTheme.light.text'], `expected a contrast error, got ${JSON.stringify(errors)}`)
+  await updateSettings({ customTheme: { light: { background: null, surface: null, text: null } } })
+  ok(!(await getSettings()).customTheme?.light?.text, 'colours can be cleared one by one')
 })
 
 // FK enforcement is on (SQLite needs a pragma)
