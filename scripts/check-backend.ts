@@ -9,6 +9,7 @@
 //
 // It creates accounts, pets and pages, so never point it at a real site.
 import { APIError } from 'better-auth/api'
+import { eq } from 'drizzle-orm'
 import sharp from 'sharp'
 
 import { closeDatabase, getDatabase } from '../src/db/client'
@@ -17,7 +18,7 @@ import { getPublishedPage, listPages, publishPage, saveDraft, savePageDetails, u
 import { deletePet, getLocationOptions, getPetById, getPetBySlug, queryPets, savePet } from '../src/server/pets'
 import { ValidationError, UserError } from '../src/server/result'
 import { getSettings, updateSettings } from '../src/server/settings'
-import { ACCOUNT_RULE, assertNotThrottled, clearFailures, recordFailure } from '../src/server/throttle'
+import { ACCOUNT_RULE, clearAttempts, clientAddress, consumeAttempt } from '../src/server/throttle'
 import { removeUpload, saveUpload } from '../src/server/uploads'
 import { createUser, deleteUser, ensureOwner, listUsers, resetPassword, updateUser } from '../src/server/users'
 
@@ -81,24 +82,27 @@ await check('sign in works, wrong password is refused', async () => {
   ok(refused, 'wrong password should throw APIError')
 })
 
-await check('five failures lock an email for ten minutes; success clears; other emails unaffected', async () => {
+await check('sign-in attempts are counted atomically: 12 parallel tries, exactly 5 get through', async () => {
   const key = 'login:email:someone@example.test'
-  for (let i = 0; i < 4; i++) await recordFailure(key, ACCOUNT_RULE)
-  await assertNotThrottled(key, ACCOUNT_RULE) // four failures: still allowed
-  await recordFailure(key, ACCOUNT_RULE)
-  ok(/Too many attempts/.test(await userError(assertNotThrottled(key, ACCOUNT_RULE))), 'fifth failure locks')
-  await assertNotThrottled('login:email:other@example.test', ACCOUNT_RULE)
-  await clearFailures(key)
-  await assertNotThrottled(key, ACCOUNT_RULE)
+  const results = await Promise.allSettled(Array.from({ length: 12 }, () => consumeAttempt(key, ACCOUNT_RULE)))
+  const passed = results.filter((r) => r.status === 'fulfilled').length
+  ok(passed === 5, `expected exactly 5 of 12 parallel attempts to pass, got ${passed}`)
+  ok(/Too many attempts/.test(await userError(consumeAttempt(key, ACCOUNT_RULE))), 'the next attempt is locked out')
+  await consumeAttempt('login:email:other@example.test', ACCOUNT_RULE) // other emails are unaffected
+  await clearAttempts(key) // a successful sign-in clears the counter
+  await consumeAttempt(key, ACCOUNT_RULE)
   // an old lockout expires and the count restarts
   const { db, t } = await getDatabase()
-  await recordFailure(key, ACCOUNT_RULE)
-  await db.update(t.rateLimits).set({ count: 9, lastRequest: Date.now() - 11 * 60 * 1000 })
-  await assertNotThrottled(key, ACCOUNT_RULE)
-  await recordFailure(key, ACCOUNT_RULE)
-  const [row] = await db.select().from(t.rateLimits)
-  ok(row.count === 1, `count should restart, got ${row.count}`)
-  await clearFailures(key)
+  await db.update(t.rateLimits).set({ count: 9, lastRequest: Date.now() - 11 * 60 * 1000 }).where(eq(t.rateLimits.key, key))
+  await consumeAttempt(key, ACCOUNT_RULE)
+  const [row] = await db.select().from(t.rateLimits).where(eq(t.rateLimits.key, key))
+  ok(row.count === 1, `count should restart after the window, got ${row.count}`)
+  await clearAttempts(key)
+})
+
+await check('client address is the last x-forwarded-for entry, which a client cannot forge', async () => {
+  ok(clientAddress(new Headers({ 'x-forwarded-for': '6.6.6.6, 10.1.1.1' })) === '10.1.1.1', 'last entry')
+  ok(clientAddress(new Headers()) === 'unknown', 'missing header')
 })
 
 await check('create an editor; duplicate email refused; sign in as editor', async () => {

@@ -13,6 +13,8 @@ import { admin } from 'better-auth/plugins'
 
 import { getDatabase, type Database } from '@/db/client'
 
+import { CLIENT_IP_HEADER } from './throttle'
+
 const production = process.env.NODE_ENV === 'production'
 // `next build` loads this too (often in CI with no secrets), so it is exempt from the checks.
 const enforce = production && process.env.NEXT_PHASE !== 'phase-production-build'
@@ -51,13 +53,21 @@ function createAuth({ db, t, dialect }: Database) {
       maxPasswordLength: 128,
     },
     session: { expiresIn: 60 * 60 * 2, updateAge: 60 * 10 },
-    advanced: { cookiePrefix: 'pet-adopt', useSecureCookies: production },
+    advanced: {
+      cookiePrefix: 'pet-adopt',
+      useSecureCookies: production,
+      // Better Auth's own address-based limiter must read the same header as our throttle.
+      ipAddress: { ipAddressHeaders: [CLIENT_IP_HEADER] },
+    },
     rateLimit: {
       enabled: true,
       storage: 'database',
       window: 60,
       max: 100,
-      customRules: { '/sign-in/email': { window: 600, max: 5 } },
+      // Sign-in is limited by src/server/throttle.ts (per email and per client, atomic). Better Auth's
+      // own rule keys on one address and would share a single bucket across every owner whenever it
+      // cannot read the proxy header, locking everyone out after a few sign-ins.
+      customRules: { '/sign-in/email': false },
     },
     plugins: [admin({ defaultRole: 'editor', adminRoles: ['admin'] }), nextCookies()],
   })

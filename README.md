@@ -140,7 +140,7 @@ Pages are cached and refresh immediately when you publish; they also revalidate 
 - Uploads must be JPEG, PNG, WebP, AVIF or GIF, up to 10 MB. SVG is blocked because it can carry script.
 - Social and menu links are checked when saved, and rendered through a safe-link filter that blocks `javascript:` and `data:` URLs.
 - The last admin account cannot be deleted or demoted, and an image still used by a pet or page cannot be deleted.
-- Failed sign-ins are throttled per email and per client address, but the address comes from `X-Forwarded-For`, so run the site behind a proxy you control. For heavier protection add rate limiting at your reverse proxy or CDN.
+- Sign-in attempts are limited per email (5, then ten minutes locked) and per client address (20), counted atomically before the password is checked, on both the admin and the HTTP sign-in route. The client address is the last entry of the `X-Forwarded-For` header, which only a proxy you control can be trusted to add: run the site behind one (or set `CLIENT_IP_HEADER` to the header your CDN sets, such as `cf-connecting-ip`). For heavier protection add rate limiting at your reverse proxy or CDN.
 - Security headers are set in `next.config.ts`: `nosniff`, no framing by other sites, a strict referrer policy and a Content-Security-Policy. The policy only allows scripts, styles, images and connections from your own site, plus a Google Maps embed, and blocks plugins and eval in production. Inline scripts stay allowed because Next.js needs them and a nonce would end page caching. If you add an embed, analytics script or external image, extend the policy in `next.config.ts`; set `CSP_REPORT_ONLY=1` first to see what it would block without breaking anything.
 
 ## Scripts

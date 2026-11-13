@@ -6,7 +6,7 @@ import { headers } from 'next/headers'
 import { getAuth, MIN_PASSWORD_LENGTH } from '../auth'
 import { asRecord, Fields, run, UserError, ValidationError, type ActionResult } from '../result'
 import { getSessionUser, requireUser } from '../session'
-import { ACCOUNT_RULE, assertNotThrottled, clearFailures, clientAddress, CLIENT_RULE, recordFailure } from '../throttle'
+import { clearAttempts, guardSignIn } from '../throttle'
 import type { SessionUser } from '../types'
 import { updateUser } from '../users'
 
@@ -22,25 +22,20 @@ export async function signInAction(input: { email: string; password: string }): 
     const auth = await getAuth()
     const requestHeaders = await headers()
     const normalized = (email as string).toLowerCase()
-    const accountKey = `login:email:${normalized}`
-    const clientKey = `login:ip:${clientAddress(requestHeaders)}`
-    // Locked out? Say so before checking the password, so a guess cannot succeed during the lockout.
-    await assertNotThrottled(accountKey, ACCOUNT_RULE)
-    await assertNotThrottled(clientKey, CLIENT_RULE)
+    // Counts this attempt before the password is checked (atomically), and refuses it when the
+    // email or the client is locked out, so a guess cannot succeed during a lockout.
+    const { accountKey } = await guardSignIn(normalized, requestHeaders)
     try {
       const result = await auth.api.signInEmail({
         body: { email: normalized, password: password as string },
         headers: requestHeaders,
       })
-      await clearFailures(accountKey)
+      await clearAttempts(accountKey)
       const user = result.user as { id: string; email: string; name: string; role?: string | null }
       return { id: user.id, email: user.email, name: user.name, role: user.role === 'admin' ? 'admin' : 'editor' } as SessionUser
     } catch (error) {
-      if (error instanceof APIError) {
-        await Promise.all([recordFailure(accountKey, ACCOUNT_RULE), recordFailure(clientKey, CLIENT_RULE)])
-        // Same message for a wrong password, an unknown email and a disabled account.
-        throw new UserError('Incorrect email or password.')
-      }
+      // Same message for a wrong password, an unknown email and a disabled account.
+      if (error instanceof APIError) throw new UserError('Incorrect email or password.')
       throw error
     }
   })
