@@ -32,7 +32,7 @@ function HeaderActions({ pageId, slug, status, data }: { pageId: number; slug: s
   return (
     <div className="editor-actions">
       {message && <span className={message.ok ? 'editor-msg' : 'editor-msg editor-msg-error'}>{message.text}</span>}
-      <a href={`/admin/collections/pages/${pageId}`}>Page settings</a>
+      <a href={`/admin/pages/${pageId}`}>Page settings</a>
       {status === 'published' && (
         <a href={livePath} target="_blank" rel="noreferrer">
           View live

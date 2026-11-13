@@ -1,4 +1,3 @@
-import { RichText } from '@payloadcms/richtext-lexical/react'
 import type { Metadata } from 'next'
 import Image from 'next/image'
 import Link from 'next/link'
@@ -43,7 +42,7 @@ export default async function PetPage({ params }: Args) {
   const [pet, settings] = await Promise.all([getPetBySlug(slug), getSettings()])
   if (!pet) notFound()
 
-  const photos = (pet.photos ?? []).map(mediaOf).filter((m): m is NonNullable<ReturnType<typeof mediaOf>> => Boolean(m))
+  const photos = pet.photos.map(mediaOf).filter((m): m is NonNullable<ReturnType<typeof mediaOf>> => Boolean(m))
   const adopted = pet.status === 'adopted'
 
   const facts: [string, string | null | undefined][] = [
@@ -92,7 +91,12 @@ export default async function PetPage({ params }: Args) {
 
             {pet.description && (
               <div className="prose">
-                <RichText data={pet.description} />
+                {/* Plain text: a blank line starts a new paragraph. React escapes it, so it cannot inject markup. */}
+                {pet.description.split(/\n{2,}/).map((paragraph, i) => (
+                  <p key={i} className="pre-line">
+                    {paragraph}
+                  </p>
+                ))}
               </div>
             )}
 

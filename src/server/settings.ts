@@ -1,0 +1,183 @@
+// Site settings: one row that holds the brand, theme, contact details and menu.
+import { eq } from 'drizzle-orm'
+
+import { getDatabase } from '@/db/client'
+import type * as S from '@/db/schema/sqlite'
+import { validateLink, validateWebUrl } from '@/lib/links'
+import { SOCIAL_PLATFORMS } from '@/lib/options'
+import { safeRevalidate } from '@/lib/revalidate'
+import {
+  BUTTON_OPTIONS,
+  DENSITY_OPTIONS,
+  FONT_OPTIONS,
+  PRESET_OPTIONS,
+  RADIUS_OPTIONS,
+  SHADOW_OPTIONS,
+  TEXT_SIZE_OPTIONS,
+  contrastProblem,
+  validateHexColor,
+  type Mode,
+  type ThemeSettings,
+} from '@/lib/theme'
+import { normalizePhone } from '@/lib/whatsapp'
+
+import { getMediaByIds } from './media'
+import { asRecord, Fields, ValidationError, type FieldErrors } from './result'
+import type { SiteSetting } from './types'
+
+type SettingsRow = typeof S.siteSettings.$inferSelect
+
+const SETTINGS_ID = 1
+
+export const DEFAULT_SETTINGS: SiteSetting = {
+  id: 0,
+  siteName: 'Pet Adopt',
+  tagline: 'Find your new best friend',
+  logo: null,
+  primaryColor: null,
+  theme: 'sunrise',
+  allowModeToggle: true,
+  customize: false,
+  customTheme: null,
+  whatsappNumber: null,
+  whatsappMessage: "Hi! I'm interested in adopting {pet}.",
+  address: null,
+  openingHours: null,
+  socials: [],
+  nav: [],
+  footerText: null,
+  updatedAt: null,
+}
+
+function toSettings(row: SettingsRow, logo: SiteSetting['logo']): SiteSetting {
+  return {
+    id: row.id,
+    siteName: row.siteName,
+    tagline: row.tagline,
+    logo,
+    primaryColor: row.primaryColor,
+    theme: row.theme,
+    allowModeToggle: row.allowModeToggle,
+    customize: row.customize,
+    customTheme: (row.customTheme as SiteSetting['customTheme']) ?? null,
+    whatsappNumber: row.whatsappNumber,
+    whatsappMessage: row.whatsappMessage,
+    address: row.address,
+    openingHours: row.openingHours,
+    socials: row.socials ?? [],
+    nav: row.nav ?? [],
+    footerText: row.footerText,
+    updatedAt: row.updatedAt,
+  }
+}
+
+export async function getSettings(): Promise<SiteSetting> {
+  const { db, t } = await getDatabase()
+  const [row] = await db.select().from(t.siteSettings).where(eq(t.siteSettings.id, SETTINGS_ID)).limit(1)
+  if (!row) return DEFAULT_SETTINGS
+  const logo = row.logoId ? ((await getMediaByIds([row.logoId])).get(row.logoId) ?? null) : null
+  return toSettings(row, logo)
+}
+
+const COLOR_KEYS = ['primary', 'background', 'surface', 'text', 'tint'] as const
+
+function parseColors(raw: unknown, path: string, errors: FieldErrors) {
+  const f = new Fields(asRecord(raw))
+  const colors: Record<string, string | null> = {}
+  for (const key of COLOR_KEYS) {
+    const value = f.text(key, 9, { validate: (s) => validateHexColor(s) })
+    if (value !== undefined) colors[key] = value
+  }
+  for (const [key, message] of Object.entries(f.errors)) errors[`${path}.${key}`] = message
+  return colors
+}
+
+function parseCustomTheme(raw: unknown, errors: FieldErrors): ThemeSettings['customTheme'] {
+  const input = asRecord(raw)
+  const f = new Fields(input)
+  const theme = {
+    headingFont: f.oneOf('headingFont', FONT_OPTIONS),
+    bodyFont: f.oneOf('bodyFont', FONT_OPTIONS),
+    radius: f.oneOf('radius', RADIUS_OPTIONS),
+    button: f.oneOf('button', BUTTON_OPTIONS),
+    shadow: f.oneOf('shadow', SHADOW_OPTIONS),
+    density: f.oneOf('density', DENSITY_OPTIONS),
+    textSize: f.oneOf('textSize', TEXT_SIZE_OPTIONS),
+    light: parseColors(input.light, 'customTheme.light', errors),
+    dark: parseColors(input.dark, 'customTheme.dark', errors),
+  }
+  for (const [key, message] of Object.entries(f.errors)) errors[`customTheme.${key}`] = message
+  return theme
+}
+
+/** Admin only (checked by the caller). Keys that are left out stay as they are. */
+export async function updateSettings(raw: unknown): Promise<SiteSetting> {
+  const input = asRecord(raw)
+  const f = new Fields(input)
+  const v: Partial<typeof S.siteSettings.$inferInsert> = {}
+  const put = <K extends keyof typeof v>(key: K, value: (typeof v)[K] | undefined) => {
+    if (value !== undefined) v[key] = value
+  }
+
+  put('siteName', f.requiredText('siteName', 80))
+  put('tagline', f.text('tagline', 160))
+  put('logoId', f.id('logoId'))
+  put('primaryColor', f.text('primaryColor', 9, { validate: (s) => validateHexColor(s) }))
+  put('theme', f.oneOf('theme', PRESET_OPTIONS) ?? undefined)
+  put('allowModeToggle', f.flag('allowModeToggle'))
+  put('customize', f.flag('customize'))
+  put(
+    'whatsappNumber',
+    f.text('whatsappNumber', 40, { validate: (s) => normalizePhone(s) !== '' || 'Enter a valid number, for example +60 12-345 6789.' }),
+  )
+  put('whatsappMessage', f.text('whatsappMessage', 300))
+  put('address', f.text('address', 500))
+  put('openingHours', f.text('openingHours', 500))
+  put('footerText', f.text('footerText', 500))
+
+  const errors: FieldErrors = { ...f.errors }
+
+  if (input.customTheme !== undefined) {
+    v.customTheme = input.customTheme === null ? null : parseCustomTheme(input.customTheme, errors)
+    // Text must stay readable on the background and on cards, in each mode.
+    if (v.customTheme) {
+      for (const mode of ['light', 'dark'] as Mode[]) {
+        const problem = contrastProblem({ customize: true, customTheme: v.customTheme }, mode)
+        if (problem) errors[`customTheme.${mode}.text`] ??= problem
+      }
+    }
+  }
+
+  const list = (key: string) => (input[key] === undefined ? undefined : Array.isArray(input[key]) ? (input[key] as unknown[]) : null)
+  const socials = list('socials')
+  if (socials === null) errors.socials = 'Must be a list.'
+  else if (socials) {
+    v.socials = socials.map((item, i) => {
+      const row = new Fields(asRecord(item), true)
+      const platform = row.oneOf('platform', SOCIAL_PLATFORMS, { required: true })
+      const url = row.requiredText('url', 300, { validate: (s) => validateWebUrl(s) })
+      for (const [key, message] of Object.entries(row.errors)) errors[`socials.${i}.${key}`] = message
+      return { platform: platform ?? '', url: url ?? '' }
+    })
+  }
+  const nav = list('nav')
+  if (nav === null) errors.nav = 'Must be a list.'
+  else if (nav) {
+    v.nav = nav.map((item, i) => {
+      const row = new Fields(asRecord(item), true)
+      const label = row.requiredText('label', 40)
+      const href = row.requiredText('href', 300, { validate: (s) => validateLink(s) })
+      for (const [key, message] of Object.entries(row.errors)) errors[`nav.${i}.${key}`] = message
+      return { label: label ?? '', href: href ?? '' }
+    })
+  }
+
+  if (Object.keys(errors).length) throw new ValidationError(errors)
+  if (v.logoId && !(await getMediaByIds([v.logoId])).has(v.logoId)) throw new ValidationError({ logoId: 'That image no longer exists.' })
+
+  const { db, t } = await getDatabase()
+  await db.insert(t.siteSettings).values({ id: SETTINGS_ID }).onConflictDoNothing()
+  await db.update(t.siteSettings).set({ ...v, updatedAt: new Date() }).where(eq(t.siteSettings.id, SETTINGS_ID))
+  safeRevalidate([['/', 'layout']])
+  return getSettings()
+}

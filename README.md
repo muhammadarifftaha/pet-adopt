@@ -7,10 +7,10 @@ Visitors browse a catalog and contact you on **WhatsApp** or social media. There
 - **Catalog and pet pages:** filterable by species, age, sex, size, status and location. Filters live in the URL, so any search can be shared.
 - **WhatsApp-first:** every pet page has a click-to-chat button with a prefilled message.
 - **Page builder:** the homepage and any extra page (About, FAQ, Events...) are composed from built-in blocks with [Puck](https://puckeditor.com).
-- **Owner admin:** pets, photos, pages and site settings are managed in [Payload CMS](https://payloadcms.com).
+- **Owner admin:** pets, photos, pages, users and site settings are managed in the built-in admin at `/admin`, backed by this project's own database and sign-in (no outside service).
 - **Fast and SEO-friendly:** server-rendered, cached pages, Open Graph previews for WhatsApp and Instagram shares.
 
-Built with Next.js, Payload CMS and Puck. All MIT-licensed.
+Built with Next.js, Drizzle ORM, Better Auth, shadcn/ui and Puck. All MIT-licensed.
 
 ## Quick start
 
@@ -27,7 +27,7 @@ pnpm dev
 
 Open <http://localhost:3000>.
 
-Local development uses a SQLite file (`pet-adopt.db`), so there is nothing else to install. Set `PAYLOAD_SECRET` in `.env` to a long random string (`openssl rand -hex 32`). It is required in production and optional in development.
+Local development uses a SQLite file (`pet-adopt.db`), so there is nothing else to install. SQLite creates and migrates its own schema on first start. Set `BETTER_AUTH_SECRET` in `.env` to a long random string (`openssl rand -hex 32`). It is required in production and optional in development.
 
 ### The first owner account
 
@@ -40,7 +40,7 @@ SEED_ADMIN_PASSWORD=choose-a-long-password
 
 On startup, if no user exists yet, the server creates that owner for you. It never changes a password or brings back an account you deleted. Use at least 12 characters: in production a shorter password stops the server from starting.
 
-If you leave them unset, the first person to open <http://localhost:3000/admin> gets to create the owner account. That is fine on your own machine, but on a public deployment someone else could get there first, so always set both variables when deploying.
+There is no public sign-up. If you leave these unset, create the first account with `pnpm seed` (after setting them) or by running the server once with them set; always set both variables when deploying, so nobody else can claim the site first. More accounts are added by an admin in the Users screen.
 
 ## How it works
 
@@ -50,7 +50,9 @@ If you leave them unset, the first person to open <http://localhost:3000/admin> 
 | `/pets` | Catalog with filters and pagination (fixed route) |
 | `/pets/[slug]` | Pet page with photos, details and WhatsApp button (fixed route) |
 | `/[slug]` | Any page you build, such as `/about` |
-| `/admin` | Payload admin: Pets, Pages, Media, Users, Site settings |
+| `/admin` | Owner admin: Pets, Pages, Media, Users, Site settings (screens listed in [`ADMIN_UI.md`](ADMIN_UI.md)) |
+| `/media/[file]` | Uploaded images, served from local disk or S3 |
+| `/api/auth/*` | Sign-in endpoints (Better Auth). Sign-up and its admin endpoints are switched off |
 | `/edit/[id]` | Puck page builder for one page (owners only) |
 | `/health` | Liveness check for hosting platforms |
 
@@ -105,7 +107,7 @@ Fonts are bundled with the site (served from your own domain, not from Google), 
 
 Everything lives in [`src/lib/theme.ts`](src/lib/theme.ts). A preset is four base colours per mode plus its shape settings; every other colour (muted text, borders, highlights, badges, link colour) is derived from those, so a new preset is one entry in `PRESETS`. The result is written into the page as CSS variables by `ThemeStyle`, and [`styles.css`](src/app/(frontend)/styles.css) only reads those variables, so components never hard-code colours, radii or shadows. Use the variables in new CSS (`var(--surface)`, `var(--radius)`, `var(--shadow-card)`, `var(--primary-text)` for text in the brand colour, and so on).
 
-To add a font: `pnpm add @fontsource-variable/<name>`, import its `index.css` in [`fonts.ts`](src/app/(frontend)/fonts.ts), and add an entry to `FONTS`. After changing the preset list or the settings fields, run `pnpm generate:types` and `pnpm migrate:create <name>`.
+To add a font: `pnpm add @fontsource-variable/<name>`, import its `index.css` in [`fonts.ts`](src/app/(frontend)/fonts.ts), and add an entry to `FONTS`. After adding a settings field, add the column to both schema files and run `pnpm db:generate` (see Production).
 
 ## Adding your own block
 
@@ -116,30 +118,30 @@ Keep `render` functions free of hooks and browser-only code: the same components
 ## Production
 
 1. **Use PostgreSQL.** Set `DATABASE_URL=postgres://...` (Neon, Supabase, your own server). `docker compose up -d` starts a local one for testing; it only listens on `127.0.0.1`, and you can change its password with `POSTGRES_PASSWORD`. SQLite needs a persistent disk, so it only suits a single VPS. On a pooled connection (Neon, Supabase), use the pooler URL and set `DB_POOL_MAX` low (1 to 3) on serverless hosts.
-2. **Run migrations.** With PostgreSQL the schema is never changed automatically; SQLite pushes its own schema in development.
+2. **Run migrations.** With PostgreSQL the schema is never changed automatically; SQLite applies pending migrations itself when the app opens it.
    ```bash
-   pnpm migrate:create   # after changing collections; commit the generated files in src/migrations
-   pnpm migrate          # on every deploy, before starting the app
+   pnpm db:generate      # after changing the schema; commit the new files in drizzle/
+   pnpm migrate          # on every deploy, before starting the app (PostgreSQL)
    ```
-   Migrations are per database, so they are generated and applied against PostgreSQL only. The initial one is already committed in `src/migrations`, so a new database only needs `pnpm migrate`. Whenever you change a collection or global, run `pnpm migrate:create <name>` against a Postgres database and commit the new files, or the production schema will fall behind your code.
+   There are two schema files, [`src/db/schema/sqlite.ts`](src/db/schema/sqlite.ts) and [`src/db/schema/pg.ts`](src/db/schema/pg.ts), because Drizzle's SQLite and Postgres table types differ. Change both, run `pnpm db:generate` (it writes `drizzle/sqlite` and `drizzle/pg`), and `pnpm check:schemas` fails if they drift apart. The data code in `src/server` is written once and runs on both databases; `pnpm check:backend` runs it end to end against a throwaway database, on SQLite or Postgres (instructions in the script header). A new database only needs `pnpm migrate`.
 3. **Set the required variables.** In production the server refuses to start without them:
-   - `PAYLOAD_SECRET`: at least 32 random characters (`openssl rand -hex 32`).
+   - `BETTER_AUTH_SECRET`: at least 32 random characters (`openssl rand -hex 32`).
    - `NEXT_PUBLIC_SERVER_URL`: your public URL, such as `https://adopt.example.com`. It is also the only origin allowed to make signed-in requests, so use the exact address visitors and owners use.
    - `SEED_ADMIN_EMAIL` and `SEED_ADMIN_PASSWORD`: so the first owner exists before anyone can reach `/admin` (see above).
-4. **Store uploads somewhere durable.** Without configuration, uploads are written to `./media`, which suits a VPS or a Docker volume. On serverless platforms (Vercel and similar) set the `S3_*` variables for S3, Cloudflare R2 or MinIO. If `S3_BUCKET` is set, the access key and secret are required too, and `S3_REGION` must be a real region for AWS S3 (`auto` is for R2).
+4. **Store uploads somewhere durable.** Without configuration, uploads are written to `./media` (change it with `UPLOAD_DIR`), which suits a VPS or a Docker volume. Visitors always load images through this site's `/media` route, never from the bucket. On serverless platforms (Vercel and similar) set the `S3_*` variables for S3, Cloudflare R2 or MinIO. If `S3_BUCKET` is set, the access key and secret are required too, and `S3_REGION` must be a real region for AWS S3 (`auto` is for R2).
 5. `pnpm build && pnpm start`
 
 Pages are cached and refresh immediately when you publish; they also revalidate every 60 seconds.
 
 ### Security defaults
 
-- Visitors can only read published pages and pet and media data. Everything else needs a login, with a five-attempt lockout and two-hour sessions. Editors cannot touch users or site settings (see Users and roles). Session cookies are HTTPS-only in production.
-- GraphQL is turned off. REST requests are limited to a nesting depth of 3.
+- Visitors can only read published pages and listed pets. Everything else needs a login, with a five-attempt lockout per email (ten minutes) and two-hour sessions. Editors cannot touch users or site settings (see Users and roles). Session cookies are HTTP-only, and HTTPS-only in production. Sign-in requests from other origins are refused.
+- There is no public API: the admin talks to the server through server actions, and Better Auth's sign-up and user-management endpoints are switched off.
 - Uploads must be JPEG, PNG, WebP, AVIF or GIF, up to 10 MB. SVG is blocked because it can carry script.
 - Social and menu links are checked when saved, and rendered through a safe-link filter that blocks `javascript:` and `data:` URLs.
 - The last admin account cannot be deleted or demoted, and an image still used by a pet or page cannot be deleted.
-- There is no per-IP rate limiting. Put one at your reverse proxy or CDN, especially for the login and password-reset endpoints.
-- Security headers are set in `next.config.ts`: `nosniff`, no framing by other sites, a strict referrer policy and a Content-Security-Policy. The policy only allows scripts, styles, images and connections from your own site, plus a Google Maps embed, and blocks plugins and eval in production. Inline scripts stay allowed because Next.js and Payload need them and a nonce would end page caching. If you add an embed, analytics script or external image, extend the policy in `next.config.ts`; set `CSP_REPORT_ONLY=1` first to see what it would block without breaking anything.
+- Failed sign-ins are throttled per email and per client address, but the address comes from `X-Forwarded-For`, so run the site behind a proxy you control. For heavier protection add rate limiting at your reverse proxy or CDN.
+- Security headers are set in `next.config.ts`: `nosniff`, no framing by other sites, a strict referrer policy and a Content-Security-Policy. The policy only allows scripts, styles, images and connections from your own site, plus a Google Maps embed, and blocks plugins and eval in production. Inline scripts stay allowed because Next.js needs them and a nonce would end page caching. If you add an embed, analytics script or external image, extend the policy in `next.config.ts`; set `CSP_REPORT_ONLY=1` first to see what it would block without breaking anything.
 
 ## Scripts
 
@@ -148,16 +150,17 @@ Pages are cached and refresh immediately when you publish; they also revalidate 
 | `pnpm dev` | Development server |
 | `pnpm build` / `pnpm start` | Production build and server |
 | `pnpm seed` | Sample content. Safe to re-run, leaves a real site alone, and refuses to run in production without `SEED_FORCE=1`. The owner account comes from `SEED_ADMIN_*` on startup |
-| `pnpm migrate:create` / `pnpm migrate` | Create and apply PostgreSQL migrations |
+| `pnpm db:generate` | Generate SQL migrations for both databases after changing the schema |
+| `pnpm migrate` | Apply pending migrations (needed for PostgreSQL; SQLite does it itself) |
+| `pnpm check:schemas` | Fail if the SQLite and Postgres schemas have drifted apart |
+| `pnpm check:backend` | End-to-end backend check against a throwaway database (see the script header) |
 | `pnpm typecheck` / `pnpm lint` | Static checks |
-| `pnpm generate:types` | Regenerate `src/payload-types.ts` after changing collections |
-| `pnpm generate:importmap` | Regenerate the admin import map after adding admin components |
 
 ## Known limitations
 
 - The page builder preview renders inside the page (not an iframe), so it uses the real site styles and theme (always in light mode) but does not emulate mobile breakpoints. Check mobile and dark mode on the live page.
 - Pages are single-level (`/about`, not `/about/team`).
-- The slug `home` is the homepage, and `admin`, `api`, `edit`, `health` and `pets` are reserved.
+- The slug `home` is the homepage, and `admin`, `api`, `edit`, `health`, `media` and `pets` are reserved.
 - Photos cannot be SVG. Convert them to PNG or WebP first.
 
 ## Contributing

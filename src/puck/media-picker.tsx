@@ -2,13 +2,15 @@
 
 import React, { useCallback, useState } from 'react'
 
+import { listMediaAction, uploadMediaAction } from '@/server/actions/media'
+
 import type { MediaValue } from './types'
 
 type MediaDoc = {
   id: number | string
   url: string
   alt: string
-  sizes?: { thumbnail?: { url?: string | null } }
+  thumbnailUrl?: string
 }
 
 const toValue = (doc: MediaDoc): NonNullable<MediaValue> => ({ id: doc.id, url: doc.url, alt: doc.alt || '' })
@@ -34,10 +36,9 @@ export function MediaPicker({
     setLoading(true)
     setError(null)
     try {
-      const res = await fetch('/api/media?limit=60&sort=-createdAt&depth=0')
-      if (!res.ok) throw new Error('Could not load the media library.')
-      const json = (await res.json()) as { docs: MediaDoc[] }
-      setItems(json.docs)
+      const result = await listMediaAction({ limit: 60 })
+      if (!result.ok) throw new Error(result.error)
+      setItems(result.data.docs)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not load the media library.')
     } finally {
@@ -61,11 +62,10 @@ export function MediaPicker({
     try {
       const form = new FormData()
       form.append('file', file)
-      form.append('_payload', JSON.stringify({ alt: alt.trim() }))
-      const res = await fetch('/api/media', { method: 'POST', body: form, credentials: 'same-origin' })
-      const json = (await res.json()) as { doc?: MediaDoc; errors?: { message: string }[] }
-      if (!res.ok || !json.doc) throw new Error(json.errors?.[0]?.message || 'Upload failed.')
-      onChange(toValue(json.doc))
+      form.append('alt', alt.trim())
+      const result = await uploadMediaAction(form)
+      if (!result.ok) throw new Error(result.fieldErrors?.file || result.fieldErrors?.alt || result.error)
+      onChange(toValue(result.data))
       setAlt('')
       setOpen(false)
     } catch (e) {
@@ -126,7 +126,7 @@ export function MediaPicker({
                   }}
                 >
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={doc.sizes?.thumbnail?.url || doc.url} alt={doc.alt} />
+                  <img src={doc.thumbnailUrl || doc.url} alt={doc.alt} />
                 </button>
               ))}
               {!items.length && <p>No uploads yet. Add one above.</p>}
