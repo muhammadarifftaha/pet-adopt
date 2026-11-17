@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    name: Typecheck, lint and backend checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      # A throwaway SQLite database and upload folder, never a real site.
+      DATABASE_URL: file:./ci-check.db
+      UPLOAD_DIR: ./ci-uploads
+      SEED_ADMIN_EMAIL: owner@example.test
+      SEED_ADMIN_PASSWORD: owner-password-123
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm typecheck
+      - run: pnpm lint
+      - run: pnpm check:schemas
+      - run: pnpm check:backend
+      - run: pnpm build
