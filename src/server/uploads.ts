@@ -1,14 +1,15 @@
-// Turning an uploaded file into a media record: check it really is a raster image, re-encode it
-// (which drops EXIF, so a phone photo's GPS position never gets published), store it with a random
-// name, make a small preview, and save the row.
+// Turning an uploaded file into a media record: check it really is a raster image, remove its
+// metadata (EXIF with the GPS position of a phone photo, comments, embedded thumbnails) WITHOUT
+// touching the pixels, store it with a random name, make a small preview, and save the row.
 import { randomBytes } from 'node:crypto'
 
-import sharp, { type Metadata, type Sharp } from 'sharp'
+import sharp, { type Metadata } from 'sharp'
 
 import { createMediaRow, deleteMediaRow } from './media'
 import { thumbnailFilename } from './media-url'
 import { describeError, ValidationError } from './result'
 import { getStorage, type Storage } from './storage'
+import { StripError, stripMetadata } from './strip-metadata'
 import type { MediaItem } from './types'
 
 export const MAX_UPLOAD_BYTES = 10_000_000
@@ -21,7 +22,7 @@ const MAX_FRAMES = 100
 // Image work is CPU and memory heavy; keep it from taking over a small server.
 sharp.concurrency(2)
 
-type Kind = { ext: string; mime: string; encode: (pipeline: Sharp) => Sharp }
+type Kind = { ext: 'jpg' | 'png' | 'webp' | 'gif' | 'avif'; mime: string }
 
 // Decided from the file's actual contents, not its name or the browser's claim.
 // No SVG: an uploaded SVG can carry script and would run on the site's own origin.
@@ -29,16 +30,16 @@ type Kind = { ext: string; mime: string; encode: (pipeline: Sharp) => Sharp }
 function kindOf(meta: Metadata): Kind | undefined {
   switch (meta.format) {
     case 'jpeg':
-      return { ext: 'jpg', mime: 'image/jpeg', encode: (p) => p.jpeg({ quality: 90, mozjpeg: true }) }
+      return { ext: 'jpg', mime: 'image/jpeg' }
     case 'png':
-      return { ext: 'png', mime: 'image/png', encode: (p) => p.png({ compressionLevel: 9 }) }
+      return { ext: 'png', mime: 'image/png' }
     case 'webp':
-      return { ext: 'webp', mime: 'image/webp', encode: (p) => p.webp({ quality: 90 }) }
+      return { ext: 'webp', mime: 'image/webp' }
     case 'gif':
-      return { ext: 'gif', mime: 'image/gif', encode: (p) => p.gif() }
+      return { ext: 'gif', mime: 'image/gif' }
     case 'heif':
       // sharp reports AVIF as "heif" with AV1 compression; HEIC is the same container with HEVC.
-      return meta.compression === 'av1' ? { ext: 'avif', mime: 'image/avif', encode: (p) => p.avif({ quality: 60 }) } : undefined
+      return meta.compression === 'av1' ? { ext: 'avif', mime: 'image/avif' } : undefined
     default:
       return undefined
   }
@@ -73,23 +74,39 @@ export async function saveUpload(input: { data: Buffer; alt: string }): Promise<
   }
   if (frames > MAX_FRAMES) throw new ValidationError({ file: `The animation has too many frames (up to ${MAX_FRAMES}).` })
 
+  // AVIF keeps its metadata inside the same offset tables as the picture, so it cannot be cut out
+  // without rewriting the file. One with none is stored as it is; one with some is not accepted
+  // rather than recompressed, because a recompressed adoption photo is a worse adoption photo.
+  if (kind.ext === 'avif' && (meta.exif || meta.xmp || meta.iptc)) {
+    throw new ValidationError({
+      file: 'This AVIF image contains camera or location data that cannot be removed without recompressing it. Save it as a JPEG, PNG or WebP and upload that instead.',
+    })
+  }
+
   let clean: Buffer
-  let width: number
-  let height: number
   let preview: Buffer
   try {
-    // Re-encoding applies the camera's rotation and drops every metadata block (EXIF with GPS and
-    // device details, XMP, comments) and anything appended after the image data.
-    const result = await kind
-      .encode(sharp(input.data, { limitInputPixels: MAX_PIXELS, animated: frames > 1, failOn: 'error' }).rotate())
-      .toBuffer({ resolveWithObject: true })
-    clean = result.data
-    width = result.info.width
-    height = frames > 1 ? (meta.pageHeight ?? result.info.height) : result.info.height
-    preview = await sharp(clean).resize(320, 240, { fit: 'cover' }).webp({ quality: 75 }).toBuffer()
-  } catch {
+    // The pixels are never decoded or re-encoded: the file's pieces that show the picture are
+    // copied across byte for byte and the metadata pieces are left out.
+    clean = kind.ext === 'avif' ? input.data : stripMetadata(kind.ext, input.data)
+    // Fail closed. If the result is not the same picture, the upload is refused: storing the
+    // original instead would publish the metadata this exists to remove.
+    const after = await sharp(clean, { limitInputPixels: MAX_PIXELS }).metadata()
+    if (after.format !== meta.format || after.width !== meta.width || after.height !== meta.height || (after.pages ?? 1) !== frames) {
+      throw new StripError('the cleaned file is not the same picture')
+    }
+    // The preview is a small WebP of the (rotated) first frame; it carries no metadata of its own.
+    preview = await sharp(clean, { limitInputPixels: MAX_PIXELS }).rotate().resize(320, 240, { fit: 'cover' }).webp({ quality: 75 }).toBuffer()
+  } catch (error) {
+    if (!(error instanceof StripError)) console.warn(`Could not process an upload: ${describeError(error)}`)
     throw new ValidationError({ file: 'This image could not be processed. Try saving it again as a JPEG or PNG.' })
   }
+
+  // The size people see: a photo stored sideways with an orientation tag is shown upright.
+  const sideways = (meta.orientation ?? 1) >= 5
+  const frameHeight = frames > 1 ? (meta.pageHeight ?? meta.height) : meta.height
+  const width = sideways ? frameHeight : meta.width
+  const height = sideways ? meta.width : frameHeight
 
   const filename = `${randomBytes(16).toString('hex')}.${kind.ext}`
   const thumbnail = thumbnailFilename(filename)

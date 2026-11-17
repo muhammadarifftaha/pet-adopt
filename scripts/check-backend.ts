@@ -10,6 +10,8 @@
 // It creates accounts, pets and pages, so never point it at a real site.
 import { APIError } from 'better-auth/api'
 import { eq, sql } from 'drizzle-orm'
+import zlib from 'node:zlib'
+
 import sharp from 'sharp'
 
 import { closeDatabase, getDatabase } from '../src/db/client'
@@ -583,6 +585,97 @@ await check('uploads: AVIF is accepted, EXIF is stripped from the stored file, o
   ok((await fieldErrors(saveUpload({ data: huge, alt: 'huge' }))).file, 'more than 40 megapixels is refused')
   await removeUpload(avif.id)
   await removeUpload(jpeg.id)
+})
+
+await check('metadata is cut out WITHOUT touching the pixels (JPEG, PNG, WebP, GIF); orientation is kept; bad files are refused', async () => {
+  const storage = await getStorage()
+  const put = async (data: Buffer, alt: string) => {
+    const media = await saveUpload({ data, alt })
+    const file = await storage.get(media.filename)
+    ok(file, 'the file was stored')
+    return { media, body: file!.body }
+  }
+  // Decoded pixels, with no rotation applied: equal buffers mean not one pixel changed.
+  const pixels = async (data: Buffer) => sharp(data, { animated: true }).raw().toBuffer()
+  const noise = { create: { width: 160, height: 120, channels: 3 as const, background: '#888', noise: { type: 'gaussian' as const, mean: 128, sigma: 40 } } }
+  const secrets = (body: Buffer, words: string[]) => words.filter((word) => body.includes(Buffer.from(word)))
+  const made: number[] = []
+
+  // JPEG: EXIF with text, orientation 6 (a phone photo taken upright is stored sideways), a comment
+  // segment, and a payload hidden after the end of the image.
+  const exifJpeg = await sharp(noise)
+    .withMetadata({ orientation: 6, exif: { IFD0: { Copyright: 'secret-owner', Software: 'camera-app' } } })
+    .jpeg({ quality: 92 })
+    .toBuffer()
+  ok((await sharp(exifJpeg).metadata()).exif, 'the test photo really carries EXIF')
+  const text = Buffer.from('comment-secret')
+  const comment = Buffer.concat([Buffer.from([0xff, 0xfe, (text.length + 2) >> 8, (text.length + 2) & 255]), text])
+  const jpegFile = Buffer.concat([exifJpeg.subarray(0, 2), comment, exifJpeg.subarray(2), Buffer.from('TRAILING-SECRET-PAYLOAD')])
+  ok(secrets(jpegFile, ['secret-owner', 'camera-app', 'comment-secret', 'TRAILING-SECRET']).length === 4, 'precondition: the JPEG upload really contains all four secrets')
+  const jpeg = await put(jpegFile, 'A sideways phone photo')
+  made.push(jpeg.media.id)
+  ok(secrets(jpeg.body, ['secret-owner', 'camera-app', 'comment-secret', 'TRAILING-SECRET']).length === 0, 'no metadata text survives in the JPEG')
+  ok((await pixels(jpegFile)).equals(await pixels(jpeg.body)), 'JPEG pixels are identical to the upload')
+  const jpegMeta = await sharp(jpeg.body).metadata()
+  ok(jpegMeta.orientation === 6, `the orientation is kept so the photo stays upright, got ${jpegMeta.orientation}`)
+  ok((jpegMeta.exif?.length ?? 0) < 60, `the EXIF block holds only the orientation (${jpegMeta.exif?.length} bytes)`)
+  ok(jpeg.body.length < jpegFile.length, 'and the file got smaller, not bigger')
+  ok(jpeg.media.width === 120 && jpeg.media.height === 160, `stored size is the upright size, got ${jpeg.media.width}x${jpeg.media.height}`)
+
+  // PNG: a text chunk with a "comment", and bytes after the end chunk.
+  const crc = (data: Buffer) => {
+    const out = Buffer.alloc(4)
+    out.writeUInt32BE(zlib.crc32(data) >>> 0)
+    return out
+  }
+  const chunk = (type: string, data: Buffer) => {
+    const length = Buffer.alloc(4)
+    length.writeUInt32BE(data.length)
+    const body = Buffer.concat([Buffer.from(type, 'latin1'), data])
+    return Buffer.concat([length, body, crc(body)])
+  }
+  const png0 = await sharp(noise).png().toBuffer()
+  const pngFile = Buffer.concat([png0.subarray(0, 33), chunk('tEXt', Buffer.from('Comment\0png-secret')), png0.subarray(33), Buffer.from('PNG-TRAILING-SECRET')])
+  ok(secrets(pngFile, ['png-secret', 'PNG-TRAILING']).length === 2, 'precondition: the PNG upload really contains both secrets')
+  const png = await put(pngFile, 'A PNG with a text chunk')
+  made.push(png.media.id)
+  ok(secrets(png.body, ['png-secret', 'PNG-TRAILING']).length === 0, 'no metadata text survives in the PNG')
+  ok((await pixels(pngFile)).equals(await pixels(png.body)), 'PNG pixels are identical to the upload')
+
+  // GIF: a comment block and bytes after the trailer.
+  const gif0 = await sharp(noise).gif().toBuffer()
+  const at = 13 + (gif0[10] & 0x80 ? 3 * (1 << ((gif0[10] & 7) + 1)) : 0)
+  const note = Buffer.from('gif-secret')
+  const gifFile = Buffer.concat([gif0.subarray(0, at), Buffer.from([0x21, 0xfe, note.length]), note, Buffer.from([0]), gif0.subarray(at), Buffer.from('GIF-TRAILING-SECRET')])
+  ok(secrets(gifFile, ['gif-secret', 'GIF-TRAILING']).length === 2, 'precondition: the GIF upload really contains both secrets')
+  const gif = await put(gifFile, 'A GIF with a comment')
+  made.push(gif.media.id)
+  ok(secrets(gif.body, ['gif-secret', 'GIF-TRAILING']).length === 0, 'no metadata text survives in the GIF')
+  ok((await pixels(gifFile)).equals(await pixels(gif.body)), 'GIF pixels are identical to the upload')
+
+  // WebP with EXIF text.
+  const webpFile = await sharp(noise).withMetadata({ exif: { IFD0: { Copyright: 'webp-secret' } } }).webp({ quality: 90 }).toBuffer()
+  if ((await sharp(webpFile).metadata()).exif) {
+    ok(secrets(webpFile, ['webp-secret']).length === 1, 'precondition: the WebP upload really contains the secret')
+    const webp = await put(webpFile, 'A WebP with EXIF')
+    made.push(webp.media.id)
+    ok(secrets(webp.body, ['webp-secret']).length === 0, 'no metadata text survives in the WebP')
+    ok((await pixels(webpFile)).equals(await pixels(webp.body)), 'WebP pixels are identical to the upload')
+    ok(!(await sharp(webp.body).metadata()).exif, 'and it has no EXIF block (orientation 1 needs none)')
+  } else {
+    console.log('      (this sharp build did not write EXIF into the test WebP; skipped)')
+  }
+
+  // AVIF with metadata cannot be cut out safely, so it is refused instead of recompressed.
+  const avifFile = await sharp(noise).withMetadata({ exif: { IFD0: { Copyright: 'avif-secret' } } }).avif().toBuffer()
+  if ((await sharp(avifFile).metadata()).exif) {
+    ok((await fieldErrors(saveUpload({ data: avifFile, alt: 'AVIF with EXIF' }))).file, 'an AVIF with metadata is refused')
+  }
+
+  // A file the stripper cannot walk to the end is refused, never stored with its metadata.
+  const broken = exifJpeg.subarray(0, exifJpeg.length - 30)
+  ok((await fieldErrors(saveUpload({ data: broken, alt: 'Truncated JPEG' }))).file, 'a truncated JPEG is refused')
+  for (const id of made) await removeUpload(id)
 })
 
 await check('an image placed inside a page layout counts as in use', async () => {
