@@ -8,8 +8,12 @@ import type { SessionUser } from './types'
 
 /** The signed-in person, or null. Looked up once per request. */
 export const getSessionUser = cache(async (): Promise<SessionUser | null> => {
+  // Read the request headers FIRST. That tells Next this render depends on the request, so during
+  // `next build` the page is skipped instead of prerendered. Opening the database before this line
+  // made a build with a missing SQLite file fail with SQLITE_CANTOPEN.
+  const requestHeaders = await headers()
   const auth = await getAuth()
-  const session = await auth.api.getSession({ headers: await headers() })
+  const session = await auth.api.getSession({ headers: requestHeaders })
   if (!session?.user) return null
   const { id, email, name, role } = session.user as { id: string; email: string; name: string; role?: string | null }
   return { id, email, name, role: role === 'admin' ? 'admin' : 'editor' }
