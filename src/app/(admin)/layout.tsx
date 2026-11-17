@@ -1,0 +1,50 @@
+import type { Metadata } from "next";
+import { redirect } from "next/navigation";
+import React from "react";
+
+import { ThemeStyle } from "@/components/site/ThemeStyle";
+import { getSettings } from "@/lib/queries";
+import { getSessionUser } from "@/server/session";
+
+// Tailwind and the shadcn tokens, bridged to the site theme (see the notes in globals.css).
+import "../globals.css";
+// Self-hosted fonts. The theme decides which one is used.
+import "../(frontend)/fonts";
+// Do NOT import ../(frontend)/styles.css here: it is unlayered plain CSS, so it would beat
+// Tailwind's utilities (for example the link colour) and fight with the shadcn components.
+
+export const metadata: Metadata = {
+  title: { default: "Admin", template: "%s | Admin" },
+  // The admin is for the owners only.
+  robots: { index: false, follow: false },
+};
+
+export default async function AdminRootLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  // Everything under (admin) is for signed-in owners. The sign-in page lives in the separate (auth)
+  // group, so this cannot loop. Each action still checks the session itself: this guard only
+  // keeps signed-out visitors from seeing the screens. (A layout cannot read the current path, so
+  // the sign-in form cannot know where the person was headed; it goes to /admin afterwards.)
+  const user = await getSessionUser();
+  if (!user) redirect("/admin/login");
+
+  const settings = await getSettings();
+  return (
+    // suppressHydrationWarning: a small script may set data-mode on <html> (the owner's saved
+    // light/dark choice) before React hydrates, exactly like the public layout.
+    <html lang="en" suppressHydrationWarning>
+      <head>
+        {/* Writes the theme's CSS variables (--bg, --ink, --primary ...) that globals.css maps
+            shadcn's colours onto, plus the light/dark pre-paint script. */}
+        <ThemeStyle settings={settings} />
+      </head>
+      {/* The page background, text colour and font come from the shadcn tokens, which follow the theme. */}
+      <body className="min-h-screen bg-background font-sans text-foreground antialiased">
+        {children}
+      </body>
+    </html>
+  );
+}

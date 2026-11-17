@@ -73,4 +73,4 @@ export const labelFor = (options: readonly Option[], value?: string | null) =>
   options.find((o) => o.value === value)?.label ?? value ?? ''
 
 // Slugs that belong to fixed routes and therefore can't be used for builder pages.
-export const RESERVED_SLUGS = ['admin', 'api', 'edit', 'health', 'pets', '_next']
+export const RESERVED_SLUGS = ['admin', 'api', 'edit', 'health', 'media', 'pets', '_next']

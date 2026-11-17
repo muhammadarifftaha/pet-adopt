@@ -1,13 +1,13 @@
 import type { Data } from '@puckeditor/core'
 import type { Metadata } from 'next'
-import { headers } from 'next/headers'
 import { notFound, redirect } from 'next/navigation'
 import React from 'react'
 
-import { getPayloadClient } from '@/lib/payload'
 import { getSettings } from '@/lib/queries'
 import { EMPTY_DATA, isPuckData } from '@/puck/data'
 import { toSiteMeta } from '@/puck/server'
+import { getPageById } from '@/server/pages'
+import { getSessionUser } from '@/server/session'
 
 import { PageEditor } from './PageEditor'
 
@@ -19,24 +19,23 @@ export default async function EditPage({ params }: { params: Promise<{ id: strin
   const pageId = Number(id)
   if (!Number.isInteger(pageId)) notFound()
 
-  const payload = await getPayloadClient()
-  const { user } = await payload.auth({ headers: await headers() })
+  const user = await getSessionUser()
   if (!user) redirect(`/admin/login?redirect=${encodeURIComponent(`/edit/${pageId}`)}`)
 
-  const page = await payload
-    .findByID({ collection: 'pages', id: pageId, draft: true, depth: 0, user, overrideAccess: false })
-    .catch(() => null)
+  const page = await getPageById(pageId)
   if (!page) notFound()
 
   const settings = await getSettings()
-  const initialData: Data = isPuckData(page.puckData) ? page.puckData : EMPTY_DATA
+  // The builder always opens the latest draft; a page that was never edited starts from what is live.
+  const initialData: Data = isPuckData(page.puckDraft) ? page.puckDraft : isPuckData(page.puckPublished) ? page.puckPublished : EMPTY_DATA
 
   return (
     <PageEditor
       pageId={page.id}
       title={page.title}
       slug={page.slug}
-      status={page._status === 'published' ? 'published' : 'draft'}
+      status={page.status}
+      version={page.updatedAt.getTime()}
       initialData={initialData}
       site={toSiteMeta(settings)}
     />

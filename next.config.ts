@@ -1,4 +1,3 @@
-import { withPayload } from '@payloadcms/next/withPayload'
 import type { NextConfig } from 'next'
 import path from 'path'
 import { fileURLToPath } from 'url'
@@ -9,12 +8,12 @@ const dirname = path.dirname(__filename)
 const isDev = process.env.NODE_ENV !== 'production'
 const siteURL = (process.env.NEXT_PUBLIC_SERVER_URL ?? '').trim()
 
-// Content-Security-Policy for the public site, the Payload admin and the page builder.
-//  - Inline scripts stay allowed: Next.js and Payload both emit inline bootstrap scripts, and a
+// Content-Security-Policy for the public site, the admin and the page builder.
+//  - Inline scripts stay allowed: Next.js emits inline bootstrap scripts, and a
 //    nonce would force every page to render per request, which ends the page caching.
 //    Everything else is locked down: no other script origins, no eval in production, no plugins,
 //    no framing by other sites, forms and <base> only to this site.
-//  - Images come from this site (uploads are served through /api/media), plus data:/blob: for
+//  - Images come from this site (uploads are served through /media), plus data:/blob: for
 //    previews in the admin.
 //  - The only thing that may be embedded is a Google Maps embed (see safeMapEmbed in lib/links.ts).
 //  - Development also needs eval (React refresh) and websockets (hot reload).
@@ -36,10 +35,17 @@ const contentSecurityPolicy = [
 ].join('; ')
 
 const nextConfig: NextConfig = {
+  // Native database drivers and sharp must be loaded from node_modules at runtime, not bundled.
+  serverExternalPackages: ['better-sqlite3', 'pg', 'sharp'],
+  experimental: {
+    // Uploads go through server actions; the app allows images up to 10 MB.
+    serverActions: { bodySizeLimit: '11mb' },
+  },
   images: {
     localPatterns: [
       {
-        pathname: '/api/media/file/**',
+        // Uploaded images are served by src/app/media/[...path]/route.ts.
+        pathname: '/media/**',
       },
     ],
   },
@@ -61,18 +67,9 @@ const nextConfig: NextConfig = {
       },
     ]
   },
-  webpack: (webpackConfig) => {
-    webpackConfig.resolve.extensionAlias = {
-      '.cjs': ['.cts', '.cjs'],
-      '.js': ['.ts', '.tsx', '.js', '.jsx'],
-      '.mjs': ['.mts', '.mjs'],
-    }
-
-    return webpackConfig
-  },
   turbopack: {
     root: path.resolve(dirname),
   },
 }
 
-export default withPayload(nextConfig, { devBundleServerPackages: false })
+export default nextConfig

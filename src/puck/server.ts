@@ -1,5 +1,5 @@
 import { getSettings, queryPetCards } from '@/lib/queries'
-import type { SiteSetting } from '@/payload-types'
+import type { SiteSetting } from '@/server/types'
 
 import type { PuckSiteMetadata } from './types'
 
