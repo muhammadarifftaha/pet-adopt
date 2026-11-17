@@ -9,14 +9,26 @@
 //
 // It creates accounts, pets and pages, so never point it at a real site.
 import { APIError } from 'better-auth/api'
-import { eq } from 'drizzle-orm'
+import { eq, sql } from 'drizzle-orm'
 import sharp from 'sharp'
 
 import { closeDatabase, getDatabase } from '../src/db/client'
+import { safeHref, validateHttpsUrl } from '../src/lib/links'
 import { getAuth } from '../src/server/auth'
-import { getPublishedPage, listPages, publishPage, saveDraft, savePageDetails, unpublishPage } from '../src/server/pages'
+import { listMedia } from '../src/server/media'
+import {
+  deletePage,
+  getPageById,
+  getPublishedPage,
+  listPages,
+  publishPage,
+  saveDraft,
+  savePageDetails,
+  unpublishPage,
+} from '../src/server/pages'
 import { deletePet, getLocationOptions, getPetById, getPetBySlug, queryPets, savePet } from '../src/server/pets'
-import { ValidationError, UserError, describeError } from '../src/server/result'
+import { Fields, ValidationError, UserError, assertId, describeError } from '../src/server/result'
+import { getStorage } from '../src/server/storage'
 import { getSettings, updateSettings } from '../src/server/settings'
 import {
   PAIR_RULE,
@@ -442,8 +454,176 @@ await check('HTTP route: change-password shares the per-user limit; sign-in need
   ok((await call('sign-in/email', '{nope')).status === 400, 'invalid JSON')
   ok((await call('sign-in/email', { password: 'x' })).status === 400, 'missing email')
   ok((await call('sign-in/social', {})).status === 404, 'other sign-in methods are closed')
+  // Only the endpoints the app uses are open; everything else Better Auth ships is closed, including
+  // ones that would skip this app's validation (update-user) or the last-admin rule (admin/*).
+  for (const path of ['update-user', 'list-sessions', 'revoke-sessions', 'sign-up/email', 'request-password-reset', 'admin/set-role', 'change-email']) {
+    ok((await call(path, {}, { cookie })).status === 404, `${path} must be closed`)
+  }
+  const { GET } = await import('../src/app/api/auth/[...all]/route')
+  const session = await GET(new Request('http://localhost:3000/api/auth/get-session', { headers: { cookie } }))
+  ok(session.status === 200, 'get-session stays open')
   const { db, t } = await getDatabase()
   await db.delete(t.rateLimits)
+})
+
+await check('input parsing: numbers, ids, flags, dates and control characters are strict', async () => {
+  const num = (value: unknown) => {
+    const f = new Fields({ n: value })
+    return { value: f.number('n', { min: 0 }), error: f.errors.n }
+  }
+  ok(num(' ').value === null && !num(' ').error, 'whitespace-only is blank, not zero')
+  ok(num('12.50').value === 12.5 && num(7).value === 7, 'plain numbers')
+  for (const bad of ['0x10', '1e3', '--1', [5], true, {}, NaN, Infinity, -1, 1e12]) ok(num(bad).error, `should reject ${String(bad)}`)
+  ok(Object.is(num(-0).value, 0), 'negative zero is stored as 0')
+
+  const id = (value: unknown) => {
+    const f = new Fields({ i: value })
+    return { value: f.id('i'), error: f.errors.i }
+  }
+  ok(id('12').value === 12 && id(12).value === 12, 'ids')
+  for (const bad of [true, [1], '1e2', '0', 0, -3, 1.5, 99_999_999_999, 'abc', {}]) ok(id(bad).error, `should reject id ${String(bad)}`)
+  const list = new Fields({ x: [1, '2', 2] }).ids('x', { min: 1, max: 3 })
+  ok(JSON.stringify(list) === '[1,2]', `ids dedupe and coerce: ${JSON.stringify(list)}`)
+
+  const flag = (value: unknown) => {
+    const f = new Fields({ b: value })
+    return { value: f.flag('b'), error: f.errors.b }
+  }
+  ok(flag(true).value === true && flag('false').value === false && flag('true').value === true, 'booleans and the words')
+  for (const bad of [0, 1, 'yes', [], {}, 'False ']) ok(flag(bad).error, `"${String(bad)}" must not become a boolean`)
+
+  const date = (value: unknown) => {
+    const f = new Fields({ d: value })
+    return { value: f.date('d'), error: f.errors.d }
+  }
+  ok(date('2026-02-28').value === '2026-02-28' && date('2024-02-29').value === '2024-02-29', 'real dates, leap day included')
+  for (const bad of ['2026-02-31', '2025-02-29', '2026-13-01', '26-1-1', 5]) ok(date(bad).error, `${String(bad)} is not a date`)
+
+  const text = new Fields({ t: 'a\u0000b\u0007c\td\ne' }).text('t', 50)
+  ok(text === 'abc\td\ne', `control characters go, tabs and line breaks stay: ${JSON.stringify(text)}`)
+
+  ok(assertId('5') === 5, 'a digit string is an id')
+  for (const bad of ['x', 0, 2 ** 40, null, {}, '1e2']) {
+    ok(/not found/i.test(await userError((async () => assertId(bad))())), `assertId must refuse ${String(bad)}`)
+  }
+})
+
+await check('links: a path cannot hide a host behind control characters; video links must be https', async () => {
+  ok(safeHref('/pets') === '/pets' && safeHref('/pets?x=1#y') === '/pets?x=1#y', 'normal paths')
+  for (const bad of ['/\t/evil.example', '/\n/evil.example', '//evil.example', '/\\evil.example', 'javascript:alert(1)', '/a\u0000b']) {
+    ok(safeHref(bad) === '#', `${JSON.stringify(bad)} must be refused`)
+  }
+  ok(validateHttpsUrl('https://youtu.be/x') === true && validateHttpsUrl('') === true, 'https and blank are fine')
+  ok(validateHttpsUrl('http://youtu.be/x') !== true, 'http is refused')
+})
+
+await check('search is case-insensitive and Unicode-aware; hostile page numbers are clamped', async () => {
+  const m = await saveUpload({ data: png, alt: 'Orange Square on Sofa' })
+  ok((await listMedia({ search: 'orange square' })).docs.some((x) => x.id === m.id), 'a lower-case term finds mixed-case alt text')
+  ok((await listMedia({ search: 'SOFA' })).docs.some((x) => x.id === m.id), 'an upper-case term does too')
+  const paris = await savePet(null, { name: 'Parisienne', photoIds: [m.id], location: 'Île-de-France' })
+  // PostgreSQL folds accents according to the database's locale; SQLite is made to fold them.
+  let folds = true
+  if (dialect === 'pg') {
+    const rows = await (db as unknown as { execute: (q: unknown) => Promise<{ rows: Array<{ v: string }> }> }).execute(sql`select lower('Î') as v`)
+    folds = rows.rows[0].v === 'î'
+  }
+  if (folds) {
+    ok((await queryPets({ location: 'île' })).docs.some((p) => p.id === paris.id), 'accented lower-case search')
+    ok((await queryPets({ location: 'ÎLE-DE' })).docs.some((p) => p.id === paris.id), 'accented upper-case search')
+  } else {
+    console.log('      (this PostgreSQL database uses a locale that does not fold accents; skipped)')
+  }
+  for (const page of [1e20, NaN, -5, Infinity, '9'.repeat(30) as unknown as number]) {
+    const result = await queryPets({ page })
+    ok(result.page >= 1 && result.page <= 10_000, `page ${String(page)} must be clamped, got ${result.page}`)
+  }
+  ok((await listMedia({ page: NaN })).page === 1, 'a NaN media page becomes 1')
+  await deletePet(paris.id)
+  await removeUpload(m.id)
+})
+
+await check('pets: clearing city and state clears the derived location; http videos refused; same-name creates race safely', async () => {
+  const m = await saveUpload({ data: png, alt: 'Pet photo' })
+  const derived = await savePet(null, { name: 'Ipoh Cat', photoIds: [m.id], city: 'Ipoh', state: 'Perak' })
+  ok((await getPetById(derived.id))!.location === 'Ipoh, Perak', 'location built from city and state')
+  await savePet(derived.id, { city: '', state: '' })
+  ok((await getPetById(derived.id))!.location === null, 'the derived location goes when both are cleared')
+  const legacy = await savePet(null, { name: 'Legacy Cat', photoIds: [m.id], location: 'Somewhere typed' })
+  await savePet(legacy.id, { city: '', state: '' })
+  ok((await getPetById(legacy.id))!.location === 'Somewhere typed', 'a location typed by hand is its own')
+  ok((await fieldErrors(savePet(legacy.id, { videoUrl: 'http://video.example/x' }))).videoUrl, 'an http video link is refused')
+  await savePet(legacy.id, { videoUrl: 'https://video.example/x' })
+  // Two owners saving the same name at the same moment: both must succeed, with different addresses.
+  const [a, b] = await Promise.all([
+    savePet(null, { name: 'Racer', photoIds: [m.id] }),
+    savePet(null, { name: 'Racer', photoIds: [m.id] }),
+  ])
+  ok(a.slug !== b.slug && a.slug.startsWith('racer') && b.slug.startsWith('racer'), `slugs ${a.slug} and ${b.slug}`)
+  for (const pet of [derived, legacy, a, b]) await deletePet(pet.id)
+  await removeUpload(m.id)
+})
+
+await check('uploads: AVIF is accepted, EXIF is stripped from the stored file, oversized images are refused', async () => {
+  const base = { create: { width: 64, height: 48, channels: 3 as const, background: '#f60' } }
+  const avif = await saveUpload({ data: await sharp(base).avif().toBuffer(), alt: 'An AVIF image' })
+  ok(avif.mimeType === 'image/avif' && avif.url.endsWith('.avif'), `AVIF stored as ${avif.mimeType} ${avif.url}`)
+
+  const photo = await sharp(base).withExif({ IFD0: { Copyright: 'secret-owner', Software: 'camera-app' } }).jpeg().toBuffer()
+  ok((await sharp(photo).metadata()).exif, 'the test photo really carries EXIF')
+  const jpeg = await saveUpload({ data: photo, alt: 'A photo' })
+  const stored = await (await getStorage()).get(jpeg.filename)
+  ok(stored, 'the file was stored')
+  ok(!(await sharp(stored!.body).metadata()).exif, 'the stored file has no EXIF block')
+  ok(!stored!.body.includes(Buffer.from('secret-owner')), 'and none of its text')
+
+  const wide = await sharp({ create: { width: 13_000, height: 10, channels: 3, background: '#000' } }).png().toBuffer()
+  ok((await fieldErrors(saveUpload({ data: wide, alt: 'wide' }))).file, 'a 13000 pixel side is refused')
+  const huge = await sharp({ create: { width: 6_500, height: 6_500, channels: 3, background: '#000' } }).png().toBuffer()
+  ok((await fieldErrors(saveUpload({ data: huge, alt: 'huge' }))).file, 'more than 40 megapixels is refused')
+  await removeUpload(avif.id)
+  await removeUpload(jpeg.id)
+})
+
+await check('an image placed inside a page layout counts as in use', async () => {
+  const m = await saveUpload({ data: png, alt: 'In a hero block' })
+  const page = await savePageDetails(null, { title: 'Layout use', slug: 'layout-use' })
+  const layout = { root: { props: {} }, zones: {}, content: [{ type: 'Hero', props: { id: 'h', image: { id: m.id, url: m.url, alt: 'In a hero block' } } }] }
+  await publishPage(page.id, layout)
+  ok(/page layout/.test(await userError(removeUpload(m.id))), 'refused while a layout uses it')
+  await deletePage(page.id)
+  await removeUpload(m.id)
+})
+
+await check('pages: stale saves are refused, publish copies the stored draft, bad layouts and NULs are handled', async () => {
+  const page = await savePageDetails(null, { title: 'Versions', slug: 'versions' })
+  const layout = (heading: string) => ({ root: { props: {} }, zones: {}, content: [{ type: 'TextSection', props: { id: 'a', heading } }] })
+  const opened = (await getPageById(page.id))!.updatedAt.getTime()
+  const saved = await saveDraft(page.id, layout('one'), opened)
+  ok(/changed somewhere else/.test(await userError(saveDraft(page.id, layout('stale'), opened))), 'a stale base is refused')
+  const second = await saveDraft(page.id, layout('two'), saved.version)
+  ok(/changed somewhere else/.test(await userError(publishPage(page.id, undefined, saved.version))), 'publishing from a stale base is refused')
+  await publishPage(page.id, undefined, second.version)
+  const live = (await getPublishedPage('versions'))!.puckData as { content: Array<{ props: { heading: string } }> }
+  ok(live.content[0].props.heading === 'two', 'publishing copied the stored draft')
+  ok(/not found/i.test(await userError(saveDraft(999_999, layout('x')))), 'a missing page')
+  const empty = await savePageDetails(null, { title: 'Empty', slug: 'empty-page' })
+  ok(/no layout/i.test(await userError(publishPage(empty.id))), 'nothing to publish yet')
+
+  const bad: unknown[] = [
+    { content: [{ type: 'Hero', props: 'x' }] },
+    { content: [{ type: 'Hero' }] },
+    { content: [], root: 5 },
+    { content: [], zones: { a: 'nope' } },
+    layout('x'.repeat(1_100_000)),
+  ]
+  for (const data of bad) ok(/invalid/.test(await userError(saveDraft(page.id, data))), 'a malformed or oversized layout is refused')
+
+  await saveDraft(page.id, layout('a\u0000b'))
+  const draft = (await getPageById(page.id))!.puckDraft as { content: Array<{ props: { heading: string } }> }
+  ok(draft.content[0].props.heading === 'ab', 'a NUL is removed before it can break the save')
+  await deletePage(page.id)
+  await deletePage(empty.id)
 })
 
 // FK enforcement is on (SQLite needs a pragma)

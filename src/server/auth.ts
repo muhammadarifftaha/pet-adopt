@@ -30,6 +30,15 @@ function resolveSecret(): string {
   return secret || DEV_SECRET
 }
 
+/**
+ * Throws, in production, when the signing secret is missing or weak. Called at server start
+ * (src/instrumentation.ts) so a bad deploy fails loudly there instead of answering every sign-in
+ * with an error. The site URL is checked when this module loads.
+ */
+export function assertAuthConfig() {
+  resolveSecret()
+}
+
 // Public URL of the site. Browsers may only send cookie-authenticated requests from here.
 const siteURL = (process.env.NEXT_PUBLIC_SERVER_URL ?? '').trim().replace(/\/+$/, '')
 if (enforce && !siteURL) {

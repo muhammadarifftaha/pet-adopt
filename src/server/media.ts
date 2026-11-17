@@ -1,11 +1,12 @@
 // Media rows. The files themselves are handled by src/server/uploads.ts.
-import { and, count, desc, eq, inArray, like } from 'drizzle-orm'
+import { count, desc, eq, inArray, sql } from 'drizzle-orm'
 
 import { getDatabase } from '@/db/client'
 import type * as S from '@/db/schema/sqlite'
+import { safeRevalidate } from '@/lib/revalidate'
 
 import { mediaUrl, thumbnailFilename } from './media-url'
-import { UserError } from './result'
+import { isForeignKeyViolation, UserError } from './result'
 import type { MediaItem } from './types'
 
 export type MediaRow = typeof S.media.$inferSelect
@@ -26,12 +27,16 @@ export function toMedia(row: MediaRow): MediaItem {
   }
 }
 
+/** A page number from outside: a whole number from 1 to 10000, whatever was sent. */
+const pageNumber = (value: unknown) => Math.min(Math.max(Math.floor(Number(value)) || 1, 1), 10_000)
+
 export async function listMedia(opts: { page?: number; limit?: number; search?: string } = {}) {
   const { db, t } = await getDatabase()
-  const limit = Math.min(Math.max(opts.limit ?? 24, 1), 100)
-  const page = Math.max(opts.page ?? 1, 1)
+  const limit = Math.min(Math.max(Math.floor(Number(opts.limit)) || 24, 1), 100)
+  const page = pageNumber(opts.page)
   const term = opts.search?.replace(/[%_\\]/g, '').trim().toLowerCase()
-  const where = term ? like(t.media.alt, `%${term}%`) : undefined
+  // lower() on both sides: LIKE ignores case on SQLite but not on PostgreSQL.
+  const where = term ? sql`lower(${t.media.alt}) like ${`%${term}%`}` : undefined
   const [rows, [{ total }]] = await Promise.all([
     db.select().from(t.media).where(where).orderBy(desc(t.media.createdAt), desc(t.media.id)).limit(limit).offset((page - 1) * limit),
     db.select({ total: count() }).from(t.media).where(where),
@@ -78,6 +83,8 @@ export async function updateMediaAlt(id: number, alt: string): Promise<MediaItem
   const { db, t } = await getDatabase()
   const [row] = await db.update(t.media).set({ alt: text, updatedAt: new Date() }).where(eq(t.media.id, id)).returning()
   if (!row) throw new UserError('Image not found.')
+  // The alt text is printed on every page that shows the image.
+  safeRevalidate([['/', 'layout']])
   return toMedia(row)
 }
 
@@ -85,13 +92,23 @@ export async function updateMediaAlt(id: number, alt: string): Promise<MediaItem
 export async function mediaUsage(id: number) {
   const { db, t } = await getDatabase()
   const one = async (query: Promise<Array<{ n: number }>>) => (await query)[0]?.n ?? 0
-  const [petPhotos, petShares, pages, logo] = await Promise.all([
+  const [petPhotos, petShares, pages, logo, [row]] = await Promise.all([
     one(db.select({ n: count() }).from(t.petPhotos).where(eq(t.petPhotos.mediaId, id))),
     one(db.select({ n: count() }).from(t.pets).where(eq(t.pets.seoImageId, id))),
     one(db.select({ n: count() }).from(t.pages).where(eq(t.pages.seoImageId, id))),
     one(db.select({ n: count() }).from(t.siteSettings).where(eq(t.siteSettings.logoId, id))),
+    db.select({ filename: t.media.filename }).from(t.media).where(eq(t.media.id, id)).limit(1),
   ])
-  return { pets: petPhotos + petShares, pages, logo: logo > 0 }
+
+  // Images placed in a page layout (a Hero or Gallery block) are saved inline in the layout JSON,
+  // not as references the database can see. Their file name is random and unique, so finding it in
+  // the JSON text finds exactly the pages that use it.
+  let layouts = 0
+  if (row) {
+    const rows = await db.select({ draft: t.pages.puckDraft, published: t.pages.puckPublished }).from(t.pages)
+    layouts = rows.filter((page) => JSON.stringify([page.draft, page.published]).includes(row.filename)).length
+  }
+  return { pets: petPhotos + petShares, pages, logo: logo > 0, layouts }
 }
 
 /** Deletes the row and returns its filename so the caller can remove the stored files. */
@@ -100,14 +117,22 @@ export async function deleteMediaRow(id: number): Promise<string> {
   const [row] = await db.select().from(t.media).where(eq(t.media.id, id)).limit(1)
   if (!row) throw new UserError('Image not found.')
   const usage = await mediaUsage(id)
-  if (usage.pets + usage.pages > 0 || usage.logo) {
+  const stillUsed = () => {
     const where = [
       usage.pets ? `${usage.pets} pet(s)` : '',
       usage.pages ? `${usage.pages} page(s)` : '',
+      usage.layouts ? `${usage.layouts} page layout(s)` : '',
       usage.logo ? 'the site logo' : '',
     ].filter(Boolean)
-    throw new UserError(`This image is still used by ${where.join(' and ')}. Replace it there first.`)
+    return new UserError(`This image is still used by ${where.join(' and ') || 'something else'}. Replace it there first.`)
   }
-  await db.delete(t.media).where(and(eq(t.media.id, id)))
+  if (usage.pets + usage.pages + usage.layouts > 0 || usage.logo) throw stillUsed()
+  try {
+    await db.delete(t.media).where(eq(t.media.id, id))
+  } catch (error) {
+    // A pet claimed the image between the check above and the delete: the database refused.
+    if (isForeignKeyViolation(error)) throw stillUsed()
+    throw error
+  }
   return row.filename
 }

@@ -4,36 +4,41 @@ import type { Data } from '@puckeditor/core'
 
 import { queryPetCards, type PetCardData, type PetFilters } from '@/lib/queries'
 import { publishPage, saveDraft } from '@/server/pages'
-import { toFailure } from '@/server/result'
+import { assertId, toFailure } from '@/server/result'
 import { requireUser } from '@/server/session'
 
-type Result = { ok: true; message: string } | { ok: false; message: string }
+// `version` is the page's `updatedAt` in milliseconds. The builder sends the last one it received
+// and gets the new one back, so a save from a stale tab is refused instead of overwriting.
+type Result = { ok: true; message: string; version: number } | { ok: false; message: string }
 
-async function persist(id: number, data: Data, publish: boolean): Promise<Result> {
+async function persist(id: number, data: Data, publish: boolean, baseVersion?: number): Promise<Result> {
   try {
     await requireUser()
-    if (publish) await publishPage(id, data)
-    else await saveDraft(id, data)
-    return { ok: true, message: publish ? 'Published. The live page is updated.' : 'Draft saved.' }
+    const pageId = assertId(id)
+    const base = typeof baseVersion === 'number' && Number.isFinite(baseVersion) ? baseVersion : undefined
+    const { version } = publish ? await publishPage(pageId, data, base) : await saveDraft(pageId, data, base)
+    return { ok: true, message: publish ? 'Published. The live page is updated.' : 'Draft saved.', version }
   } catch (error) {
     return { ok: false, message: toFailure(error).error }
   }
 }
 
-export async function saveDraftAction(id: number, data: Data): Promise<Result> {
-  return persist(id, data, false)
+export async function saveDraftAction(id: number, data: Data, baseVersion?: number): Promise<Result> {
+  return persist(id, data, false, baseVersion)
 }
 
-export async function publishAction(id: number, data: Data): Promise<Result> {
-  return persist(id, data, true)
+export async function publishAction(id: number, data: Data, baseVersion?: number): Promise<Result> {
+  return persist(id, data, true, baseVersion)
 }
 
 /** Live pets for the editor's pet grid preview. Public data, but inputs are clamped. */
 export async function fetchPetsAction(filters: PetFilters): Promise<PetCardData[]> {
+  // A client can send anything, including nothing.
+  const f = filters ?? {}
   return queryPetCards({
-    species: typeof filters.species === 'string' ? filters.species.slice(0, 20) : undefined,
-    status: typeof filters.status === 'string' ? filters.status.slice(0, 20) : undefined,
-    featuredOnly: Boolean(filters.featuredOnly),
-    limit: Math.min(Math.max(Number(filters.limit) || 8, 1), 24),
+    species: typeof f.species === 'string' ? f.species.slice(0, 20) : undefined,
+    status: typeof f.status === 'string' ? f.status.slice(0, 20) : undefined,
+    featuredOnly: Boolean(f.featuredOnly),
+    limit: Math.min(Math.max(Number(f.limit) || 8, 1), 24),
   })
 }

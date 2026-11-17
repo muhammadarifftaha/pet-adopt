@@ -9,14 +9,16 @@ const CHANGE_PASSWORD = '/api/auth/change-password'
 /** A sign-in body is two short strings. Anything bigger is not a sign-in. */
 const MAX_SIGN_IN_BODY = 10_000
 
-// Better Auth's own /admin/* endpoints (set role, remove user, impersonate...) are switched off.
-// Everything of that kind goes through src/server/users.ts, which keeps the last admin safe.
-// Only email sign-in exists, so other /sign-in/* methods are closed too.
+// Only the endpoints this app uses are open. Better Auth ships many more (update-user, set role,
+// remove user, impersonate, list or revoke sessions, change email, password reset...), and several
+// of them skip the validation and the last-admin protection in src/server/users.ts. A list of what
+// is closed would miss the next one a Better Auth upgrade or plugin adds; a list of what is open
+// cannot. Everything else is done through server actions.
+const ALLOWED = new Set([SIGN_IN, CHANGE_PASSWORD, '/api/auth/sign-out', '/api/auth/get-session'])
+
 async function handle(request: Request) {
   const { pathname } = new URL(request.url)
-  if (pathname.startsWith('/api/auth/admin/') || (pathname.startsWith('/api/auth/sign-in/') && pathname !== SIGN_IN)) {
-    return new Response('Not found', { status: 404 })
-  }
+  if (!ALLOWED.has(pathname)) return new Response('Not found', { status: 404 })
 
   const auth = await getAuth()
 

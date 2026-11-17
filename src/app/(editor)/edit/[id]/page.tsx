@@ -35,6 +35,7 @@ export default async function EditPage({ params }: { params: Promise<{ id: strin
       title={page.title}
       slug={page.slug}
       status={page.status}
+      version={page.updatedAt.getTime()}
       initialData={initialData}
       site={toSiteMeta(settings)}
     />

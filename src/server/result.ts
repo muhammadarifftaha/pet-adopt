@@ -96,6 +96,25 @@ export async function run<T>(fn: () => Promise<T>): Promise<ActionResult<T>> {
   }
 }
 
+/** Control characters except tab, line feed and carriage return. */
+const CONTROL_CHARS = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g
+
+/** The largest id a 32-bit integer column can hold. Anything above cannot be a real row. */
+const MAX_ID = 2_147_483_647
+
+/** A database id: a whole number from 1 up, as a number or a string of digits. Anything else is null. */
+function toId(value: unknown): number | null {
+  const n = typeof value === 'number' ? value : typeof value === 'string' && /^\d+$/.test(value.trim()) ? Number(value.trim()) : NaN
+  return Number.isSafeInteger(n) && n > 0 && n <= MAX_ID ? n : null
+}
+
+/** For action arguments: an id from the client is untrusted. Throws "not found" for anything that cannot be one. */
+export function assertId(value: unknown): number {
+  const id = toId(value)
+  if (id === null) throw new UserError('Not found.')
+  return id
+}
+
 export const asRecord = (value: unknown): Record<string, unknown> =>
   value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {}
 
@@ -135,7 +154,9 @@ export class Fields {
     if (value === undefined) return undefined
     if (value === null) return null
     if (typeof value !== 'string') return this.fail(key, 'Must be text.')
-    let text = value.trim()
+    // Control characters (a NUL breaks writes on PostgreSQL) never belong in owner-entered text.
+    // Tabs and line breaks are kept: descriptions and addresses use them.
+    let text = value.replace(CONTROL_CHARS, '').trim()
     if (opts.collapse) text = text.replace(/\s+/g, ' ')
     if (!text) return null
     if (text.length > max) return this.fail(key, `Use at most ${max} characters.`)
@@ -159,9 +180,14 @@ export class Fields {
     return value
   }
 
+  /** A true/false switch. Only real booleans, or the words "true" and "false", are accepted: "false" must not become true. */
   flag(key: string) {
     const value = this.raw[key]
-    return value === undefined ? undefined : Boolean(value)
+    if (value === undefined) return undefined
+    if (typeof value === 'boolean') return value
+    if (value === 'true') return true
+    if (value === 'false') return false
+    return this.fail(key, 'Must be true or false.')
   }
 
   list(key: string, options: readonly Option[]) {
@@ -174,14 +200,27 @@ export class Fields {
     return [...new Set(value as string[])]
   }
 
-  number(key: string, opts: { min?: number } = {}) {
+  /** A plain decimal number. Blank clears it. Hex, exponents, arrays and booleans are not numbers. */
+  number(key: string, opts: { min?: number; max?: number } = {}) {
     const value = this.raw[key]
     if (value === undefined) return undefined
-    if (value === null || value === '') return null
-    const n = typeof value === 'number' ? value : Number(value)
+    if (value === null) return null
+    let n: number
+    if (typeof value === 'number') {
+      n = value
+    } else if (typeof value === 'string') {
+      const text = value.trim()
+      if (!text) return null // whitespace-only is blank, not zero
+      if (!/^-?\d+(\.\d+)?$/.test(text)) return this.fail(key, 'Enter a number.')
+      n = Number(text)
+    } else {
+      return this.fail(key, 'Enter a number.')
+    }
     if (!Number.isFinite(n)) return this.fail(key, 'Enter a number.')
     if (opts.min !== undefined && n < opts.min) return this.fail(key, `Must be ${opts.min} or more.`)
-    return n
+    const max = opts.max ?? 1_000_000_000
+    if (n > max) return this.fail(key, `Must be ${max} or less.`)
+    return n === 0 ? 0 : n // no negative zero
   }
 
   /** A calendar date as YYYY-MM-DD. */
@@ -192,6 +231,8 @@ export class Fields {
     if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value) || Number.isNaN(Date.parse(value))) {
       return this.fail(key, 'Use the format YYYY-MM-DD.')
     }
+    // Date.parse rolls 2026-02-31 over to March; require that the date survives a round trip.
+    if (new Date(`${value}T00:00:00Z`).toISOString().slice(0, 10) !== value) return this.fail(key, 'That date does not exist.')
     return value
   }
 
@@ -200,16 +241,17 @@ export class Fields {
     const value = this.raw[key]
     if (value === undefined) return undefined
     if (value === null || value === '') return null
-    const n = Number(value)
-    return Number.isInteger(n) && n > 0 ? n : this.fail(key, 'Not a valid id.')
+    const id = toId(value)
+    return id === null ? this.fail(key, 'Not a valid id.') : id
   }
 
   ids(key: string, opts: { min?: number; max?: number } = {}) {
     const value = this.raw[key]
     if (value === undefined) return opts.min ? this.missing(key) : undefined
     if (!Array.isArray(value)) return this.fail(key, 'Must be a list.')
-    const ids = value.map(Number)
-    if (!ids.every((n) => Number.isInteger(n) && n > 0)) return this.fail(key, 'Not a valid list of ids.')
+    const parsed = value.map(toId)
+    if (parsed.some((id) => id === null)) return this.fail(key, 'Not a valid list of ids.')
+    const ids = parsed as number[]
     const unique = [...new Set(ids)]
     if (opts.min !== undefined && unique.length < opts.min) return this.fail(key, `Add at least ${opts.min}.`)
     if (opts.max !== undefined && unique.length > opts.max) return this.fail(key, `Add at most ${opts.max}.`)

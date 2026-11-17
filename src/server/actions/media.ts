@@ -1,7 +1,7 @@
 'use server'
 
 import { getMedia, listMedia, mediaUsage, updateMediaAlt } from '../media'
-import { run, UserError, ValidationError, type ActionResult } from '../result'
+import { assertId, run, ValidationError, type ActionResult } from '../result'
 import { requireUser } from '../session'
 import type { MediaItem } from '../types'
 import { removeUpload, saveUpload } from '../uploads'
@@ -17,8 +17,9 @@ export async function listMediaAction(opts: { page?: number; search?: string; li
 export async function getMediaAction(id: number): Promise<ActionResult<{ media: MediaItem; usage: Awaited<ReturnType<typeof mediaUsage>> } | null>> {
   return run(async () => {
     await requireUser()
-    const media = await getMedia(id)
-    return media ? { media, usage: await mediaUsage(id) } : null
+    const mediaId = assertId(id)
+    const media = await getMedia(mediaId)
+    return media ? { media, usage: await mediaUsage(mediaId) } : null
   })
 }
 
@@ -36,15 +37,14 @@ export async function uploadMediaAction(formData: FormData): Promise<ActionResul
 export async function updateMediaAltAction(id: number, alt: string): Promise<ActionResult<MediaItem>> {
   return run(async () => {
     await requireUser()
-    return updateMediaAlt(id, alt)
+    return updateMediaAlt(assertId(id), typeof alt === 'string' ? alt : '')
   })
 }
 
-/** Refused (with a message saying where it is used) while a pet, page or the logo uses the image. */
+/** Refused (with a message saying where it is used) while a pet, page layout or the logo uses the image. */
 export async function deleteMediaAction(id: number): Promise<ActionResult> {
   return run(async () => {
     await requireUser()
-    if (!Number.isInteger(id)) throw new UserError('Image not found.')
-    await removeUpload(id)
+    await removeUpload(assertId(id))
   })
 }

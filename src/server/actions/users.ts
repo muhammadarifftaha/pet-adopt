@@ -1,11 +1,17 @@
 'use server'
 
-import { run, type ActionResult } from '../result'
+import { run, UserError, type ActionResult } from '../result'
 import { requireAdmin } from '../session'
 import { createUser, deleteUser, listUsers, resetPassword, updateUser, type UserListItem } from '../users'
 
 // Everything here is for admins. Editors change only their own name and password
 // (updateProfileAction and changePasswordAction in ./auth).
+
+/** User ids are random strings made by Better Auth. Anything that cannot be one is simply not found. */
+const userId = (value: unknown): string => {
+  if (typeof value !== 'string' || !value || value.length > 64) throw new UserError('User not found.')
+  return value
+}
 
 export async function listUsersAction(): Promise<ActionResult<UserListItem[]>> {
   return run(async () => {
@@ -26,7 +32,7 @@ export async function createUserAction(input: unknown): Promise<ActionResult<{ i
 export async function updateUserAction(id: string, input: unknown): Promise<ActionResult> {
   return run(async () => {
     await requireAdmin()
-    await updateUser(id, input, { canChangeRole: true })
+    await updateUser(userId(id), input, { canChangeRole: true })
   })
 }
 
@@ -34,7 +40,7 @@ export async function updateUserAction(id: string, input: unknown): Promise<Acti
 export async function resetUserPasswordAction(id: string, input: unknown): Promise<ActionResult> {
   return run(async () => {
     await requireAdmin()
-    await resetPassword(id, input)
+    await resetPassword(userId(id), input)
   })
 }
 
@@ -42,6 +48,6 @@ export async function resetUserPasswordAction(id: string, input: unknown): Promi
 export async function deleteUserAction(id: string): Promise<ActionResult> {
   return run(async () => {
     await requireAdmin()
-    await deleteUser(id)
+    await deleteUser(userId(id))
   })
 }

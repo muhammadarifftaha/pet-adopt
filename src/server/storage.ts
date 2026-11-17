@@ -58,6 +58,9 @@ async function s3Storage(): Promise<Storage> {
     endpoint,
     forcePathStyle: Boolean(endpoint),
     credentials: accessKeyId && secretAccessKey ? { accessKeyId, secretAccessKey } : undefined,
+    // A stalled connection must not hang a request forever (the SDK retries a few times by default).
+    requestHandler: { requestTimeout: 15_000, connectionTimeout: 5_000 },
+    maxAttempts: 3,
   })
   return {
     async put(key, body, contentType) {
@@ -69,9 +72,12 @@ async function s3Storage(): Promise<Storage> {
       try {
         const result = await client.send(new GetObjectCommand({ Bucket: bucket, Key: key }))
         if (!result.Body) return null
-        return { body: Buffer.from(await result.Body.transformToByteArray()), contentType: result.ContentType }
+        const bytes = await result.Body.transformToByteArray()
+        // A view over the same memory, not a second copy.
+        return { body: Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength), contentType: result.ContentType }
       } catch (error) {
-        if ((error as { name?: string }).name === 'NoSuchKey') return null
+        const { name, $metadata } = error as { name?: string; $metadata?: { httpStatusCode?: number } }
+        if (name === 'NoSuchKey' || name === 'NotFound' || $metadata?.httpStatusCode === 404) return null
         throw error
       }
     },

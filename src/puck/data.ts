@@ -5,26 +5,66 @@ export const EMPTY_DATA: Data = { content: [], root: { props: {} }, zones: {} }
 /** Props that are filled in at render time and must never be saved into the page JSON. */
 const TRANSIENT_PROPS = ['pets']
 
-export function stripTransient(data: Data): Data {
-  return {
-    ...data,
-    content: (data.content ?? []).map((item) => {
-      const props = { ...(item.props as Record<string, unknown>) }
-      for (const key of TRANSIENT_PROPS) delete props[key]
-      return { ...item, props } as (typeof data.content)[number]
-    }),
-  }
+/** A saved layout is a few kilobytes. Anything near this size is a mistake or an attack. */
+const MAX_BYTES = 1_000_000
+const MAX_DEPTH = 30
+
+const isObject = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value)
+
+type Block = Data['content'][number]
+
+function stripBlock(item: Block): Block {
+  const props = { ...(item.props as Record<string, unknown>) }
+  for (const key of TRANSIENT_PROPS) delete props[key]
+  return { ...item, props } as Block
 }
 
+export function stripTransient(data: Data): Data {
+  const zones = isObject(data.zones)
+    ? Object.fromEntries(
+        Object.entries(data.zones).map(([name, items]) => [name, Array.isArray(items) ? (items as Block[]).map(stripBlock) : items]),
+      )
+    : data.zones
+  return { ...data, content: (data.content ?? []).map(stripBlock), ...(zones !== undefined ? { zones } : {}) } as Data
+}
+
+/** Control characters except tab and line breaks. PostgreSQL refuses a NUL inside JSON text. */
+const CONTROL_CHARS = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g
+
+/** The same value with control characters removed from every string and every key. */
+export function stripControlChars<T>(value: T): T {
+  if (typeof value === 'string') return value.replace(CONTROL_CHARS, '') as T
+  if (Array.isArray(value)) return value.map(stripControlChars) as T
+  if (isObject(value)) {
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key.replace(CONTROL_CHARS, ''), stripControlChars(item)])) as T
+  }
+  return value
+}
+
+function withinDepth(value: unknown, depth = 0): boolean {
+  if (depth > MAX_DEPTH) return false
+  if (Array.isArray(value)) return value.every((item) => withinDepth(item, depth + 1))
+  if (isObject(value)) return Object.values(value).every((item) => withinDepth(item, depth + 1))
+  return true
+}
+
+// A block needs a type and a props object: the renderer reads both of them for every block, so a
+// missing or non-object `props` would crash the public page that shows it.
+const isBlock = (item: unknown): boolean =>
+  isObject(item) && typeof item.type === 'string' && item.type.length > 0 && item.type.length <= 60 && isObject(item.props)
+
 export function isPuckData(value: unknown): value is Data {
-  return (
-    typeof value === 'object' &&
-    value !== null &&
-    Array.isArray((value as { content?: unknown }).content) &&
-    (value as { content: unknown[] }).content.every(
-      (item) => typeof item === 'object' && item !== null && typeof (item as { type?: unknown }).type === 'string',
-    )
-  )
+  if (!isObject(value) || !Array.isArray(value.content) || !value.content.every(isBlock)) return false
+  if (value.root !== undefined && !(isObject(value.root) && (value.root.props === undefined || isObject(value.root.props)))) return false
+  if (value.zones !== undefined && !(isObject(value.zones) && Object.values(value.zones).every((zone) => Array.isArray(zone) && zone.every(isBlock)))) {
+    return false
+  }
+  try {
+    return withinDepth(value) && JSON.stringify(value).length <= MAX_BYTES
+  } catch {
+    return false
+  }
 }
 
 /** Shown on "/" until the owners publish a page with the slug "home". */

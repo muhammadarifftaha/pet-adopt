@@ -1,9 +1,12 @@
 'use server'
 
 import { deletePage, getPageById, listPages, publishPage, savePageDetails, saveDraft, unpublishPage } from '../pages'
-import { run, type ActionResult } from '../result'
+import { assertId, run, type ActionResult } from '../result'
 import { requireUser } from '../session'
 import type { Page } from '../types'
+
+/** The version a save was based on: a finite number, or nothing (save regardless). */
+const version = (value: unknown) => (typeof value === 'number' && Number.isFinite(value) ? value : undefined)
 
 export async function listPagesAction(): Promise<ActionResult<Awaited<ReturnType<typeof listPages>>>> {
   return run(async () => {
@@ -15,7 +18,7 @@ export async function listPagesAction(): Promise<ActionResult<Awaited<ReturnType
 export async function getPageAction(id: number): Promise<ActionResult<Page | null>> {
   return run(async () => {
     await requireUser()
-    return getPageById(id)
+    return getPageById(assertId(id))
   })
 }
 
@@ -23,36 +26,44 @@ export async function getPageAction(id: number): Promise<ActionResult<Page | nul
 export async function savePageDetailsAction(id: number | null, input: unknown): Promise<ActionResult<{ id: number; slug: string }>> {
   return run(async () => {
     await requireUser()
-    return savePageDetails(id, input)
+    return savePageDetails(id === null ? null : assertId(id), input)
   })
 }
 
-/** Used by the page builder. Saving a draft never changes the live page. */
-export async function saveDraftAction(id: number, data: unknown): Promise<ActionResult> {
+/**
+ * Used by the page builder. Saving a draft never changes the live page. Pass the `version` the
+ * builder last received (the page's `updatedAt` in ms, returned by every save): if the page has
+ * changed since, nothing is written and the error says to reload.
+ */
+export async function saveDraftAction(id: number, data: unknown, baseVersion?: number): Promise<ActionResult<{ version: number }>> {
   return run(async () => {
     await requireUser()
-    await saveDraft(id, data)
+    return saveDraft(assertId(id), data, version(baseVersion))
   })
 }
 
-/** Makes the draft (or `data`, when given) the live page. */
-export async function publishPageAction(id: number, data?: unknown): Promise<ActionResult<{ slug: string }>> {
+/** Makes the draft (or `data`, when given) the live page. Takes the same `baseVersion` as saveDraftAction. */
+export async function publishPageAction(
+  id: number,
+  data?: unknown,
+  baseVersion?: number,
+): Promise<ActionResult<{ slug: string; version: number }>> {
   return run(async () => {
     await requireUser()
-    return publishPage(id, data)
+    return publishPage(assertId(id), data, version(baseVersion))
   })
 }
 
 export async function unpublishPageAction(id: number): Promise<ActionResult> {
   return run(async () => {
     await requireUser()
-    await unpublishPage(id)
+    await unpublishPage(assertId(id))
   })
 }
 
 export async function deletePageAction(id: number): Promise<ActionResult> {
   return run(async () => {
     await requireUser()
-    await deletePage(id)
+    await deletePage(assertId(id))
   })
 }

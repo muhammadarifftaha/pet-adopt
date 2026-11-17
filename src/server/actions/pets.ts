@@ -1,7 +1,7 @@
 'use server'
 
 import { deletePet, getPetById, queryPets, savePet, type PetFilters } from '../pets'
-import { run, type ActionResult } from '../result'
+import { assertId, run, type ActionResult } from '../result'
 import { requireUser } from '../session'
 import type { Pet, PetPage } from '../types'
 
@@ -16,7 +16,7 @@ export async function listPetsAction(filters: PetFilters = {}): Promise<ActionRe
 export async function getPetAction(id: number): Promise<ActionResult<Pet | null>> {
   return run(async () => {
     await requireUser()
-    return getPetById(id)
+    return getPetById(assertId(id))
   })
 }
 
@@ -27,13 +27,13 @@ export async function getPetAction(id: number): Promise<ActionResult<Pet | null>
 export async function savePetAction(id: number | null, input: unknown): Promise<ActionResult<{ id: number; slug: string }>> {
   return run(async () => {
     await requireUser()
-    return savePet(id, input)
+    return savePet(id === null ? null : assertId(id), input)
   })
 }
 
 export async function deletePetAction(id: number): Promise<ActionResult> {
   return run(async () => {
     await requireUser()
-    await deletePet(id)
+    await deletePet(assertId(id))
   })
 }

@@ -76,6 +76,10 @@ async function openSqlite(url: string): Promise<Database> {
   // SQLite ignores foreign keys unless asked; the schema relies on them (cascade, restrict).
   client.pragma('foreign_keys = ON')
   client.pragma('busy_timeout = 5000')
+  // SQLite's built-in lower() only folds ASCII, so a search for "île" would never match "Île-de-France".
+  // PostgreSQL folds every letter. Replace it with the same behaviour here, so `lower(col) like ...`
+  // in the shared queries means the same thing on both databases.
+  client.function('lower', { deterministic: true }, (value) => (typeof value === 'string' ? value.toLowerCase() : value))
   const db = drizzle(client, { schema: sqliteSchema })
 
   // One connection serves every request, so transactions take turns instead of interleaving.

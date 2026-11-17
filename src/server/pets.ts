@@ -1,16 +1,18 @@
 // Pets: reading, searching and saving. The rules that used to be Payload hooks live in `savePet`.
+import { randomBytes } from 'node:crypto'
+
 import { and, count, desc, eq, inArray, isNotNull, or, sql, type SQL } from 'drizzle-orm'
 
 import { getDatabase, type Db, type Schema } from '@/db/client'
 import type * as S from '@/db/schema/sqlite'
-import { validateWebUrl } from '@/lib/links'
+import { validateHttpsUrl } from '@/lib/links'
 import { AGE_GROUPS, GOOD_WITH, SEXES, SIZES, SPECIES, STATUSES, TEMPERAMENTS } from '@/lib/options'
 import { safeRevalidate } from '@/lib/revalidate'
 import { slugify } from '@/lib/slugify'
 import { normalizePhone } from '@/lib/whatsapp'
 
 import { getMediaByIds, toMedia } from './media'
-import { asRecord, Fields, isUniqueViolation, UserError, ValidationError } from './result'
+import { asRecord, Fields, isForeignKeyViolation, isUniqueViolation, UserError, ValidationError } from './result'
 import type { MediaItem, Pet, PetPage, PetSummary } from './types'
 
 type PetRow = typeof S.pets.$inferSelect
@@ -18,6 +20,10 @@ type PetInsert = typeof S.pets.$inferInsert
 
 export const DEFAULT_PAGE_SIZE = 12
 export const MAX_PHOTOS = 10
+
+/** A number from outside (a URL, a form) forced into a safe range, so it can never reach SQL as NaN or 1e20. */
+const wholeNumber = (value: unknown, fallback: number, min: number, max: number) =>
+  Math.min(Math.max(Math.floor(Number(value)) || fallback, min), max)
 
 export type PetFilters = {
   species?: string
@@ -100,8 +106,9 @@ async function summaries(db: Db, t: Schema, rows: Array<Omit<PetSummary, 'photos
 
 export async function queryPets(filters: PetFilters = {}): Promise<PetPage> {
   const { db, t } = await getDatabase()
-  const limit = Math.min(Math.max(Math.floor(filters.limit ?? DEFAULT_PAGE_SIZE), 1), 100)
-  const page = Math.max(Math.floor(filters.page ?? 1), 1)
+  const limit = wholeNumber(filters.limit, DEFAULT_PAGE_SIZE, 1, 100)
+  // A visitor can put anything in ?page=: 1e20 as an OFFSET is an error on both databases.
+  const page = wholeNumber(filters.page, 1, 1, 10_000)
   const where = and(...conditions(t, filters))
   const [rows, [{ total }]] = await Promise.all([
     db
@@ -129,7 +136,7 @@ export async function queryPets(filters: PetFilters = {}): Promise<PetPage> {
 /** Pet cards for page-builder grids. No paging, so it skips the COUNT query. */
 export async function queryPetList(filters: PetFilters = {}): Promise<PetSummary[]> {
   const { db, t } = await getDatabase()
-  const limit = Math.min(Math.max(Math.floor(filters.limit ?? DEFAULT_PAGE_SIZE), 1), 100)
+  const limit = wholeNumber(filters.limit, DEFAULT_PAGE_SIZE, 1, 100)
   const rows = await db
     .select(summaryColumns(t))
     .from(t.pets)
@@ -268,7 +275,7 @@ export async function savePet(id: number | null, raw: unknown): Promise<{ id: nu
   put('temperament', f.list('temperament', TEMPERAMENTS))
   put('goodWith', f.list('goodWith', GOOD_WITH))
   put('description', f.text('description', 5000))
-  put('videoUrl', f.text('videoUrl', 300, { validate: (s) => validateWebUrl(s) }))
+  put('videoUrl', f.text('videoUrl', 300, { validate: (s) => validateHttpsUrl(s) }))
   put('adoptionFee', f.number('adoptionFee', { min: 0 }))
   put('rescuedAt', f.date('rescuedAt'))
   put(
@@ -311,6 +318,9 @@ export async function savePet(id: number | null, raw: unknown): Promise<{ id: nu
     const parts = [city, state].filter((p): p is string => Boolean(p))
     const unique = parts.filter((p, i) => parts.findIndex((q) => q.toLowerCase() === p.toLowerCase()) === i)
     if (unique.length) v.location = unique.join(', ')
+    // Both cleared: the text built from them goes too, instead of lingering in the catalog and the
+    // search. (Unless one was typed, or the pet never had a city or state: then `location` is its own.)
+    else if (v.location === undefined && (existing?.city || existing?.state)) v.location = null
   }
 
   // Stamp the adoption date when a pet is marked adopted, and clear it when it is not any more.
@@ -320,34 +330,47 @@ export async function savePet(id: number | null, raw: unknown): Promise<{ id: nu
 
   // The slug stays put on partial updates so public URLs never change by accident.
   const name = v.name ?? existing?.name ?? ''
+  const generated = !slugInput && !existing?.slug
   let slug = slugInput ?? existing?.slug ?? ''
   if (!slug) slug = await uniqueSlug(db, t, name, id)
-  v.slug = slug
 
-  try {
-    const saved = await withTransaction(async (tx) => {
-      let petId: number
-      if (creating) {
-        const [row] = await tx.insert(t.pets).values(v as PetInsert).returning({ id: t.pets.id })
-        petId = row.id
-      } else {
-        await tx.update(t.pets).set({ ...v, updatedAt: new Date() }).where(eq(t.pets.id, id))
-        petId = id
+  for (let attempt = 0; ; attempt++) {
+    v.slug = slug
+    try {
+      const saved = await withTransaction(async (tx) => {
+        let petId: number
+        if (creating) {
+          const [row] = await tx.insert(t.pets).values(v as PetInsert).returning({ id: t.pets.id })
+          petId = row.id
+        } else {
+          await tx.update(t.pets).set({ ...v, updatedAt: new Date() }).where(eq(t.pets.id, id))
+          petId = id
+        }
+        if (photoIds) {
+          await tx.delete(t.petPhotos).where(eq(t.petPhotos.petId, petId))
+          await tx.insert(t.petPhotos).values(photoIds.map((mediaId, position) => ({ petId, mediaId, position })))
+        }
+        return petId
+      })
+      // Pet grids can sit on any page the owners build, so refresh the whole site.
+      safeRevalidate([['/', 'layout']])
+      return { id: saved, slug }
+    } catch (error) {
+      if (isUniqueViolation(error)) {
+        // Two owners saving the same name at the same moment both saw the address as free, and the
+        // database let one win. A generated address is nobody's choice, so just pick another one.
+        if (generated && attempt < 5) {
+          slug = `${slugify(name) || 'pet'}-${randomBytes(3).toString('hex')}`
+          continue
+        }
+        throw new ValidationError({ slug: 'Another pet already uses this address.' })
       }
-      if (photoIds) {
-        await tx.delete(t.petPhotos).where(eq(t.petPhotos.petId, petId))
-        await tx.insert(t.petPhotos).values(photoIds.map((mediaId, position) => ({ petId, mediaId, position })))
+      // A photo or the share image was deleted after it was checked above.
+      if (isForeignKeyViolation(error)) {
+        throw new ValidationError({ photoIds: 'One of the images no longer exists. Pick it again.' })
       }
-      return petId
-    })
-    // Pet grids can sit on any page the owners build, so refresh the whole site.
-    safeRevalidate([['/', 'layout']])
-    return { id: saved, slug }
-  } catch (error) {
-    if (isUniqueViolation(error)) {
-      throw new ValidationError({ slug: 'Another pet already uses this address.' })
+      throw error
     }
-    throw error
   }
 }
 
