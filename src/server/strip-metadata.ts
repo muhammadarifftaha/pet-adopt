@@ -5,8 +5,12 @@
 // Image files are containers: segments (JPEG), chunks (PNG, WebP) or blocks (GIF). The picture is in
 // some of them and the metadata (camera, GPS position, comments, an embedded thumbnail that may show
 // the uncropped original) is in others. Each function walks the container and copies the pieces that
-// are needed to show the picture, byte for byte, and leaves the rest out. Anything it does not
-// recognise is dropped, so a new kind of metadata is removed by default, not kept by default.
+// are needed to show the picture, byte for byte, and leaves the rest out. Every format works from an
+// ALLOWLIST of the pieces that show the picture: a piece that is not on it is left out (PNG, WebP,
+// GIF, JPEG application segments and comments) or, where its meaning is unclear (an unexpected JPEG
+// marker), the whole file is refused. A new kind of metadata is therefore removed by default, never
+// kept by default. Where a kept piece has a fixed layout and could carry extra bytes (the JFIF header,
+// GIF timing and loop blocks), it is rebuilt from its known fields instead of copied.
 //
 // What is kept besides the picture: the colour profile (colours would shift without it), animation
 // data, and, for JPEG and WebP, a tiny EXIF block that holds ONLY the orientation. Phones store photos
@@ -15,8 +19,9 @@
 // Every function throws StripError for a file it cannot walk to the end. The caller must then refuse
 // the upload: storing the original would publish the metadata this exists to remove.
 //
-// AVIF is not handled here: its metadata is woven into the file's offset tables and cannot be cut out
-// safely without a full ISO-BMFF writer. The caller refuses an AVIF that has any.
+// AVIF (and HEIC) are not handled here at all: their metadata, extra images and thumbnails are items
+// woven into the file's offset tables, which cannot be cut out without a full ISO-BMFF writer, and
+// sharp does not report all of them. uploads.ts refuses these formats.
 
 export class StripError extends Error {
   constructor(message: string) {
@@ -75,6 +80,13 @@ function jpegExifSegment(orientation: number): Buffer {
   header.writeUInt16BE(body.length + 2, 2)
   return Buffer.concat([header, body])
 }
+
+// The JPEG markers that make up the picture: quantisation and Huffman/arithmetic tables, the frame
+// header (every SOFn the standard defines), restart interval, and the rarely used DNL and EXP. The
+// scan (SOS), restart markers and the start and end markers are handled separately.
+const JPEG_PICTURE_MARKERS = new Set([
+  0xdb, 0xc4, 0xcc, 0xdd, 0xdc, 0xdf, 0xc0, 0xc1, 0xc2, 0xc3, 0xc5, 0xc6, 0xc7, 0xc9, 0xca, 0xcb, 0xcd, 0xce, 0xcf,
+])
 
 function stripJpeg(buf: Buffer): Buffer {
   if (buf.length < 4 || buf[0] !== 0xff || buf[1] !== 0xd8) fail('not a JPEG')
@@ -139,13 +151,28 @@ function stripJpeg(buf: Buffer): Buffer {
       const jfif = marker === 0xe0 && payload.subarray(0, 5).toString('latin1') === 'JFIF\0'
       const adobe = marker === 0xee && payload.subarray(0, 5).toString('latin1') === 'Adobe'
       const icc = marker === 0xe2 && payload.subarray(0, 12).toString('latin1') === 'ICC_PROFILE\0'
-      if (jfif || adobe || icc) {
+      if (jfif) {
+        // A JFIF header can carry a small thumbnail (the original, uncropped) after its fixed fields.
+        // Rebuild the header from those fields alone and say there is no thumbnail.
+        if (payload.length < 14) fail('bad JFIF header')
+        const header = Buffer.alloc(18)
+        header[0] = 0xff
+        header[1] = 0xe0
+        header.writeUInt16BE(16, 2)
+        payload.copy(header, 4, 0, 12) // "JFIF\0", version, units, pixel density; the thumbnail size stays 0 x 0
+        parts.push(header)
+        if (parts.length === 2) exifAt = 2
+      } else if (adobe || icc) {
         parts.push(segment)
-        if (jfif && parts.length === 2) exifAt = 2
       }
-    } else if (marker !== 0xfe) {
-      // Everything else (tables, frame header, restart interval...) is part of the picture; comments (0xFE) are not.
+    } else if (marker === 0xfe) {
+      // A comment. Not copied.
+    } else if (JPEG_PICTURE_MARKERS.has(marker)) {
       parts.push(segment)
+    } else {
+      // Reserved and extension markers (0x02..0xBF, JPG, JPGn...): nothing a browser needs, and a
+      // place to hide data. Refuse the file rather than guess what they mean.
+      fail(`unexpected JPEG marker 0x${marker.toString(16)}`)
     }
     pos = end
   }
@@ -216,10 +243,19 @@ function stripGif(buf: Buffer): Buffer {
     if (introducer === 0x21) {
       const label = buf[pos + 1]
       const next = skipSubBlocks(buf, pos + 2)
-      // Graphic control (frame timing and transparency) is part of the picture. Application
-      // extensions are kept only for the loop count; XMP and everything else is not.
-      const loop = label === 0xff && ['NETSCAPE2.0', 'ANIMEXTS1.0'].includes(buf.toString('latin1', pos + 3, pos + 14))
-      if (label === 0xf9 || loop) parts.push(buf.subarray(pos, next))
+      if (label === 0xf9) {
+        // Graphic control: exactly four bytes of frame timing and transparency. Rebuilt from those
+        // bytes rather than copied, so nothing can ride along in extra sub-blocks.
+        if (buf[pos + 2] !== 4 || next !== pos + 8) fail('bad GIF graphic control block')
+        parts.push(Buffer.from([0x21, 0xf9, 4, buf[pos + 3], buf[pos + 4], buf[pos + 5], buf[pos + 6], 0]))
+      } else if (label === 0xff && buf[pos + 2] === 11 && ['NETSCAPE2.0', 'ANIMEXTS1.0'].includes(buf.toString('latin1', pos + 3, pos + 14))) {
+        // The loop count is one 16-bit number. Write a fresh block holding just that; the original's
+        // extra sub-blocks (and XMP and every other application extension) are not copied.
+        if (buf[pos + 14] >= 3 && buf[pos + 15] === 1) {
+          const loops = buf.readUInt16LE(pos + 16)
+          parts.push(Buffer.concat([Buffer.from([0x21, 0xff, 0x0b]), Buffer.from('NETSCAPE2.0', 'latin1'), Buffer.from([0x03, 0x01, loops & 0xff, loops >> 8, 0x00])]))
+        }
+      }
       pos = next
       continue
     }

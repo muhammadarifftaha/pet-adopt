@@ -22,11 +22,14 @@ const MAX_FRAMES = 100
 // Image work is CPU and memory heavy; keep it from taking over a small server.
 sharp.concurrency(2)
 
-type Kind = { ext: 'jpg' | 'png' | 'webp' | 'gif' | 'avif'; mime: string }
+type Kind = { ext: 'jpg' | 'png' | 'webp' | 'gif'; mime: string }
 
 // Decided from the file's actual contents, not its name or the browser's claim.
 // No SVG: an uploaded SVG can carry script and would run on the site's own origin.
-// No HEIC (what iPhones save by default): it has no browser support.
+// No AVIF or HEIC (HEIC is what iPhones save by default): their metadata, extra images and
+// thumbnails are items woven into the file's offset tables, so they cannot be cut out the way the
+// other formats' metadata is, and sharp does not report all of them. Recompressing them would cost
+// the image quality this app promises to keep, so they are refused.
 function kindOf(meta: Metadata): Kind | undefined {
   switch (meta.format) {
     case 'jpeg':
@@ -37,9 +40,6 @@ function kindOf(meta: Metadata): Kind | undefined {
       return { ext: 'webp', mime: 'image/webp' }
     case 'gif':
       return { ext: 'gif', mime: 'image/gif' }
-    case 'heif':
-      // sharp reports AVIF as "heif" with AV1 compression; HEIC is the same container with HEVC.
-      return meta.compression === 'av1' ? { ext: 'avif', mime: 'image/avif' } : undefined
     default:
       return undefined
   }
@@ -67,28 +67,27 @@ export async function saveUpload(input: { data: Buffer; alt: string }): Promise<
     throw new ValidationError({ file: 'This file is not a readable image, or it is too large.' })
   }
   const kind = kindOf(meta)
-  if (!kind) throw new ValidationError({ file: 'Use a JPEG, PNG, WebP, AVIF or GIF image.' })
+  if (!kind) {
+    // sharp reports both AVIF and HEIC as "heif".
+    throw new ValidationError({
+      file:
+        meta.format === 'heif'
+          ? 'AVIF and HEIC images are not accepted. Save the photo as a JPEG, PNG or WebP and upload that.'
+          : 'Use a JPEG, PNG, WebP or GIF image.',
+    })
+  }
   const frames = meta.pages ?? 1
   if (!meta.width || !meta.height || meta.width > MAX_SIDE || meta.height > MAX_SIDE) {
     throw new ValidationError({ file: `The image is too large. Use one up to ${MAX_SIDE} pixels on each side.` })
   }
   if (frames > MAX_FRAMES) throw new ValidationError({ file: `The animation has too many frames (up to ${MAX_FRAMES}).` })
 
-  // AVIF keeps its metadata inside the same offset tables as the picture, so it cannot be cut out
-  // without rewriting the file. One with none is stored as it is; one with some is not accepted
-  // rather than recompressed, because a recompressed adoption photo is a worse adoption photo.
-  if (kind.ext === 'avif' && (meta.exif || meta.xmp || meta.iptc)) {
-    throw new ValidationError({
-      file: 'This AVIF image contains camera or location data that cannot be removed without recompressing it. Save it as a JPEG, PNG or WebP and upload that instead.',
-    })
-  }
-
   let clean: Buffer
   let preview: Buffer
   try {
     // The pixels are never decoded or re-encoded: the file's pieces that show the picture are
     // copied across byte for byte and the metadata pieces are left out.
-    clean = kind.ext === 'avif' ? input.data : stripMetadata(kind.ext, input.data)
+    clean = stripMetadata(kind.ext, input.data)
     // Fail closed. If the result is not the same picture, the upload is refused: storing the
     // original instead would publish the metadata this exists to remove.
     const after = await sharp(clean, { limitInputPixels: MAX_PIXELS }).metadata()

@@ -31,6 +31,7 @@ import {
 import { deletePet, getLocationOptions, getPetById, getPetBySlug, queryPets, savePet } from '../src/server/pets'
 import { Fields, ValidationError, UserError, assertId, describeError } from '../src/server/result'
 import { getStorage } from '../src/server/storage'
+import { StripError, stripMetadata } from '../src/server/strip-metadata'
 import { getSettings, updateSettings } from '../src/server/settings'
 import {
   PAIR_RULE,
@@ -566,10 +567,12 @@ await check('pets: clearing city and state clears the derived location; http vid
   await removeUpload(m.id)
 })
 
-await check('uploads: AVIF is accepted, EXIF is stripped from the stored file, oversized images are refused', async () => {
+await check('uploads: AVIF and HEIC are refused, EXIF is stripped from the stored file, oversized images are refused', async () => {
   const base = { create: { width: 64, height: 48, channels: 3 as const, background: '#f60' } }
-  const avif = await saveUpload({ data: await sharp(base).avif().toBuffer(), alt: 'An AVIF image' })
-  ok(avif.mimeType === 'image/avif' && avif.url.endsWith('.avif'), `AVIF stored as ${avif.mimeType} ${avif.url}`)
+  // Their metadata, extra images and thumbnails are items woven into the file's offset tables and
+  // cannot be cut out, so they are refused outright (with or without metadata).
+  const avifErrors = await fieldErrors(saveUpload({ data: await sharp(base).avif().toBuffer(), alt: 'An AVIF image' }))
+  ok(/AVIF and HEIC/.test(avifErrors.file), `AVIF must be refused with an explanation, got: ${avifErrors.file}`)
 
   const photo = await sharp(base).withExif({ IFD0: { Copyright: 'secret-owner', Software: 'camera-app' } }).jpeg().toBuffer()
   ok((await sharp(photo).metadata()).exif, 'the test photo really carries EXIF')
@@ -583,7 +586,6 @@ await check('uploads: AVIF is accepted, EXIF is stripped from the stored file, o
   ok((await fieldErrors(saveUpload({ data: wide, alt: 'wide' }))).file, 'a 13000 pixel side is refused')
   const huge = await sharp({ create: { width: 6_500, height: 6_500, channels: 3, background: '#000' } }).png().toBuffer()
   ok((await fieldErrors(saveUpload({ data: huge, alt: 'huge' }))).file, 'more than 40 megapixels is refused')
-  await removeUpload(avif.id)
   await removeUpload(jpeg.id)
 })
 
@@ -666,11 +668,54 @@ await check('metadata is cut out WITHOUT touching the pixels (JPEG, PNG, WebP, G
     console.log('      (this sharp build did not write EXIF into the test WebP; skipped)')
   }
 
-  // AVIF with metadata cannot be cut out safely, so it is refused instead of recompressed.
-  const avifFile = await sharp(noise).withMetadata({ exif: { IFD0: { Copyright: 'avif-secret' } } }).avif().toBuffer()
-  if ((await sharp(avifFile).metadata()).exif) {
-    ok((await fieldErrors(saveUpload({ data: avifFile, alt: 'AVIF with EXIF' }))).file, 'an AVIF with metadata is refused')
+  // A JFIF header can carry a thumbnail after its fixed fields (a copy of the original, perhaps
+  // uncropped). The header must be rebuilt without it, not copied.
+  const plain = await sharp(noise).jpeg({ quality: 90 }).toBuffer() // sharp writes no JFIF header, so one is built here
+  const jfifFields = Buffer.concat([Buffer.from('JFIF\0', 'latin1'), Buffer.from([1, 2, 1, 0, 72, 0, 72])]) // "JFIF\0", version 1.02, dots per inch, 72 x 72
+  const jfifPayload = Buffer.concat([jfifFields, Buffer.from([2, 2]), Buffer.from('THUMBSECRET!')]) // then a 2 x 2 thumbnail and its 12 bytes
+  const thumbJpeg = Buffer.concat([plain.subarray(0, 2), Buffer.from([0xff, 0xe0, 0, jfifPayload.length + 2]), jfifPayload, plain.subarray(2)])
+  await sharp(thumbJpeg).metadata() // precondition: sharp reads a JPEG with a JFIF thumbnail
+  ok(secrets(thumbJpeg, ['THUMBSECRET!']).length === 1, 'precondition: the JPEG upload really carries a JFIF thumbnail')
+  const thumb = await put(thumbJpeg, 'A JPEG with a JFIF thumbnail')
+  made.push(thumb.media.id)
+  ok(secrets(thumb.body, ['THUMBSECRET!']).length === 0, 'the JFIF thumbnail is not copied')
+  ok(thumb.body[2] === 0xff && thumb.body[3] === 0xe0 && thumb.body.readUInt16BE(4) === 16, 'the JFIF header is the 16-byte one with no thumbnail')
+  ok((await pixels(thumbJpeg)).equals(await pixels(thumb.body)), 'and the pixels are identical')
+
+  // A marker the stripper does not know is not copied and not guessed at: the file is refused.
+  const oddJpeg = Buffer.concat([plain.subarray(0, 2), Buffer.from([0xff, 0xf3, 0x00, 14]), Buffer.from('jpegn-secret'), plain.subarray(2)])
+  ok(secrets(oddJpeg, ['jpegn-secret']).length === 1, 'precondition: the extension segment really holds the bytes')
+  let stripperRefused = false
+  try {
+    stripMetadata('jpg', oddJpeg)
+  } catch (error) {
+    stripperRefused = error instanceof StripError
   }
+  ok(stripperRefused, 'the stripper itself refuses a JPEG with an unexpected marker')
+  // (libjpeg, which sharp uses to read the file, also rejects such a marker, so the upload fails
+  // before reaching the stripper: two independent layers.)
+  ok((await fieldErrors(saveUpload({ data: oddJpeg, alt: 'A JPEG with an extension marker' }))).file, 'and an upload of it is refused')
+
+  // A GIF loop block can carry extra sub-blocks after the loop count. It is rewritten with the count only.
+  const loopWithExtra = Buffer.concat([
+    Buffer.from([0x21, 0xff, 0x0b]),
+    Buffer.from('NETSCAPE2.0', 'latin1'),
+    Buffer.from([0x03, 0x01, 0x00, 0x00]),
+    Buffer.from([0x10]),
+    Buffer.from('gif-extra-secret'),
+    Buffer.from([0x00]),
+  ])
+  const gifExtraFile = Buffer.concat([gif0.subarray(0, at), loopWithExtra, gif0.subarray(at)])
+  ok(secrets(gifExtraFile, ['gif-extra-secret']).length === 1, 'precondition: the GIF upload really has hidden bytes in its loop block')
+  const gifExtra = await put(gifExtraFile, 'A GIF with a loaded loop block')
+  made.push(gifExtra.media.id)
+  ok(secrets(gifExtra.body, ['gif-extra-secret']).length === 0, 'the extra bytes in the loop block are not copied')
+  ok(gifExtra.body.includes(Buffer.from('NETSCAPE2.0')), 'but the loop block itself is rewritten')
+  ok((await pixels(gifExtraFile)).equals(await pixels(gifExtra.body)), 'and the pixels are identical')
+
+  // AVIF is refused even when it carries metadata.
+  const avifFile = await sharp(noise).withMetadata({ exif: { IFD0: { Copyright: 'avif-secret' } } }).avif().toBuffer()
+  ok((await fieldErrors(saveUpload({ data: avifFile, alt: 'AVIF with EXIF' }))).file, 'an AVIF with metadata is refused')
 
   // A file the stripper cannot walk to the end is refused, never stored with its metadata.
   const broken = exifJpeg.subarray(0, exifJpeg.length - 30)

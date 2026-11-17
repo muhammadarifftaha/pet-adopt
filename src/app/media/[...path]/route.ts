@@ -8,7 +8,6 @@ const TYPES: Record<string, string> = {
   jpg: 'image/jpeg',
   png: 'image/png',
   webp: 'image/webp',
-  avif: 'image/avif',
   gif: 'image/gif',
 }
 
