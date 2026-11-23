@@ -32,15 +32,17 @@
     --color-input: var(--line-strong);
     --color-ring: var(--primary-text);
     --radius-sm: var(--radius-sm);
+    /* The admin sidebar follows the site theme too, so it also follows light/dark mode (shadcn's own
+       --sidebar-* values switch on a .dark class, which this site does not use). */
+    --color-sidebar-ring: var(--primary-text);
+    --color-sidebar-border: var(--line);
+    --color-sidebar-accent-foreground: var(--ink);
+    --color-sidebar-accent: var(--tint);
+    --color-sidebar-primary-foreground: var(--on-primary);
+    --color-sidebar-primary: var(--primary);
+    --color-sidebar-foreground: var(--ink);
+    --color-sidebar: var(--surface);
     /* Not driven by the site theme: shadcn's defaults. */
-    --color-sidebar-ring: var(--sidebar-ring);
-    --color-sidebar-border: var(--sidebar-border);
-    --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
-    --color-sidebar-accent: var(--sidebar-accent);
-    --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
-    --color-sidebar-primary: var(--sidebar-primary);
-    --color-sidebar-foreground: var(--sidebar-foreground);
-    --color-sidebar: var(--sidebar);
     --color-chart-5: var(--chart-5);
     --color-chart-4: var(--chart-4);
     --color-chart-3: var(--chart-3);

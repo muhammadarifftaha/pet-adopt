@@ -10,11 +10,12 @@ import { getSessionUser } from "@/server/session";
 import "../globals.css";
 // Self-hosted fonts. The theme decides which one is used.
 import "../(frontend)/fonts";
+import Providers from "./providers";
 // Do NOT import ../(frontend)/styles.css here: it is unlayered plain CSS, so it would beat
 // Tailwind's utilities (for example the link colour) and fight with the shadcn components.
 
 export const metadata: Metadata = {
-  title: { default: "Admin", template: "%s | Admin" },
+  title: { default: "Admin", template: "%s | Pet Adopt Admin" },
   // The admin is for the owners only.
   robots: { index: false, follow: false },
 };
@@ -43,7 +44,7 @@ export default async function AdminRootLayout({
       </head>
       {/* The page background, text colour and font come from the shadcn tokens, which follow the theme. */}
       <body className="min-h-screen bg-background font-sans text-foreground antialiased">
-        {children}
+        <Providers userId={user.id}>{children}</Providers>
       </body>
     </html>
   );
