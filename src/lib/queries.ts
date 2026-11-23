@@ -1,6 +1,7 @@
 // What the public pages read. Thin wrappers over src/server (the data layer) that keep the
 // names the pages already use, add the "no database during `next build`" fallback, and make sure a
 // visitor can never ask for unlisted pets.
+import type { Option, PetStatus } from '@/lib/options'
 import { getPublishedPage as loadPublishedPage } from '@/server/pages'
 import * as pets from '@/server/pets'
 import { describeError } from '@/server/result'
@@ -62,7 +63,7 @@ export type PetCardData = {
   slug: string
   name: string
   species: string
-  status: string
+  status: PetStatus
   sex?: string | null
   ageDescription?: string | null
   location?: string | null
@@ -114,6 +115,11 @@ export async function queryPetCards(filters: PetFilters = {}): Promise<PetCardDa
 }
 
 /** Distinct states and cities of listed pets, for filter dropdowns. */
+/** Species of the pets visitors can see, for the catalog's filter. */
+export async function getSpeciesOptions(): Promise<Option[]> {
+  return safely(() => pets.getSpeciesOptions(), [] as Option[])
+}
+
 export async function getLocationOptions(): Promise<{ states: string[]; cities: string[] }> {
   return safely(() => pets.getLocationOptions(), { states: [] as string[], cities: [] as string[] })
 }

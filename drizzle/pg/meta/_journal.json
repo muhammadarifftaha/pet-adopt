@@ -8,6 +8,27 @@
       "when": 1794535541313,
       "tag": "0000_initial",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1795421332244,
+      "tag": "0001_greedy_the_renegades",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1795426719047,
+      "tag": "0002_fuzzy_the_renegades",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1795428193637,
+      "tag": "0003_thin_multiple_man",
+      "breakpoints": true
     }
   ]
 }

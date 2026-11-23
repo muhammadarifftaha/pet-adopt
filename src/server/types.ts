@@ -1,5 +1,7 @@
 // Domain types: what the rest of the app sees. Repositories map database rows into these, so
 // nothing outside `src/server` and `src/db` depends on Drizzle.
+import type { PetStatus } from '@/lib/options'
+import type { RichTextDoc } from '@/lib/rich-text'
 import type { ThemeSettings } from '@/lib/theme'
 
 export type MediaItem = {
@@ -24,8 +26,12 @@ export type PetSummary = {
   slug: string
   name: string
   species: string
-  status: string
+  status: PetStatus
   sex: string | null
+  /**
+   * The pet's age as text. Worked out from the birth date when there is one ("3 months", "About 8
+   * months", so it keeps up with time), else the text an owner typed.
+   */
   ageDescription: string | null
   location: string | null
   featured: boolean
@@ -41,7 +47,9 @@ export type Pet = Omit<PetSummary, 'photos'> & {
   breed: string | null
   ageGroup: string | null
   size: string | null
+  /** `YYYY-MM-DD`. Estimated when `birthDateEstimated` is set ("about 8 months old" turned into a date). */
   birthDate: string | null
+  birthDateEstimated: boolean
   color: string | null
   city: string | null
   state: string | null
@@ -50,11 +58,13 @@ export type Pet = Omit<PetSummary, 'photos'> & {
   microchipped: boolean
   houseTrained: boolean
   specialNeeds: boolean
-  healthNotes: string | null
+  /** A rich-text document (paragraphs, lists, bold/italic/underline, links). Old plain-text notes arrive converted. */
+  healthNotes: RichTextDoc | null
   temperament: string[]
   goodWith: string[]
   /** Plain text. Blank lines separate paragraphs. */
-  description: string | null
+  /** A rich-text document, like `healthNotes`. An old plain-text description arrives converted. */
+  description: RichTextDoc | null
   videoUrl: string | null
   adoptionFee: number | null
   rescuedAt: string | null

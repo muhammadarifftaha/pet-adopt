@@ -1,0 +1,1 @@
+ALTER TABLE `pets` ADD `health_notes_doc` text;

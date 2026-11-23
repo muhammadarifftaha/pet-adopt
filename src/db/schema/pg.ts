@@ -16,6 +16,10 @@ import {
   uniqueIndex,
 } from 'drizzle-orm/pg-core'
 
+// Relative, not '@/': drizzle-kit loads this file without the app's path aliases.
+import { PET_STATUS_VALUES, PetStatus } from '../../lib/options'
+import type { RichTextDoc } from '../../lib/rich-text'
+
 const id = () => serial('id').primaryKey()
 const timestamp = (name: string) => pgTimestamp(name, { mode: 'date', withTimezone: true })
 const createdAt = () => timestamp('created_at').notNull().defaultNow()
@@ -132,7 +136,8 @@ export const pets = pgTable(
     id: id(),
     name: text('name').notNull(),
     slug: text('slug').notNull(),
-    status: text('status').notNull().default('available'),
+    // Still plain text in the database; `enum` only types the column as PetStatus (no CHECK, no migration).
+    status: text('status', { enum: PET_STATUS_VALUES }).notNull().default(PetStatus.Available),
     featured: flag('featured'),
     unlisted: flag('unlisted'),
     urgent: flag('urgent'),
@@ -144,6 +149,8 @@ export const pets = pgTable(
     ageDescription: text('age_description'),
     size: text('size'),
     birthDate: text('birth_date'),
+    // True when the birth date came from "about 8 months old" rather than a known date.
+    birthDateEstimated: flag('birth_date_estimated'),
     color: text('color'),
     city: text('city'),
     state: text('state'),
@@ -153,10 +160,18 @@ export const pets = pgTable(
     microchipped: flag('microchipped'),
     houseTrained: flag('house_trained'),
     specialNeeds: flag('special_needs'),
+    // Legacy plain text. Never written any more; `healthNotesDoc` replaces it. Old rows are turned into
+    // a document when read, and the next save writes the document and clears this column.
     healthNotes: text('health_notes'),
+    // The health notes as a rich-text JSON document (src/lib/rich-text.ts).
+    healthNotesDoc: jsonb('health_notes_doc').$type<RichTextDoc>(),
     temperament: jsonb('temperament').$type<string[]>().notNull().default(sql`'[]'::jsonb`),
     goodWith: jsonb('good_with').$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+    // Legacy plain text, like `healthNotes` above: read as a document when `descriptionDoc` is empty,
+    // never written any more.
     description: text('description'),
+    // The description as a rich-text JSON document (src/lib/rich-text.ts).
+    descriptionDoc: jsonb('description_doc').$type<RichTextDoc>(),
     videoUrl: text('video_url'),
     adoptionFee: doublePrecision('adoption_fee'),
     rescuedAt: text('rescued_at'),

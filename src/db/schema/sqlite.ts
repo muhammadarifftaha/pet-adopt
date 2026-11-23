@@ -13,6 +13,10 @@
 import { sql } from 'drizzle-orm'
 import { index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
 
+// Relative, not '@/': drizzle-kit loads this file without the app's path aliases.
+import { PET_STATUS_VALUES, PetStatus } from '../../lib/options'
+import type { RichTextDoc } from '../../lib/rich-text'
+
 const id = () => integer('id').primaryKey({ autoIncrement: true })
 const timestamp = (name: string) => integer(name, { mode: 'timestamp_ms' })
 const nowMs = sql`(cast(unixepoch('subsecond') * 1000 as integer))`
@@ -130,7 +134,8 @@ export const pets = sqliteTable(
     id: id(),
     name: text('name').notNull(),
     slug: text('slug').notNull(),
-    status: text('status').notNull().default('available'),
+    // Still plain text in the database; `enum` only types the column as PetStatus (no CHECK, no migration).
+    status: text('status', { enum: PET_STATUS_VALUES }).notNull().default(PetStatus.Available),
     featured: flag('featured'),
     unlisted: flag('unlisted'),
     urgent: flag('urgent'),
@@ -142,6 +147,8 @@ export const pets = sqliteTable(
     ageDescription: text('age_description'),
     size: text('size'),
     birthDate: text('birth_date'),
+    // True when the birth date came from "about 8 months old" rather than a known date.
+    birthDateEstimated: flag('birth_date_estimated'),
     color: text('color'),
     city: text('city'),
     state: text('state'),
@@ -151,10 +158,18 @@ export const pets = sqliteTable(
     microchipped: flag('microchipped'),
     houseTrained: flag('house_trained'),
     specialNeeds: flag('special_needs'),
+    // Legacy plain text. Never written any more; `healthNotesDoc` replaces it. Old rows are turned into
+    // a document when read, and the next save writes the document and clears this column.
     healthNotes: text('health_notes'),
+    // The health notes as a rich-text JSON document (src/lib/rich-text.ts).
+    healthNotesDoc: text('health_notes_doc', { mode: 'json' }).$type<RichTextDoc>(),
     temperament: text('temperament', { mode: 'json' }).$type<string[]>().notNull().default(sql`'[]'`),
     goodWith: text('good_with', { mode: 'json' }).$type<string[]>().notNull().default(sql`'[]'`),
+    // Legacy plain text, like `healthNotes` above: read as a document when `descriptionDoc` is empty,
+    // never written any more.
     description: text('description'),
+    // The description as a rich-text JSON document (src/lib/rich-text.ts).
+    descriptionDoc: text('description_doc', { mode: 'json' }).$type<RichTextDoc>(),
     videoUrl: text('video_url'),
     adoptionFee: real('adoption_fee'),
     rescuedAt: text('rescued_at'),

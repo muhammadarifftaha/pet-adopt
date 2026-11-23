@@ -8,7 +8,7 @@ import { SmartLink } from '@/components/site/SmartLink'
 import { SocialLinks } from '@/components/site/SocialIcons'
 import { WhatsAppButton } from '@/components/site/WhatsAppButton'
 import { safeMapEmbed } from '@/lib/links'
-import { SPECIES, STATUSES } from '@/lib/options'
+import { isPetStatus, normalizeSpecies, PetStatus, STATUSES } from '@/lib/options'
 import type { PetCardData } from '@/lib/queries'
 import { fillMessage } from '@/lib/whatsapp'
 
@@ -306,10 +306,11 @@ export const config: Config<PuckComponents> = {
 
     PetGrid: {
       label: 'Pet grid',
-      defaultProps: { heading: 'Ready for adoption', species: '', status: 'available', featuredOnly: false, limit: 8, showViewAll: true, background: 'none' },
+      defaultProps: { heading: 'Ready for adoption', species: '', status: PetStatus.Available, featuredOnly: false, limit: 8, showViewAll: true, background: 'none' },
       fields: {
         heading: { type: 'text' },
-        species: { type: 'select', label: 'Species', options: [{ label: 'All species', value: '' }, ...SPECIES] },
+        // Free text, because species is too: "cat", "guinea pig"... Leave empty for every species.
+        species: { type: 'text', label: 'Species (empty for all)' },
         status: { type: 'select', label: 'Status', options: [{ label: 'Any status', value: '' }, ...STATUSES] },
         featuredOnly: {
           type: 'radio',
@@ -336,8 +337,8 @@ export const config: Config<PuckComponents> = {
         const fetchPets = (metadata as Partial<PuckSiteMetadata>).fetchPets
         if (!fetchPets) return { props }
         const pets = await fetchPets({
-          species: props.species || undefined,
-          status: props.status || undefined,
+          species: normalizeSpecies(props.species) || undefined,
+          status: isPetStatus(props.status) ? props.status : undefined,
           featuredOnly: props.featuredOnly,
           limit: Math.min(Math.max(Number(props.limit) || 8, 1), 24),
         })

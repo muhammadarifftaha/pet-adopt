@@ -8,6 +8,27 @@
       "when": 1794535540992,
       "tag": "0000_initial",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1795421331910,
+      "tag": "0001_easy_sebastian_shaw",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1795426718689,
+      "tag": "0002_past_king_cobra",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1795428193162,
+      "tag": "0003_organic_masked_marvel",
+      "breakpoints": true
     }
   ]
 }

@@ -2,6 +2,7 @@
 
 import type { Data } from '@puckeditor/core'
 
+import { isPetStatus, normalizeSpecies } from '@/lib/options'
 import { queryPetCards, type PetCardData, type PetFilters } from '@/lib/queries'
 import { publishPage, saveDraft } from '@/server/pages'
 import { assertId, toFailure } from '@/server/result'
@@ -36,8 +37,8 @@ export async function fetchPetsAction(filters: PetFilters): Promise<PetCardData[
   // A client can send anything, including nothing.
   const f = filters ?? {}
   return queryPetCards({
-    species: typeof f.species === 'string' ? f.species.slice(0, 20) : undefined,
-    status: typeof f.status === 'string' ? f.status.slice(0, 20) : undefined,
+    species: normalizeSpecies(f.species) || undefined,
+    status: isPetStatus(f.status) ? f.status : undefined,
     featuredOnly: Boolean(f.featuredOnly),
     limit: Math.min(Math.max(Number(f.limit) || 8, 1), 24),
   })

@@ -1,0 +1,1 @@
+ALTER TABLE "pets" ADD COLUMN "description_doc" jsonb;

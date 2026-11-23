@@ -8,11 +8,58 @@ export const SPECIES = [
   { label: 'Other', value: 'other' },
 ] as const
 
+// Species is free text: SPECIES lists the usual ones (curated labels, suggestions for the form), but
+// an owner can type any other. Values are stored normalised so "Guinea  Pig" and "guinea-pig" are one
+// species and filters match exactly.
+export const SPECIES_MAX_LENGTH = 40
+
+/** "  Guinea  Pig " -> "guinea-pig". Letters, marks and digits of any script are kept; the rest separates words. */
+export function normalizeSpecies(input: unknown): string {
+  if (typeof input !== 'string') return ''
+  return input
+    .slice(0, 200)
+    .normalize('NFKC')
+    .toLowerCase()
+    .replace(/[^\p{L}\p{M}\p{N}]+/gu, '-')
+    .replace(/^-+|-+$/g, '')
+}
+
+/**
+ * Filter options for the species that are in use: the built-in ones first with their curated labels,
+ * then custom ones ("guinea-pig" -> "Guinea pig") alphabetically.
+ */
+export function speciesOptions(values: readonly string[]): Option[] {
+  const present = new Set(values.filter(Boolean))
+  const builtIn = new Set<string>(SPECIES.map((s) => s.value))
+  const known: Option[] = SPECIES.filter((s) => present.has(s.value)).map(({ label, value }) => ({ label, value }))
+  const custom: Option[] = [...present]
+    .filter((value) => !builtIn.has(value))
+    .map((value) => ({ label: humanize(value), value }))
+    .sort((a, b) => a.label.localeCompare(b.label))
+  return [...known, ...custom]
+}
+
+// The values are stored as plain text (so the same column works on SQLite and PostgreSQL), but the
+// code uses this enum: `pet.status === PetStatus.Adopted`, not the string. Keep it free of imports
+// because the schema files and drizzle-kit load it.
+export enum PetStatus {
+  Available = 'available',
+  Pending = 'pending',
+  Adopted = 'adopted',
+}
+
 export const STATUSES = [
-  { label: 'Available', value: 'available' },
-  { label: 'Pending', value: 'pending' },
-  { label: 'Adopted', value: 'adopted' },
+  { label: 'Available', value: PetStatus.Available },
+  { label: 'Pending', value: PetStatus.Pending },
+  { label: 'Adopted', value: PetStatus.Adopted },
 ] as const
+
+/** Every status, for `<select>`s, URL parsers (`parseAsStringEnum`) and the database column. */
+export const PET_STATUS_VALUES = Object.values(PetStatus) as [PetStatus, ...PetStatus[]]
+
+/** Narrows anything (a URL value, a block prop, a request body) to a real status. */
+export const isPetStatus = (value: unknown): value is PetStatus =>
+  typeof value === 'string' && (PET_STATUS_VALUES as readonly string[]).includes(value)
 
 export const SEXES = [
   { label: 'Male', value: 'male' },
@@ -25,6 +72,14 @@ export const AGE_GROUPS = [
   { label: 'Young', value: 'young' },
   { label: 'Adult', value: 'adult' },
   { label: 'Senior', value: 'senior' },
+] as const
+
+// The unit of "about 8 months old". The age group of a pet with a birth date is worked out from it
+// (see src/lib/age.ts); AGE_GROUPS is what the filter offers and the fallback for pets without one.
+export const AGE_UNITS = [
+  { label: 'Weeks', value: 'weeks' },
+  { label: 'Months', value: 'months' },
+  { label: 'Years', value: 'years' },
 ] as const
 
 export const SIZES = [
@@ -69,8 +124,14 @@ export const SOCIAL_PLATFORMS = [
 
 export type Option = { label: string; value: string }
 
+/** "guinea-pig" -> "Guinea pig". Used when a stored value has no curated label (custom species). */
+function humanize(value: string): string {
+  const text = value.replace(/[-_]+/g, ' ').trim()
+  return text.charAt(0).toUpperCase() + text.slice(1)
+}
+
 export const labelFor = (options: readonly Option[], value?: string | null) =>
-  options.find((o) => o.value === value)?.label ?? value ?? ''
+  options.find((o) => o.value === value)?.label ?? humanize(value ?? '')
 
 // Slugs that belong to fixed routes and therefore can't be used for builder pages.
 export const RESERVED_SLUGS = ['admin', 'api', 'edit', 'health', 'media', 'pets', '_next']

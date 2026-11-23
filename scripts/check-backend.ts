@@ -16,6 +16,8 @@ import sharp from 'sharp'
 
 import { closeDatabase, getDatabase } from '../src/db/client'
 import { safeHref, validateHttpsUrl } from '../src/lib/links'
+import { richTextExtensions } from '../src/components/admin/pets/form/rich-text-extensions'
+import { richTextToPlain } from '../src/lib/rich-text'
 import { getAuth } from '../src/server/auth'
 import { listMedia } from '../src/server/media'
 import {
@@ -28,7 +30,8 @@ import {
   savePageDetails,
   unpublishPage,
 } from '../src/server/pages'
-import { deletePet, getLocationOptions, getPetById, getPetBySlug, queryPets, savePet } from '../src/server/pets'
+import { ageGroupOf, ageGroupRange, estimateBirthDate, formatAge, subtractDays, subtractMonths, todayISO } from '../src/lib/age'
+import { deletePet, getLocationOptions, getPetById, getPetBySlug, getSpeciesOptions, queryPets, savePet } from '../src/server/pets'
 import { Fields, ValidationError, UserError, assertId, describeError } from '../src/server/result'
 import { getStorage } from '../src/server/storage'
 import { StripError, stripMetadata } from '../src/server/strip-metadata'
@@ -303,7 +306,7 @@ await check('upload accepts a PNG and rejects SVG, junk and missing alt', async 
 // --- pets ---------------------------------------------------------------------------------
 let mochi = { id: 0, slug: '' }
 await check('savePet validates required fields with per-field errors', async () => {
-  const errs = await fieldErrors(savePet(null, { species: 'robot', videoUrl: 'javascript:alert(1)', adoptionFee: -5 }))
+  const errs = await fieldErrors(savePet(null, { species: '!!!', videoUrl: 'javascript:alert(1)', adoptionFee: -5 }))
   ok(errs.name && errs.photoIds && errs.species && errs.videoUrl && errs.adoptionFee, `got ${JSON.stringify(errs)}`)
 })
 
@@ -349,6 +352,163 @@ await check('filters, location search (wildcards stripped) and paging', async ()
   ok((await queryPets({ location: '%' })).docs.length === 2, 'a lone % must not become a wildcard')
   const page = await queryPets({ limit: 1 })
   ok(page.totalDocs === 2 && page.totalPages === 2 && page.hasNextPage && page.docs[0].photos.length === 1, 'paging and cover photo')
+})
+
+await check('health notes: rich text is rebuilt from allowed parts, links are vetted, old plain text still reads', async () => {
+  const para = (text: string, marks?: unknown[]) => ({ type: 'paragraph', content: [{ type: 'text', text, ...(marks ? { marks } : {}) }] })
+  const doc = (...content: unknown[]) => ({ type: 'doc', content })
+
+  const good = await savePet(null, {
+    name: 'Notey',
+    species: 'cat',
+    photoIds: [mediaA],
+    location: 'Penang',
+    healthNotes: doc(
+      para('Takes a tablet', [{ type: 'bold' }, { type: 'bold' }, { type: 'link', attrs: { href: '/pets/mochi', target: '_blank' } }]),
+      { type: 'bulletList', content: [{ type: 'listItem', content: [para('Soft food')] }] },
+    ),
+  })
+  const stored = (await getPetById(good.id))!.healthNotes!
+  const first = stored.content[0] as { content: Array<{ marks: unknown[] }> }
+  ok(JSON.stringify(first.content[0]!.marks) === JSON.stringify([{ type: 'bold' }, { type: 'link', attrs: { href: '/pets/mochi' } }]), 'duplicate marks dropped, extra link attributes removed')
+  ok(richTextToPlain(stored) === 'Takes a tablet\nSoft food', 'plain text of a list')
+
+  const nested = Array.from({ length: 8 }).reduce<unknown>(
+    (inner) => ({ type: 'bulletList', content: [{ type: 'listItem', content: [para('x'), ...(inner ? [inner] : [])] }] }),
+    null,
+  )
+  for (const [label, value] of [
+    ['a heading', doc({ type: 'heading', attrs: { level: 1 }, content: [{ type: 'text', text: 'x' }] })],
+    ['an image', doc({ type: 'paragraph', content: [{ type: 'image', attrs: { src: '/media/a.png' } }] })],
+    ['an unknown mark', doc(para('x', [{ type: 'highlight' }]))],
+    ['a javascript: link', doc(para('x', [{ type: 'link', attrs: { href: 'javascript:alert(1)' } }]))],
+    ['a //host link', doc(para('x', [{ type: 'link', attrs: { href: '//evil.test' } }]))],
+    ['a link with a password', doc(para('x', [{ type: 'link', attrs: { href: 'https://a:b@evil.test' } }]))],
+    ['an empty list', doc({ type: 'bulletList', content: [] })],
+    ['more than 2000 characters', doc(para('x'.repeat(2001)))],
+    ['lists nested too deeply', doc(nested)],
+  ] as const) {
+    ok((await fieldErrors(savePet(good.id, { healthNotes: value }))).healthNotes, `${label} is a field error`)
+  }
+
+  await savePet(good.id, { healthNotes: doc(para('x'.repeat(2000))) }) // exactly the limit is fine
+  await savePet(good.id, { healthNotes: doc(para('   ')) })
+  ok((await getPetById(good.id))!.healthNotes === null, 'a document with nothing visible clears the notes')
+
+  const plain = await savePet(null, { name: 'Plainy', species: 'cat', photoIds: [mediaA], location: 'Penang', healthNotes: 'Line one\n\nLine two' })
+  ok(richTextToPlain((await getPetById(plain.id))!.healthNotes!) === 'Line one\nLine two', 'plain text becomes one paragraph per line')
+
+  // An old row (plain text column only) still reads, without a data migration.
+  await db.update(t.pets).set({ healthNotes: 'Old note', healthNotesDoc: null }).where(eq(t.pets.id, plain.id))
+  ok(richTextToPlain((await getPetById(plain.id))!.healthNotes!) === 'Old note', 'legacy plain-text notes are shown as a document')
+
+  // The description is the same kind of field with a 5000-character limit.
+  const long = await savePet(good.id, { description: doc(para('d'.repeat(5000))) })
+  ok(richTextToPlain((await getPetById(long.id))!.description!) === 'd'.repeat(5000), 'a 5000-character description is accepted')
+  ok((await fieldErrors(savePet(good.id, { description: doc(para('d'.repeat(5001))) }))).description, 'more than 5000 characters is a field error')
+  ok((await fieldErrors(savePet(good.id, { description: doc({ type: 'heading', content: [] }) }))).description, 'a heading in the description is a field error')
+  await savePet(good.id, { description: 'First\n\nSecond' })
+  const asDoc = (await getPetById(good.id))!.description!
+  ok(richTextToPlain(asDoc) === 'First\nSecond', 'a plain-text description becomes paragraphs')
+  const [row] = await db.select().from(t.pets).where(eq(t.pets.id, good.id))
+  ok(row!.description === null && row!.descriptionDoc !== null, 'saving writes the document column and clears the legacy text')
+  await db.update(t.pets).set({ description: 'Old story', descriptionDoc: null }).where(eq(t.pets.id, good.id))
+  ok(richTextToPlain((await getPetById(good.id))!.description!) === 'Old story', 'a legacy plain-text description still reads')
+  await savePet(good.id, { description: '' })
+  ok((await getPetById(good.id))!.description === null, 'a blank description clears it')
+
+  // The editor can produce exactly what the validator accepts, no more.
+  const names = richTextExtensions.map((e) => e.name).sort()
+  ok(
+    JSON.stringify(names) === JSON.stringify(['bold', 'bulletList', 'doc', 'italic', 'link', 'listItem', 'orderedList', 'paragraph', 'text', 'underline', 'undoRedo']),
+    `editor extensions ${names.join(',')}`,
+  )
+
+  await deletePet(good.id)
+  await deletePet(plain.id)
+})
+
+await check('species is free text: stored normalised, filterable, offered as an option', async () => {
+  const custom = await savePet(null, { name: 'Nibbles', species: '  Guinea  Pig ', photoIds: [mediaA], location: 'Penang' })
+  const hidden = await savePet(null, { name: 'Axel', species: 'Axolotl', unlisted: true, photoIds: [mediaA], location: 'Ipoh' })
+  ok((await getPetById(custom.id))!.species === 'guinea-pig', 'stored normalised')
+  ok((await queryPets({ species: 'Guinea Pig' })).docs.length === 1, 'the filter is normalised too')
+  ok((await queryPets({ species: 'GUINEA-PIG' })).docs[0]?.slug === 'nibbles', 'another spelling of the same species')
+  const options = await getSpeciesOptions()
+  ok(options.some((o) => o.value === 'guinea-pig' && o.label === 'Guinea pig'), `custom label ${JSON.stringify(options)}`)
+  ok(options.some((o) => o.value === 'dog' && o.label === 'Dog'), 'built-ins keep their labels')
+  ok(!options.some((o) => o.value === 'rabbit'), 'a species nobody has is not offered')
+  ok(!options.some((o) => o.value === 'axolotl'), 'unlisted pets do not leak their species')
+  ok((await getSpeciesOptions({ includeUnlisted: true })).some((o) => o.value === 'axolotl'), 'the admin sees every species')
+  ok((await fieldErrors(savePet(custom.id, { species: '***' }))).species, 'no letters or digits is an error')
+  ok((await fieldErrors(savePet(custom.id, { species: 'x'.repeat(41) }))).species, 'too long is an error')
+  await savePet(custom.id, { species: '' })
+  ok((await getPetById(custom.id))!.species === 'guinea-pig', 'blank keeps the current species')
+  await deletePet(custom.id)
+  await deletePet(hidden.id)
+})
+
+await check('age: worked out from a birth date, so it moves with the calendar', async () => {
+  // Pure functions, with `today` moved around.
+  ok(estimateBirthDate(8, 'months', '2026-11-23') === '2026-03-23', 'months')
+  ok(estimateBirthDate(2, 'years', '2026-11-23') === '2024-11-23', 'years')
+  ok(estimateBirthDate(3, 'weeks', '2026-11-23') === '2026-11-02', 'weeks')
+  ok(subtractMonths('2026-03-31', 1) === '2026-02-28', 'a shorter month clamps the day')
+  ok(formatAge('2026-03-23', { estimated: true, today: '2026-11-23' }) === 'About 8 months', 'estimate label')
+  ok(formatAge('2026-03-23', { estimated: true, today: '2026-12-23' }) === 'About 9 months', 'a month later it says 9')
+  ok(formatAge('2024-07-23', { today: '2026-11-23' }) === '2 years 4 months', 'young animals show months too')
+  ok(formatAge('2021-11-23', { today: '2026-11-23' }) === '5 years', 'older ones show years')
+  ok(formatAge('2026-11-16', { today: '2026-11-23' }) === '1 week', 'one week')
+  ok(formatAge('2026-11-20', { today: '2026-11-23' }) === 'Under 1 week', 'newborn')
+  ok(formatAge('2027-01-01', { today: '2026-11-23' }) === null, 'a date in the future has no age')
+
+  const today = '2026-11-23'
+  ok(ageGroupOf('2026-05-24', today) === 'baby' && ageGroupOf('2026-05-23', today) === 'young', 'baby ends at 6 months')
+  ok(ageGroupOf('2018-11-24', today) === 'adult' && ageGroupOf('2018-11-23', today) === 'senior', 'senior starts at 8 years')
+  ok(ageGroupRange('robot', today) === null, 'an unknown group has no range')
+  // The label and the SQL filter must agree on every date.
+  for (let days = 0; days < 4000; days += 37) {
+    const birth = subtractDays(today, days)
+    const range = ageGroupRange(ageGroupOf(birth, today), today)
+    ok(range && (!range.after || birth > range.after) && (!range.onOrBefore || birth <= range.onOrBefore), `range disagrees at ${birth}`)
+  }
+})
+
+await check('age: saved as an estimate or an exact date, shown live, and filtered by group', async () => {
+  const today = todayISO()
+  const pup = await savePet(null, { name: 'Pip Squeak', species: 'dog', photoIds: [mediaA], location: 'Penang', ageValue: 3, ageUnit: 'months' })
+  let pet = (await getPetById(pup.id))!
+  ok(pet.birthDate === estimateBirthDate(3, 'months', today) && pet.birthDateEstimated === true, 'stored as an estimated birth date')
+  ok(pet.ageDescription === 'About 3 months' && pet.ageGroup === 'baby', `live age ${pet.ageDescription} / ${pet.ageGroup}`)
+  const babies = await queryPets({ ageGroup: 'baby' })
+  ok(babies.docs.some((p) => p.slug === pup.slug && p.ageDescription === 'About 3 months'), 'the filter and the list use the live age')
+  ok(!(await queryPets({ ageGroup: 'senior' })).docs.some((p) => p.slug === pup.slug), 'not senior')
+
+  const before = pet.birthDate
+  await savePet(pup.id, { breed: 'Beagle', birthDate: before })
+  pet = (await getPetById(pup.id))!
+  ok(pet.birthDate === before && pet.birthDateEstimated === true, 'saving the same date again keeps it an estimate')
+
+  await savePet(pup.id, { birthDate: estimateBirthDate(7, 'years', today) })
+  pet = (await getPetById(pup.id))!
+  ok(!pet.birthDateEstimated && pet.ageGroup === 'adult' && pet.ageDescription === '7 years', `exact date ${pet.ageDescription}`)
+
+  await savePet(pup.id, { birthDate: '', ageValue: 2, ageUnit: 'years' })
+  pet = (await getPetById(pup.id))!
+  ok(pet.birthDateEstimated && pet.ageDescription === 'About 2 years', 'a blank date next to an age means use the age')
+
+  ok((await fieldErrors(savePet(pup.id, { ageValue: 3 }))).ageUnit, 'a number needs a unit')
+  ok((await fieldErrors(savePet(pup.id, { ageUnit: 'years' }))).ageValue, 'a unit needs a number')
+  ok((await fieldErrors(savePet(pup.id, { birthDate: '2020-01-01', ageValue: 2, ageUnit: 'years' }))).ageValue, 'a date and an age together')
+  ok((await fieldErrors(savePet(pup.id, { birthDate: '2999-01-01' }))).birthDate, 'a birth date in the future')
+  ok((await fieldErrors(savePet(pup.id, { ageValue: 1.5, ageUnit: 'years' }))).ageValue, 'a whole number')
+
+  await savePet(pup.id, { ageDescription: 'young adult', ageGroup: 'young' })
+  await savePet(pup.id, { birthDate: null })
+  pet = (await getPetById(pup.id))!
+  ok(pet.birthDate === null && !pet.birthDateEstimated && pet.ageDescription === 'young adult' && pet.ageGroup === 'young', 'cleared: back to the typed text')
+  ok((await queryPets({ ageGroup: 'young' })).docs.some((p) => p.slug === pup.slug), 'a pet without a birth date is filtered by its picked group')
+  await deletePet(pup.id)
 })
 
 await check('an image in use cannot be deleted; it can once nothing uses it', async () => {
