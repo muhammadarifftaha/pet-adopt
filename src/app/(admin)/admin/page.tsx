@@ -1,9 +1,11 @@
 import Link from 'next/link'
 
 import { PageHeader } from '@/components/admin/PageHeader'
+import { PluginWidgets } from '@/components/admin/PluginWidgets'
 import { buttonVariants } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { unwrap } from '@/lib/admin/unwrap'
+import { PetStatus } from '@/lib/options'
 import { listMediaAction } from '@/server/actions/media'
 import { listPagesAction } from '@/server/actions/pages'
 import { listPetsAction } from '@/server/actions/pets'
@@ -14,9 +16,9 @@ export const metadata = { title: 'Dashboard' }
 // and `totalDocs` is the number that matches.
 export default async function DashboardPage() {
   const [available, pending, adopted, pages, media] = await Promise.all([
-    listPetsAction({ status: 'available', limit: 1 }),
-    listPetsAction({ status: 'pending', limit: 1 }),
-    listPetsAction({ status: 'adopted', limit: 1 }),
+    listPetsAction({ status: PetStatus.Available, limit: 1 }),
+    listPetsAction({ status: PetStatus.Pending, limit: 1 }),
+    listPetsAction({ status: PetStatus.Adopted, limit: 1 }),
     listPagesAction(),
     listMediaAction({ limit: 1 }),
   ])
@@ -56,6 +58,7 @@ export default async function DashboardPage() {
           </li>
         ))}
       </ul>
+      <PluginWidgets />
     </>
   )
 }
