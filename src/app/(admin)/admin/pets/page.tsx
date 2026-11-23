@@ -1,58 +1,59 @@
-import Link from 'next/link'
+import type { Metadata } from "next";
+import Link from "next/link";
+import { PageHeader } from "@/components/admin/PageHeader";
+import { buttonVariants } from "@/components/ui/button";
+import { unwrap } from "@/lib/admin/unwrap";
+import {
+  listPetsAction,
+  listSpeciesOptionsAction,
+} from "@/server/actions/pets";
+import type { SearchParams } from "nuqs/server";
+import { FiPlus } from "react-icons/fi";
+import { loadPetSearchParams } from "./search-params";
+import FilterBar from "@/components/admin/pets/FilterBar";
+import PetList from "@/components/admin/pets/PetList";
 
-import { EmptyState } from '@/components/admin/EmptyState'
-import { PageHeader } from '@/components/admin/PageHeader'
-import { StatusBadge } from '@/components/admin/StatusBadge'
-import { buttonVariants } from '@/components/ui/button'
-import { unwrap } from '@/lib/admin/unwrap'
-import { listPetsAction } from '@/server/actions/pets'
-
-export const metadata = { title: 'Pets' }
-
-type SearchParams = Promise<{ search?: string; status?: string; species?: string; page?: string }>
+export const metadata: Metadata = { title: "Pets" };
 
 // The filters live in the URL (?search=&status=&species=&page=), so the list can be linked to and
-// the back button works. The server component reads them; a GET <form> in the filter bar sets them.
-export default async function PetsPage({ searchParams }: { searchParams: SearchParams }) {
-  const { search, status, species, page } = await searchParams
-  const result = unwrap(await listPetsAction({ search, status, species, page: Number(page) || 1 }))
+// the back button works. This server component only loads the first render: the URL as it was when
+// the page was opened (see ./search-params.ts) and the data for it. After that FilterBar changes the
+// URL without asking the server, and PetList fetches and caches the rows with SWR.
+export default async function PetsPage({
+  searchParams,
+}: {
+  searchParams: Promise<SearchParams>;
+}) {
+  const filters = await loadPetSearchParams(searchParams);
+  const [speciesOptions, initialData] = await Promise.all([
+    listSpeciesOptionsAction().then(unwrap),
+    listPetsAction({
+      search: filters.search,
+      status: filters.status ?? undefined,
+      species: filters.species ?? undefined,
+      page: filters.page,
+    }).then(unwrap),
+  ]);
 
   return (
     <>
       <PageHeader
         title="Pets"
-        description={`${result.totalDocs} in total`}
         actions={
           <Link href="/admin/pets/new" className={buttonVariants()}>
+            <FiPlus className="h-4 w-4" />
             Add pet
           </Link>
         }
       />
 
-      {/* TODO(ui): filter bar (search input, status and species selects from src/lib/options.ts). */}
+      <FilterBar
+        speciesOptions={speciesOptions}
+        initialFilters={filters}
+        initialData={initialData}
+      />
 
-      {result.docs.length === 0 ? (
-        <EmptyState title="No pets found">Try different filters, or add a pet.</EmptyState>
-      ) : (
-        // TODO(ui): replace with a proper table: cover thumbnail (photos[0]?.thumbnailUrl), name,
-        // species, StatusBadge, flags (featured / unlisted / urgent), location, updated,
-        // and row actions (edit, view /pets/{slug}, delete with a confirm dialog -> deletePetAction).
-        <ul className="divide-y rounded-lg border">
-          {result.docs.map((pet) => (
-            <li key={pet.id} className="flex items-center justify-between gap-3 p-3">
-              <Link href={`/admin/pets/${pet.id}`} className="font-medium hover:underline">
-                {pet.name}
-              </Link>
-              <span className="flex items-center gap-2 text-sm text-muted-foreground">
-                {pet.species}
-                <StatusBadge status={pet.status} />
-              </span>
-            </li>
-          ))}
-        </ul>
-      )}
-
-      {/* TODO(ui): pagination using result.page, result.totalPages, hasPrevPage, hasNextPage. */}
+      <PetList initialFilters={filters} initialData={initialData} />
     </>
-  )
+  );
 }
