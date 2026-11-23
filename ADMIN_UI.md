@@ -37,7 +37,7 @@ Already in place, so you can build on it:
 ## Screens
 
 ### 1. Shell
-- [ ] Root layout (see above), sidebar or top nav: Pets, Pages, Media, Settings, Users, Account.
+- [ ] Root layout (see above), sidebar or top nav: Pets, Pages, Media, Settings, Users. (Account is in the user menu in the header.)
 - [ ] Current user menu with name, role badge and **Sign out** (`signOutAction`).
 - [ ] Toaster for success and error messages (shadcn `sonner`).
 - [ ] Confirm dialog for every delete (`alert-dialog`).
@@ -65,15 +65,30 @@ Form `/admin/pets/new` and `/admin/pets/[id]` (`getPetAction`, `savePetAction(id
 
 | Tab | Fields |
 | --- | --- |
-| Basics | `name` (required, 60), `species` (required), `sex`, `breed` (80), `ageGroup`, `ageDescription` (40), `size`, `birthDate` (YYYY-MM-DD), `color` (60), `city` (60), `state` (60), `location` (120) |
+| Basics | `name` (required, 60), `species` (required), `sex`, `breed` (80), `size`, age (see "Age" below), `color` (60), `city` (60), `state` (60), `location` (120) |
 | Health and behaviour | `vaccinated`, `neutered`, `microchipped`, `houseTrained`, `specialNeeds`, `healthNotes` (500), `temperament[]`, `goodWith[]` |
-| Photos and story | `photoIds[]` (required, 1 to 10, first is the cover), `description` (plain text, 5000, blank line = new paragraph), `videoUrl` (https only) |
+| Photos and story | `photoIds[]` (required, 1 to 10, first is the cover), `description` (rich text document, 5000 visible characters, same editor as health notes; plain text is still accepted and becomes one paragraph per line), `videoUrl` (https only) |
 | Adoption | `adoptionFee` (0 or more), `rescuedAt` (YYYY-MM-DD), `contactWhatsApp` |
 | SEO | `seoTitle` (70), `seoDescription` (160), `seoImageId` |
 | Sidebar | `status`, `featured`, `unlisted`, `urgent`, `slug` |
 
 - [ ] Option lists for the selects are in `src/lib/options.ts` (`SPECIES`, `STATUSES`, `SEXES`,
-      `AGE_GROUPS`, `SIZES`, `TEMPERAMENTS`, `GOOD_WITH`).
+      `AGE_GROUPS`, `AGE_UNITS`, `SIZES`, `TEMPERAMENTS`, `GOOD_WITH`).
+- [ ] **Age.** The owner enters it once and it keeps up with the calendar, because it is stored as a
+      birth date. Offer two ways, as a toggle or two fields:
+      - "Born on" -> send `birthDate` (`YYYY-MM-DD`, not in the future).
+      - "About [number] [weeks | months | years] old" -> send `ageValue` (a whole number, 1 to 200)
+        and `ageUnit` (`weeks`, `months` or `years`). The server turns it into an estimated birth
+        date and sets `birthDateEstimated`, and the site then shows "About 8 months".
+      Send only what the owner changed: sending `ageValue` again re-estimates from today, so on
+      an edit send the age fields only when the owner touches them. Saving the same `birthDate`
+      again leaves an estimate flagged as an estimate. A blank `birthDate` next to an age means "use
+      the age"; `birthDate: null` on its own clears it. Errors come back on `birthDate`, `ageValue`
+      or `ageUnit`.
+      The pet's `ageDescription` and `ageGroup` are worked out from the birth date when there is
+      one (read them for display), and are the owner's own text and pick otherwise. Keep the
+      optional "Age description" text (40) and "Age group" select for a pet whose age nobody knows;
+      they are ignored once a birth date exists.
 - [ ] City and state: typing them rebuilds `location` as "City, State" on save. Hint that spelling
       should be consistent, because the catalog filters match exactly.
 - [ ] Photo field: pick from the media library, drag to reorder, remove (see Media picker below).
