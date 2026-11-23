@@ -3,8 +3,8 @@ import Link from 'next/link'
 import React from 'react'
 
 import { PetCard } from '@/components/site/PetCard'
-import { AGE_GROUPS, SEXES, SIZES, SPECIES, STATUSES } from '@/lib/options'
-import { PAGE_SIZE, queryPets, toPetCard } from '@/lib/queries'
+import { AGE_GROUPS, isPetStatus, labelFor, normalizeSpecies, PetStatus, SEXES, SIZES, SPECIES, STATUSES } from '@/lib/options'
+import { getSpeciesOptions, PAGE_SIZE, queryPets, toPetCard } from '@/lib/queries'
 
 export const metadata: Metadata = {
   title: 'Adoptable pets',
@@ -49,18 +49,27 @@ function FilterSelect({
 export default async function PetsPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
   const params = await searchParams
 
-  const species = oneOf(first(params.species), SPECIES)
+  // Species is free text (owners can add their own), so there is no fixed list to check against.
+  const species = normalizeSpecies(first(params.species))
   const sex = oneOf(first(params.sex), SEXES)
   const ageGroup = oneOf(first(params.ageGroup), AGE_GROUPS)
   const size = oneOf(first(params.size), SIZES)
   const location = (first(params.location) ?? '').trim().slice(0, 80)
   // No status in the URL means "available"; an empty status means "any".
   const rawStatus = first(params.status)
-  const status = rawStatus === undefined ? 'available' : oneOf(rawStatus, STATUSES)
+  const status = rawStatus === undefined ? PetStatus.Available : oneOf(rawStatus, STATUSES)
   const page = Math.max(1, Number.parseInt(first(params.page) ?? '1', 10) || 1)
 
-  const result = await queryPets({ species, sex, ageGroup, size, status, location, page, limit: PAGE_SIZE })
+  const [result, speciesChoices] = await Promise.all([
+    queryPets({ species, sex, ageGroup, size, status: isPetStatus(status) ? status : undefined, location, page, limit: PAGE_SIZE }),
+    getSpeciesOptions(),
+  ])
   const pets = result.docs.map(toPetCard)
+  // Keep the chosen species selectable even when no listed pet has it (a link to an empty species).
+  const speciesFilterOptions =
+    !species || speciesChoices.some((o) => o.value === species)
+      ? speciesChoices
+      : [...speciesChoices, { label: labelFor(SPECIES, species), value: species }]
 
   const linkFor = (target: number) => {
     const qs = new URLSearchParams()
@@ -81,7 +90,7 @@ export default async function PetsPage({ searchParams }: { searchParams: Promise
 
         {/* A plain GET form: filters live in the URL, so any search can be shared. */}
         <form className="filters" method="get" action="/pets">
-          <FilterSelect name="species" label="Species" value={species} options={SPECIES} anyLabel="All" />
+          <FilterSelect name="species" label="Species" value={species} options={speciesFilterOptions} anyLabel="All" />
           <FilterSelect name="ageGroup" label="Age" value={ageGroup} options={AGE_GROUPS} anyLabel="Any" />
           <FilterSelect name="sex" label="Sex" value={sex} options={SEXES} anyLabel="Any" />
           <FilterSelect name="size" label="Size" value={size} options={SIZES} anyLabel="Any" />
