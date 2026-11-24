@@ -59,8 +59,12 @@ import { removeUpload, saveUpload } from '../src/server/uploads'
 import { siteIcons } from '../src/lib/queries'
 import { activateTheme, createTheme, deleteTheme, getTheme, listThemes, updateTheme } from '../src/server/themes'
 import { createResetLink, isResetTokenValid, prepareResetEmail, resetPasswordWithToken } from '../src/server/password-reset'
-import type { EmailMessage } from '@pet-adopt/plugin-sdk'
+import { pluginTablePrefix, type EmailMessage } from '@pet-adopt/plugin-sdk'
+import { formBuilderStorage, openFormsDatabase } from '@pet-adopt/plugin-form-builder'
 import { resendEmail } from '@pet-adopt/plugin-resend-email'
+import { forgetPluginStorageStatus, getPluginStorageStatus } from '../src/plugins/storage'
+import { storageProblems } from '../src/plugins/storage-rules'
+import { applyPluginMigrations, pluginMigrationStates } from '../src/db/plugin-migrations'
 import { createUser, deleteUser, ensureOwner, listUsers, resetPassword, updateUser } from '../src/server/users'
 
 let failures = 0
@@ -1259,6 +1263,106 @@ await check('reset emails: same answer for unknown addresses, sent only to real 
 
   ok(/RESEND_API_KEY/.test(await resendEmail({ apiKey: '', from: 'a@b.test' }).email!.send(sent[0]).then(() => '', (e: Error) => e.message)), 'Resend without a key fails clearly, without a request')
   await deleteUser(id)
+})
+
+// --- plugins with their own tables -------------------------------------------------------
+
+await check('plugin storage: names must carry the plugin prefix, schemas must be twins, migrations in order and only on its own tables', async () => {
+  ok(storageProblems('form-builder', formBuilderStorage).length === 0, `the form builder passes: ${storageProblems('form-builder', formBuilderStorage).join(' ')}`)
+  ok(pluginTablePrefix('form-builder') === 'plugin_form_builder_', 'dashes become underscores in the prefix')
+
+  const wrongOwner = storageProblems('other-plugin', formBuilderStorage)
+  ok(wrongOwner.some((p) => /must start with "plugin_other_plugin_"/.test(p)), 'tables of another plugin are refused')
+  ok(wrongOwner.some((p) => /touches/.test(p)), 'and so is SQL on them')
+
+  const sqlOn = (sqlite: string, pg = sqlite) => storageProblems('form-builder', { ...formBuilderStorage, migrations: [{ id: '0000_x', sqlite, pg }] })
+  ok(sqlOn('CREATE TABLE "plugin_form_builder_x" ("id" integer)').length === 0, 'its own table is fine')
+  ok(sqlOn('ALTER TABLE `pets` ADD `x` text').some((p) => p.includes('"pets"')), 'altering a site table is refused')
+  ok(sqlOn('CREATE TABLE "plugin_form_builder_x" ("m" integer REFERENCES "public"."media"("id"))').some((p) => p.includes('"media"')), 'a foreign key into a site table is refused')
+  ok(sqlOn('CREATE INDEX "media_idx" ON "plugin_form_builder_x" ("id")').some((p) => p.includes('"media_idx"')), 'an index name without the prefix is refused')
+  ok(sqlOn('DELETE FROM users').some((p) => p.includes('"users"')), 'deleting from a site table is refused')
+  ok(sqlOn('CREATE TABLE `__new_plugin_form_builder_x` (`id` integer);\n--> statement-breakpoint\nALTER TABLE `__new_plugin_form_builder_x` RENAME TO `plugin_form_builder_x`').length === 0, "drizzle-kit's table rebuild is allowed")
+
+  const order = storageProblems('form-builder', {
+    ...formBuilderStorage,
+    migrations: [{ id: '0001_b', sqlite: 'select 1', pg: 'select 1' }, { id: '0000_a', sqlite: 'select 1', pg: '' }, { id: 'bad id', sqlite: 'x', pg: 'x' }],
+  })
+  ok(order.some((p) => /must sort after/.test(p)) && order.some((p) => /no pg SQL/.test(p)) && order.some((p) => /must look like/.test(p)), `order, missing SQL and bad ids are reported: ${order.join(' | ')}`)
+
+  const notTwins = storageProblems('form-builder', { ...formBuilderStorage, tables: { sqlite: formBuilderStorage.tables.sqlite, pg: {} } })
+  ok(notTwins.some((p) => /not twins/.test(p)), 'a table missing from one dialect is reported')
+})
+
+await check('plugin migrations: run once in order, recorded with a checksum, a changed or out-of-order migration is refused, a failure rolls back', async () => {
+  const database = await getDatabase()
+  const table = 'plugin_check_notes'
+  const exec = async (q: string) => (dialect === 'pg' ? (db as unknown as { execute(q: unknown): Promise<unknown> }).execute(sql.raw(q)) : db.run(sql.raw(q)))
+  const create = { id: '0000_init', sqlite: `CREATE TABLE "${table}" ("id" integer PRIMARY KEY, "body" text NOT NULL)`, pg: `CREATE TABLE "${table}" ("id" serial PRIMARY KEY, "body" text NOT NULL)` }
+  const addColumn = { id: '0001_pinned', sqlite: `ALTER TABLE "${table}" ADD "pinned" integer`, pg: `ALTER TABLE "${table}" ADD "pinned" integer` }
+  const drop = async () => {
+    await exec(`DROP TABLE IF EXISTS "${table}"`)
+    await db.delete(t.pluginMigrations).where(eq(t.pluginMigrations.plugin, 'check'))
+  }
+  await drop()
+  try {
+    let [state] = await pluginMigrationStates(database, [{ plugin: 'check', migrations: [create] }])
+    ok(state.pending.join() === '0000_init' && !state.applied.length, 'a new plugin has everything pending')
+
+    // Two servers starting at once: the migration runs exactly once.
+    const runs = await Promise.all([applyPluginMigrations(database, { plugin: 'check', migrations: [create] }), applyPluginMigrations(database, { plugin: 'check', migrations: [create] })])
+    ok(runs.flat().length === 1, `ran once, not twice: ${JSON.stringify(runs)}`)
+    await exec(`INSERT INTO "${table}" ("body") VALUES ('hello')`)
+
+    ok((await applyPluginMigrations(database, { plugin: 'check', migrations: [create, addColumn] })).join() === '0001_pinned', 'a later migration runs on its own')
+    ;[state] = await pluginMigrationStates(database, [{ plugin: 'check', migrations: [create, addColumn] }])
+    ok(!state.pending.length && state.applied.length === 2, 'both recorded')
+
+    const edited = { ...create, sqlite: `${create.sqlite} -- edited`, pg: `${create.pg} -- edited` }
+    ;[state] = await pluginMigrationStates(database, [{ plugin: 'check', migrations: [edited, addColumn] }])
+    ok(state.changed.join() === '0000_init', 'an edited migration is reported as changed')
+    ok(/changed after it ran/.test(await applyPluginMigrations(database, { plugin: 'check', migrations: [edited, addColumn] }).then(() => '', (e: Error) => e.message)), 'and is refused')
+
+    const sneaked = { id: '0000_b_sneaked', sqlite: 'select 1', pg: 'select 1' }
+    ok(/sorts before/.test(await applyPluginMigrations(database, { plugin: 'check', migrations: [create, sneaked, addColumn] }).then(() => '', (e: Error) => e.message)), 'a migration slipped in before one that ran is refused')
+
+    // Second statement fails: the first one is rolled back and nothing is recorded.
+    const broken = { id: '0002_broken', sqlite: `ALTER TABLE "${table}" ADD "x" integer;\n--> statement-breakpoint\nALTER TABLE "no_such_table" ADD "y" integer`, pg: `ALTER TABLE "${table}" ADD "x" integer;\n--> statement-breakpoint\nALTER TABLE "no_such_table" ADD "y" integer` }
+    let failed = false
+    await applyPluginMigrations(database, { plugin: 'check', migrations: [create, addColumn, broken] }).catch(() => (failed = true))
+    ;[state] = await pluginMigrationStates(database, [{ plugin: 'check', migrations: [create, addColumn, broken] }])
+    ok(failed && state.pending.join() === '0002_broken', 'the failed migration is still pending')
+    ok(/no such column|does not exist/.test(await exec(`SELECT "x" FROM "${table}"`).then(() => '', (e: Error) => `${e.message} ${String(e.cause ?? '')}`)), 'and its first statement did not stick')
+  } finally {
+    await drop()
+  }
+})
+
+await check('plugin storage: the form builder is set up by migrate, cascades responses, and is flagged (not queried) while its tables are missing', async () => {
+  forgetPluginStorageStatus()
+  const [status] = (await getPluginStorageStatus()).filter((s) => s.plugin === 'form-builder')
+  ok(status?.ready, `the form builder is ready after migrate: ${status?.problem}`)
+
+  const forms = await openFormsDatabase()
+  const [form] = await forms.db.insert(forms.t.forms).values({ name: 'Check form', fields: [] }).returning()
+  await forms.db.insert(forms.t.responses).values({ formId: form.id, answers: [{ id: 'a', label: 'A', type: 'text', value: 'x' }] })
+  ok(form.isOpen === true && Array.isArray(form.fields), 'defaults and JSON columns round-trip')
+  await forms.db.delete(forms.t.forms).where(eq(forms.t.forms.id, form.id))
+  const left = await forms.db.select().from(forms.t.responses).where(eq(forms.t.responses.formId, form.id))
+  ok(left.length === 0, 'deleting a form deletes its responses')
+
+  // As if the plugin had just been added to a site where `pnpm migrate` has not run since.
+  const saved = await db.select().from(t.pluginMigrations).where(eq(t.pluginMigrations.plugin, 'form-builder'))
+  await db.delete(t.pluginMigrations).where(eq(t.pluginMigrations.plugin, 'form-builder'))
+  try {
+    forgetPluginStorageStatus()
+    const [flagged] = (await getPluginStorageStatus()).filter((s) => s.plugin === 'form-builder')
+    ok(!flagged.ready && /pnpm migrate/.test(flagged.problem ?? '') && flagged.pending.join() === '0000_init', `flagged with what to do: ${flagged.problem}`)
+    ok(/not set up yet/.test(await userError(openFormsDatabase())), 'opening its tables is refused with a message an owner can act on')
+  } finally {
+    await db.insert(t.pluginMigrations).values(saved)
+    forgetPluginStorageStatus()
+  }
+  ok((await getPluginStorageStatus()).every((s) => s.ready), 'ready again once recorded')
 })
 
 // FK enforcement is on (SQLite needs a pragma)

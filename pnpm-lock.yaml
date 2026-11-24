@@ -365,6 +365,9 @@ importers:
       '@types/react':
         specifier: 19.2.14
         version: 19.2.14
+      drizzle-orm:
+        specifier: ^0.45.4
+        version: 0.45.4(@libsql/client@0.14.0)(@types/better-sqlite3@9.6.0)(@types/pg@8.23.1)(better-sqlite3@13.1.1)(kysely@0.29.8)(pg@8.23.1)
       react:
         specifier: 19.2.6
         version: 19.2.6
@@ -400,9 +403,15 @@ importers:
         specifier: workspace:*
         version: link:../../packages/plugin-sdk
     devDependencies:
+      '@types/node':
+        specifier: 22.19.9
+        version: 22.19.9
       '@types/react':
         specifier: 19.2.14
         version: 19.2.14
+      drizzle-orm:
+        specifier: ^0.45.4
+        version: 0.45.4(@libsql/client@0.14.0)(@types/better-sqlite3@9.6.0)(@types/pg@8.23.1)(better-sqlite3@13.1.1)(kysely@0.29.8)(pg@8.23.1)
       react:
         specifier: 19.2.6
         version: 19.2.6

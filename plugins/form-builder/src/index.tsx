@@ -2,27 +2,31 @@ import { FiClipboard } from 'react-icons/fi'
 
 import { definePlugin } from '@pet-adopt/plugin-sdk'
 
-// Form builder (scaffold). Lets owners build forms (adoption applications, volunteer sign-ups,
-// contact) and read what visitors send. Only the admin screens exist so far.
+import { FORM_BUILDER, formBuilderStorage } from './storage'
+
+export { FORM_BUILDER, formBuilderStorage, openFormsDatabase } from './storage'
+export * from './fields'
+
+// Form builder. Lets owners build forms (adoption applications, volunteer sign-ups, contact) and
+// read what visitors send. A plugin with its own tables (schema/, migrations.ts, src/storage.ts): adding it to
+// a running site needs `pnpm migrate` (PostgreSQL) before its screens work; until then they show a
+// notice. The field model and its validation are in src/fields.ts.
 //
 // TODO, in order:
-// 1. Storage: tables `forms` (id, name, slug, fields JSON, created/updated) and `form_responses`
-//    (id, form_id ON DELETE CASCADE, answers JSON, created_at) in BOTH schema files, then
-//    `pnpm db:generate`, `pnpm check:schemas`, and a repository in src/server/forms.ts that
-//    validates the fields JSON (types: text, long text, email, phone via src/lib/phone.ts,
-//    choice, checkbox; label, required, options) like `isPuckData` does for layouts.
-// 2. Actions (src/server/actions/forms.ts): list/get/save/delete for signed-in users, and a public
-//    submit action with the throttle in src/server/throttle.ts (per client address) and a honeypot.
+// 1. Repository (src/server.ts): forms CRUD over openFormsDatabase(), responses (paged, mark read,
+//    delete, CSV), and the public submit with a honeypot and the throttle in src/server/throttle.ts.
+// 2. Actions: list/get/save/delete for signed-in users, and a public submit action.
 // 3. Screens below: the list, an editor (add, reorder with buttons, remove fields; React Hook Form
-//    + zod like the settings form) and a responses table (TanStack Table, CSV export).
+//    + zod reusing validateFormFields) and a responses table (CSV export).
 // 4. A Puck block "Form" in src/puck/config.tsx that picks a form and renders it on a page
 //    (server-rendered, no hooks in the block; the submit button is a small client component).
-// 5. Optional: email new responses through getEmailSender() when the email plugin is ready.
+// 5. Optional: email new responses (settings.notifyEmail) through getEmailSender().
 
 export const formBuilder = definePlugin<{ title?: string } | void>((options) => ({
-  name: 'form-builder',
+  name: FORM_BUILDER,
   title: options?.title ?? 'Forms',
   description: 'Build forms for the site, such as adoption applications or volunteer sign-ups, and read the responses.',
+  storage: formBuilderStorage,
   screens: [
     {
       path: '',

@@ -5,13 +5,14 @@
 //   PostgreSQL             never on its own: until `pnpm migrate` runs, the server warns at start and
 //                          the plugin's admin screens show a notice in place of the screen.
 //
-// Server-only. The registry is imported lazily: plugin code imports this module, and the registry
-// imports the plugins, so a top-level import would be a cycle.
+// Server-only. The registry is imported lazily (it imports the plugins). Loading this module
+// registers the storage provider that a plugin's `storage.open()` (from @pet-adopt/plugin-sdk) goes
+// through; instrumentation.ts and registry.ts load it, so it is in place before any plugin code runs.
 import { getDatabase, type Database, type Db } from '@/db/client'
 import { applyPluginMigrations, pluginMigrationStates } from '@/db/plugin-migrations'
 import { describeError, UserError } from '@/server/result'
 
-import type { PluginStorage } from '@pet-adopt/plugin-sdk'
+import { provideStorage, type PluginStorage } from '@pet-adopt/plugin-sdk'
 
 export type PluginStorageStatus = {
   plugin: string
@@ -139,3 +140,12 @@ export async function getPluginDatabase<Tables extends Record<string, unknown>>(
     withTransaction: database.withTransaction,
   }
 }
+
+// A plugin opens its tables with `storage.open()` from its `definePluginStorage` handle. Find the
+// registered plugin that owns that handle (the same object it passed as `storage`) and open them.
+provideStorage(async (storage) => {
+  const { getPluginByStorage } = await registry()
+  const plugin = getPluginByStorage(storage)
+  if (!plugin) throw new Error('This plugin storage does not belong to any plugin registered in pet-adopt.config.ts.')
+  return getPluginDatabase(plugin, storage.tables)
+})

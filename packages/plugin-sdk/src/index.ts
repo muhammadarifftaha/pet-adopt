@@ -1,4 +1,5 @@
 import type React from 'react'
+import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
 import type { IconType } from 'react-icons'
 
 
@@ -132,6 +133,63 @@ export type PluginStorage = {
 
 /** "form-builder" -> "plugin_form_builder_": what every table and index of that plugin starts with. */
 export const pluginTablePrefix = (pluginName: string) => `plugin_${pluginName.replace(/-/g, '_')}_`
+
+/**
+ * A plugin's tables, opened on the site's database. Write queries once against `t` (typed as the
+ * SQLite tables); on PostgreSQL `t` holds the Postgres twins, so the same code runs on both.
+ */
+export type PluginDatabase<Tables> = {
+  dialect: 'sqlite' | 'pg'
+  db: BetterSQLite3Database<Record<string, unknown>>
+  t: Tables
+  /** Runs `fn` atomically. `lock` serialises transactions that use the same name (PostgreSQL). */
+  withTransaction<T>(fn: (tx: BetterSQLite3Database<Record<string, unknown>>) => Promise<T>, options?: { lock?: string }): Promise<T>
+}
+
+/** What `definePluginStorage` returns: pass it as the plugin's `storage`, and `open()` it in server code. */
+export type PluginStorageHandle<SqliteTables extends Record<string, unknown>, PgTables extends Record<string, unknown>> = PluginStorage & {
+  tables: { sqlite: SqliteTables; pg: PgTables }
+  /**
+   * Opens the plugin's tables. Throws, with a message an owner can act on, until `pnpm migrate`
+   * has set them up. Server-only.
+   */
+  open(): Promise<PluginDatabase<SqliteTables>>
+}
+
+type StorageProvider = (storage: PluginStorage) => Promise<PluginDatabase<unknown>>
+
+// On globalThis, so the app and every plugin find the same provider even when the SDK is bundled
+// more than once (instrumentation, routes and server actions are separate bundles in one process).
+const PROVIDER = Symbol.for('pet-adopt.plugin-storage-provider')
+const slot = globalThis as unknown as Record<symbol, StorageProvider | undefined>
+
+/**
+ * A plugin's tables and migrations, plus a way to open them. The app does the opening: a plugin
+ * never imports the app's database, only this package and drizzle-orm (for its table definitions).
+ *
+ *   export const storage = definePluginStorage({ tables: { sqlite, pg }, migrations })
+ *   definePlugin({ name: 'my-plugin', storage, ... })
+ *   const { db, t } = await storage.open()
+ */
+export function definePluginStorage<SqliteTables extends Record<string, unknown>, PgTables extends Record<string, unknown>>(storage: {
+  tables: { sqlite: SqliteTables; pg: PgTables }
+  migrations: readonly PluginMigration[]
+}): PluginStorageHandle<SqliteTables, PgTables> {
+  const handle: PluginStorageHandle<SqliteTables, PgTables> = {
+    ...storage,
+    async open() {
+      const provider = slot[PROVIDER]
+      if (!provider) throw new Error('Plugin storage can only be opened inside the Pet Adopt app (no storage provider is registered).')
+      return (await provider(handle)) as PluginDatabase<SqliteTables>
+    },
+  }
+  return handle
+}
+
+/** For the app only: how plugin storage is opened. Plugins never call this. */
+export function provideStorage(provider: StorageProvider): void {
+  slot[PROVIDER] = provider
+}
 
 export type Plugin = {
   /** Lowercase letters, digits and dashes. Used in the URL, so renaming it moves the screens. */

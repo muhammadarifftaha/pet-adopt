@@ -17,6 +17,8 @@
     "resolveJsonModule": true
   },
   "include": [
-    "src"
+    "src",
+    "schema",
+    "migrations.ts"
   ]
 }

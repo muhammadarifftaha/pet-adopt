@@ -38,12 +38,20 @@ for (const { key, kit } of dialects) {
     console.error(`Missing ${path.relative(process.cwd(), schema)}: a plugin's tables live in schema/sqlite.ts and schema/pg.ts.`)
     process.exit(1)
   }
+  // Relative paths: drizzle-kit prefixes `--out` with "./", so an absolute one cannot find the earlier
+  // snapshots it diffs against. And it exits 0 on such errors, so its output is checked too.
+  const rel = (p: string) => path.relative(process.cwd(), p) || '.'
   const result = spawnSync(
     'pnpm',
-    ['exec', 'drizzle-kit', 'generate', '--dialect', kit, '--schema', schema, '--out', path.join(dir, 'drizzle', key), '--name', nameArg],
-    { stdio: 'inherit' },
+    ['exec', 'drizzle-kit', 'generate', '--dialect', kit, '--schema', rel(schema), '--out', rel(path.join(dir, 'drizzle', key)), '--name', nameArg],
+    { encoding: 'utf8', stdio: ['inherit', 'pipe', 'pipe'] },
   )
-  if (result.status !== 0) process.exit(result.status ?? 1)
+  process.stdout.write(result.stdout ?? '')
+  process.stderr.write(result.stderr ?? '')
+  if (result.status !== 0 || /\bError\b/.test(`${result.stdout}${result.stderr}`)) {
+    console.error(`drizzle-kit failed for ${key}; migrations.ts was not written.`)
+    process.exit(result.status || 1)
+  }
 }
 
 type Journal = { entries: Array<{ idx: number; tag: string }> }

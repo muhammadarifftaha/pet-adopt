@@ -3,9 +3,11 @@ import { FiMail } from 'react-icons/fi'
 import type { AdminNavItem, NavIcon } from '@/components/admin/nav-items'
 
 import config from '../../pet-adopt.config'
-import type { EmailSender, Plugin, PluginMigration, PluginScreen, PluginWidget } from '@pet-adopt/plugin-sdk'
+import type { EmailSender, Plugin, PluginMigration, PluginScreen, PluginStorage, PluginWidget } from '@pet-adopt/plugin-sdk'
 import { IconError, toNavIcon } from './icon'
 import { storageProblems } from './storage-rules'
+// Registers the provider behind plugins' `storage.open()` (see storage.ts).
+import './storage'
 
 // Reads `pet-adopt.config.ts` once, flattens nested plugins, checks them, and answers the questions
 // the admin asks: which menu entries, which screen for this URL, which dashboard widgets.
@@ -206,6 +208,11 @@ export function getEmailPlugin(): { plugin: string; sender: EmailSender } | null
 
 export function getPluginWidgets(): ResolvedWidget[] {
   return registry().widgets
+}
+
+/** The name of the registered plugin whose `storage` is this object, or null. */
+export function getPluginByStorage(storage: PluginStorage): string | null {
+  return registry().plugins.find((plugin) => plugin.storage === storage)?.name ?? null
 }
 
 /** Each plugin that has tables of its own, with its migrations, in load order. */
