@@ -389,6 +389,47 @@ export function forcedModeCss(theme: ResolvedTheme, mode: 'light' | 'dark', sele
   return `${selector}{${declarations({ ...theme.shared, ...theme[mode] })};color-scheme:${mode}}`
 }
 
+/**
+ * The page builder's (Puck's) own colours in dark mode, made from the site theme's dark colours so
+ * the builder matches the rest of the admin: Puck's grey scale is a blend from the dark text colour
+ * to the dark background (on the same light-to-dark steps as Puck's own greys), its "white" is the
+ * dark surface and its "black" the dark text, and its blue accent is rebuilt from the primary
+ * colour. Only theme values (all validated hex) go into it. Applied when the editor is dark, like
+ * the admin: the owner's choice on <html data-mode>, else the system setting.
+ */
+export function puckDarkCss(theme: ResolvedTheme): string {
+  const t = theme.dark
+  const ink = t['--ink']
+  const bg = t['--bg']
+  const primary = t['--primary']
+  // How far each of Puck's greys (01 darkest .. 12 lightest in light mode) sits from its text colour.
+  const steps = [0.06, 0.14, 0.24, 0.34, 0.45, 0.56, 0.66, 0.75, 0.84, 0.91, 0.95, 0.98]
+  const vars: Record<string, string> = {
+    '--puck-color-white': t['--surface'],
+    '--puck-color-black': ink,
+  }
+  steps.forEach((step, i) => {
+    vars[`--puck-color-grey-${String(i + 1).padStart(2, '0')}`] = mix(ink, bg, step)
+  })
+  // Puck's azure: 06-12 are ever darker tints (hover and selection backgrounds), 05 the accent
+  // itself, 01-04 the accent as text. Text steps start as blends toward the text colour and are then
+  // nudged until they reach 4.5:1 on every background they can sit on, whatever the brand colour.
+  const towardBg = [0.25, 0.45, 0.6, 0.72, 0.8, 0.87, 0.92]
+  const tints = towardBg.map((step) => mix(primary, bg, step))
+  tints.forEach((tint, i) => (vars[`--puck-color-azure-${String(i + 6).padStart(2, '0')}`] = tint))
+  vars['--puck-color-azure-05'] = primary
+  const textBackgrounds = [t['--surface'], bg, vars['--puck-color-grey-12'], ...tints.slice(3)]
+  const towardInk = [0.8, 0.6, 0.42, 0.25]
+  towardInk.forEach((step, i) => {
+    vars[`--puck-color-azure-0${i + 1}`] = ensureContrastOnAll(mix(primary, ink, step), textBackgrounds, 4.5)
+  })
+  const body = `${declarations(vars)};color-scheme:dark`
+  return [
+    `@media (prefers-color-scheme: dark){html[data-follow-mode]:not([data-mode="light"]){${body}}}`,
+    `html[data-follow-mode][data-mode="dark"]{${body}}`,
+  ].join('\n')
+}
+
 // ---------------------------------------------------------------------------------------------
 // Admin validation
 // ---------------------------------------------------------------------------------------------

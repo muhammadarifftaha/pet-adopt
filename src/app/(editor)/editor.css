@@ -49,36 +49,14 @@
 .media-picker-grid img { width: 100%; height: 100%; object-fit: cover; display: block; }
 
 /* --- Puck in dark mode ------------------------------------------------------------------------
-   Same rule as the admin: the owner's saved choice (data-mode on <html>, set by the pre-paint
-   script), else their system setting. Only when the layout sets data-follow-mode (the site has dark
-   mode at all). Puck defines these variables on :root inside @layer puck-tokens, so these unlayered
-   rules win, and its semantic colours (text, surface, border...) follow because they are built from
-   them. The grey scale is reversed, white and black swap, and the pale accent tints (selection,
-   errors, success, warnings) become dark tints. The canvas keeps the site's colours (own switch). */
+   Puck's greys, white, black and azure come from the site theme's dark colours (puckDarkCss in
+   src/lib/theme.ts, injected by the editor layout), so the builder matches the rest of the admin.
+   Here: Puck's status tints, which have no theme counterpart, made dark, plus disabled text and the
+   dialog backdrop. Same conditions: the owner's choice on data-mode, else the system setting, and
+   only when the layout sets data-follow-mode. Puck defines its variables in @layer puck-tokens, so
+   these unlayered rules win. */
 @media (prefers-color-scheme: dark) {
   html[data-follow-mode]:not([data-mode='light']) {
-    --puck-color-white: #141414;
-    --puck-color-black: #f2f2f2;
-    --puck-color-grey-01: #fafafa;
-    --puck-color-grey-02: #f0f0f0;
-    --puck-color-grey-03: #e2e2e2;
-    --puck-color-grey-04: #cfcfcf;
-    --puck-color-grey-05: #b0b0b0;
-    --puck-color-grey-06: #8e8e8e;
-    --puck-color-grey-07: #707070;
-    --puck-color-grey-08: #555555;
-    --puck-color-grey-09: #3d3d3d;
-    --puck-color-grey-10: #2c2c2c;
-    --puck-color-grey-11: #222222;
-    --puck-color-grey-12: #1a1a1a;
-    --puck-color-azure-01: #e7eef7;
-    --puck-color-azure-02: #cfdff0;
-    --puck-color-azure-03: #abc7e5;
-    --puck-color-azure-04: #88b0da;
-    --puck-color-azure-09: #1d3a5c;
-    --puck-color-azure-10: #182d47;
-    --puck-color-azure-11: #132235;
-    --puck-color-azure-12: #101b2a;
     --puck-color-green-10: #173a24;
     --puck-color-green-11: #12291b;
     --puck-color-green-12: #0f2016;
@@ -93,32 +71,9 @@
     --puck-color-yellow-12: #201b0a;
     --puck-color-text-disabled: var(--puck-color-grey-07);
     --puck-color-overlay-backdrop: color-mix(in srgb, #000000 75%, transparent);
-    color-scheme: dark;
   }
 }
 html[data-follow-mode][data-mode='dark'] {
-  --puck-color-white: #141414;
-  --puck-color-black: #f2f2f2;
-  --puck-color-grey-01: #fafafa;
-  --puck-color-grey-02: #f0f0f0;
-  --puck-color-grey-03: #e2e2e2;
-  --puck-color-grey-04: #cfcfcf;
-  --puck-color-grey-05: #b0b0b0;
-  --puck-color-grey-06: #8e8e8e;
-  --puck-color-grey-07: #707070;
-  --puck-color-grey-08: #555555;
-  --puck-color-grey-09: #3d3d3d;
-  --puck-color-grey-10: #2c2c2c;
-  --puck-color-grey-11: #222222;
-  --puck-color-grey-12: #1a1a1a;
-  --puck-color-azure-01: #e7eef7;
-  --puck-color-azure-02: #cfdff0;
-  --puck-color-azure-03: #abc7e5;
-  --puck-color-azure-04: #88b0da;
-  --puck-color-azure-09: #1d3a5c;
-  --puck-color-azure-10: #182d47;
-  --puck-color-azure-11: #132235;
-  --puck-color-azure-12: #101b2a;
   --puck-color-green-10: #173a24;
   --puck-color-green-11: #12291b;
   --puck-color-green-12: #0f2016;
@@ -133,7 +88,6 @@ html[data-follow-mode][data-mode='dark'] {
   --puck-color-yellow-12: #201b0a;
   --puck-color-text-disabled: var(--puck-color-grey-07);
   --puck-color-overlay-backdrop: color-mix(in srgb, #000000 75%, transparent);
-  color-scheme: dark;
 }
 
 /* The Pet spotlight's pet picker (a native select, in Puck's colours). */
