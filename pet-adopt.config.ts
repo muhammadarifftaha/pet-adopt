@@ -1,5 +1,6 @@
 import { defineConfig } from "@/plugins/define";
 import { adoptionTips } from "@/plugins/example";
+import { formBuilder } from "@/plugins/form-builder";
 import { resendEmail } from "@/plugins/resend";
 
 // Plugins are registered here. Each one can add screens (menu entry plus page under
@@ -11,5 +12,5 @@ import { resendEmail } from "@/plugins/resend";
 // and EMAIL_FROM are set it reports itself as not ready and the site offers no email. Replace it
 // with another `email` plugin (SMTP, SES...) if you prefer.
 export default defineConfig({
-  plugins: [adoptionTips(), resendEmail()],
+  plugins: [adoptionTips(), resendEmail(), formBuilder()],
 });
