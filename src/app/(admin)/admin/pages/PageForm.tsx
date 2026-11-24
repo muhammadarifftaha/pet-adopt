@@ -171,7 +171,7 @@ function ShareImageField({ control }: { control: Control<PageFormValues> }) {
             {image ? (
               <div className="flex gap-3 rounded-lg border p-2">
                 {/* Decorative: the description next to it says what the picture shows. */}
-                <Image src={image.thumbnailUrl} alt="" width={96} height={72} className="h-[72px] w-24 shrink-0 rounded object-cover" />
+                <Image src={image.thumbnailUrl} alt="" width={96} height={72} className="h-18 w-24 shrink-0 rounded object-cover" />
                 <p className="line-clamp-3 text-sm">{image.alt}</p>
               </div>
             ) : null}
