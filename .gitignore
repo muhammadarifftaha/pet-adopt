@@ -3,8 +3,9 @@ node_modules
 .pnp
 .pnp.js
 
-# next
+# next and turbo
 .next
+.turbo
 out
 next-env.d.ts
 
@@ -18,7 +19,7 @@ next-env.d.ts
 *.db-journal
 *.db-shm
 *.db-wal
-/media
+/apps/web/media
 
 # misc
 .DS_Store

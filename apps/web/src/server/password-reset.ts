@@ -14,7 +14,7 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto'
 
 import { and, eq, gt, like, lt } from 'drizzle-orm'
 
-import type { EmailSender } from '@/plugins/define'
+import type { EmailSender } from '@pet-adopt/plugin-sdk'
 
 import { getDatabase } from '@/db/client'
 

@@ -59,8 +59,8 @@ import { removeUpload, saveUpload } from '../src/server/uploads'
 import { siteIcons } from '../src/lib/queries'
 import { activateTheme, createTheme, deleteTheme, getTheme, listThemes, updateTheme } from '../src/server/themes'
 import { createResetLink, isResetTokenValid, prepareResetEmail, resetPasswordWithToken } from '../src/server/password-reset'
-import type { EmailMessage } from '../src/plugins/define'
-import { resendEmail } from '../src/plugins/resend'
+import type { EmailMessage } from '@pet-adopt/plugin-sdk'
+import { resendEmail } from '@pet-adopt/plugin-resend-email'
 import { createUser, deleteUser, ensureOwner, listUsers, resetPassword, updateUser } from '../src/server/users'
 
 let failures = 0

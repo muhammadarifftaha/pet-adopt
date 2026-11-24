@@ -1,0 +1,27 @@
+{
+  "name": "@pet-adopt/plugin-form-builder",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Build forms for the site and read the responses.",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.tsx"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@pet-adopt/plugin-sdk": "workspace:*"
+  },
+  "peerDependencies": {
+    "react": "^19.2.0",
+    "react-icons": "^5.7.0"
+  },
+  "devDependencies": {
+    "@types/react": "19.2.14",
+    "typescript": "5.7.3",
+    "react": "19.2.6",
+    "react-icons": "^5.7.0"
+  }
+}

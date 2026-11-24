@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
-      # A throwaway SQLite database and upload folder, never a real site.
+      # A throwaway SQLite database and upload folder, never a real site (relative to apps/web).
       DATABASE_URL: file:./ci-check.db
       UPLOAD_DIR: ./ci-uploads
       SEED_ADMIN_EMAIL: owner@example.test
@@ -37,6 +37,7 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      # Each runs through turbo across the workspace (apps/web, packages/*, plugins/*).
       - run: pnpm typecheck
       - run: pnpm lint
       - run: pnpm check:schemas

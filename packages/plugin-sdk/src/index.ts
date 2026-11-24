@@ -1,20 +1,28 @@
 import type React from 'react'
 import type { IconType } from 'react-icons'
 
-import type { SessionUser } from '@/server/types'
 
-// The public surface for `pet-adopt.config.ts` and for plugin authors. Nothing here touches the
-// database or the browser, so a plugin package can import it safely.
+// @pet-adopt/plugin-sdk: the public surface for `pet-adopt.config.ts` and for plugin authors.
+// Nothing here touches the database or the browser, and nothing imports the app, so a plugin
+// package (in plugins/ here, or published to npm) depends on this package alone.
+
+/** The signed-in person a screen or widget is shown to. The app's session user has this shape. */
+export type PluginUser = {
+  id: string
+  email: string
+  name: string
+  role: 'admin' | 'editor'
+}
 
 /** What a plugin screen or dashboard widget receives. Both are server components by default. */
 export type PluginScreenProps = {
-  user: SessionUser
+  user: PluginUser
   /** Values of `:name` segments in the screen's path (`items/:id` gives `{ id: '3' }`). */
   params: Record<string, string>
   searchParams: Record<string, string | string[] | undefined>
 }
 
-export type PluginWidgetProps = { user: SessionUser }
+export type PluginWidgetProps = { user: PluginUser }
 
 /**
  * An SVG drawn from path data: the `d` of each <path>, in a `viewBox` (default "0 0 24 24"). Filled

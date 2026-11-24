@@ -39,6 +39,14 @@ const contentSecurityPolicy = [
 const nextConfig: NextConfig = {
   // Native database drivers and sharp must be loaded from node_modules at runtime, not bundled.
   serverExternalPackages: ['better-sqlite3', 'pg', 'sharp'],
+  // Workspace packages ship TypeScript source (no build step), so Next compiles them. A plugin
+  // installed from npm as compiled JavaScript does not need to be listed.
+  transpilePackages: [
+    '@pet-adopt/plugin-sdk',
+    '@pet-adopt/plugin-adoption-tips',
+    '@pet-adopt/plugin-form-builder',
+    '@pet-adopt/plugin-resend-email',
+  ],
   experimental: {
     // Uploads go through server actions; the app allows images up to 10 MB.
     serverActions: { bodySizeLimit: '11mb' },
@@ -69,8 +77,10 @@ const nextConfig: NextConfig = {
       },
     ]
   },
+  // The monorepo root (two levels up): pnpm installs packages there, and the plugin packages in
+  // plugins/ and packages/ live outside this app, so Turbopack must be able to read them.
   turbopack: {
-    root: path.resolve(dirname),
+    root: path.resolve(dirname, '../..'),
   },
 }
 

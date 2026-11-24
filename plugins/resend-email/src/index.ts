@@ -1,4 +1,4 @@
-import { definePlugin, type EmailMessage } from './define'
+import { definePlugin, type EmailMessage } from '@pet-adopt/plugin-sdk'
 
 // Sends the site's email through Resend (https://resend.com) with one HTTP call, so no extra
 // package is needed. Register it in `pet-adopt.config.ts`:

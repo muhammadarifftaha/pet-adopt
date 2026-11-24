@@ -1,6 +1,6 @@
 import { FiClipboard } from 'react-icons/fi'
 
-import { definePlugin } from './define'
+import { definePlugin } from '@pet-adopt/plugin-sdk'
 
 // Form builder (scaffold). Lets owners build forms (adoption applications, volunteer sign-ups,
 // contact) and read what visitors send. Only the admin screens exist so far.

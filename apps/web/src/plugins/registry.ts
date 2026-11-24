@@ -3,7 +3,7 @@ import { FiMail } from 'react-icons/fi'
 import type { AdminNavItem, NavIcon } from '@/components/admin/nav-items'
 
 import config from '../../pet-adopt.config'
-import type { EmailSender, Plugin, PluginScreen, PluginWidget } from './define'
+import type { EmailSender, Plugin, PluginScreen, PluginWidget } from '@pet-adopt/plugin-sdk'
 import { IconError, toNavIcon } from './icon'
 
 // Reads `pet-adopt.config.ts` once, flattens nested plugins, checks them, and answers the questions

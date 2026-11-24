@@ -1,6 +1,6 @@
 import { FiBookOpen } from 'react-icons/fi'
 
-import { definePlugin } from './define'
+import { definePlugin } from '@pet-adopt/plugin-sdk'
 
 // A reference plugin. It is not registered: to try it, import it in `pet-adopt.config.ts` and add
 // `adoptionTips({ heading: 'Tips for new owners' })` to `plugins`. A Tips entry then appears in the
