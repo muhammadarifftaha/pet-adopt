@@ -1,4 +1,5 @@
 import { cookies } from "next/headers";
+import Image from "next/image";
 import Link from "next/link";
 import React from "react";
 
@@ -10,6 +11,7 @@ import {
   SidebarProvider,
   SidebarTrigger,
 } from "@/components/ui/sidebar";
+import { getSettings } from "@/lib/queries";
 import { getPluginNav } from "@/plugins/registry";
 import type { SessionUser } from "@/server/types";
 
@@ -29,7 +31,10 @@ export async function AdminShell({
 }) {
   // The sidebar remembers open/closed in a cookie. Reading it here means the first paint already
   // has the right state, so the page does not jump after hydration.
-  const defaultOpen = (await cookies()).get("sidebar_state")?.value !== "false";
+  const [cookieStore, settings] = await Promise.all([cookies(), getSettings()]);
+  const defaultOpen = cookieStore.get("sidebar_state")?.value !== "false";
+  // The site's own name and logo (Settings > Brand), so owners see whose admin this is.
+  const logo = settings.logo?.thumbnailUrl ? settings.logo : null;
 
   return (
     <SidebarProvider defaultOpen={defaultOpen}>
@@ -45,9 +50,22 @@ export async function AdminShell({
         <SidebarHeader>
           <Link
             href="/admin"
-            className="rounded-md px-2 py-1.5 font-semibold hover:bg-sidebar-accent"
+            className="flex min-w-0 items-center gap-2.5 rounded-md p-2 hover:bg-sidebar-accent"
           >
-            Pet Adopt admin
+            {/* Decorative: the site name beside it is the link's text. */}
+            {logo ? (
+              <Image
+                src={logo.thumbnailUrl}
+                alt=""
+                width={32}
+                height={32}
+                className="size-8 shrink-0 rounded-md object-contain"
+              />
+            ) : null}
+            <span className="flex min-w-0 flex-col leading-tight">
+              <span className="truncate font-semibold">{settings.siteName}</span>
+              <span className="text-xs text-muted-foreground">Admin</span>
+            </span>
           </Link>
         </SidebarHeader>
         <SidebarContent>

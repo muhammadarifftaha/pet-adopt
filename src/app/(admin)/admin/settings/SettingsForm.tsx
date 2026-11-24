@@ -320,7 +320,7 @@ export function SettingsForm({ settings }: { settings: SiteSetting }) {
 
         <TabsContent value="brand" className="pt-4">
           <FieldGroup className="max-w-2xl">
-            <TextField control={control} name="siteName" label="Site name" required description="Shown in the header, the browser tab and search results." />
+            <TextField control={control} name="siteName" label="Site name" required description="Shown in the site header, the browser tab, search results and the admin sidebar." />
             <TextField control={control} name="tagline" label="Tagline" description="A short line about your rescue, used on the homepage and in link previews." />
             <LogoField control={control} />
             <Controller
