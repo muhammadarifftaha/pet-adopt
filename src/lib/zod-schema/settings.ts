@@ -18,6 +18,8 @@ export const settingsFormSchema = z.object({
   siteName: z.string().trim().min(1, "Enter the site's name.").max(80, "Use at most 80 characters."),
   tagline: z.string().max(160, "Use at most 160 characters."),
   logo: mediaRef.nullable(),
+  /** Checked for size and shape on the server (the picker does not send the image's dimensions). */
+  favicon: mediaRef.nullable(),
   allowModeToggle: z.boolean(),
   whatsappNumber: z
     .string()
@@ -62,6 +64,7 @@ export function settingsToFormValues(settings: SiteSetting): SettingsFormValues 
     siteName: settings.siteName ?? "",
     tagline: settings.tagline ?? "",
     logo: settings.logo ? { id: settings.logo.id, thumbnailUrl: settings.logo.thumbnailUrl, alt: settings.logo.alt } : null,
+    favicon: settings.favicon ? { id: settings.favicon.id, thumbnailUrl: settings.favicon.thumbnailUrl, alt: settings.favicon.alt } : null,
     allowModeToggle: settings.allowModeToggle,
     whatsappNumber: settings.whatsappNumber ?? "",
     whatsappMessage: settings.whatsappMessage ?? "",
@@ -81,6 +84,7 @@ export function toSettingsInput(values: SettingsFormValues) {
     siteName: values.siteName.trim(),
     tagline: orNull(values.tagline),
     logoId: values.logo?.id ?? null,
+    faviconId: values.favicon?.id ?? null,
     allowModeToggle: values.allowModeToggle,
     whatsappNumber: orNull(values.whatsappNumber),
     whatsappMessage: orNull(values.whatsappMessage),
@@ -106,6 +110,9 @@ export function settingsFieldInfo(name: string): { tab: SettingsTab; label: stri
     case "logo":
     case "logoId":
       return { tab: "brand", label: "Logo" };
+    case "favicon":
+    case "faviconId":
+      return { tab: "brand", label: "Site icon" };
     case "allowModeToggle":
       return { tab: "brand", label: "Light and dark switch" };
     case "whatsappNumber":
@@ -127,5 +134,5 @@ export function settingsFieldInfo(name: string): { tab: SettingsTab; label: stri
   }
 }
 
-/** Server error keys on the form's field names (`logoId` is the `logo` field). */
-export const settingsFormField = (key: string) => (key === "logoId" ? "logo" : key);
+/** Server error keys on the form's field names (`logoId` is the `logo` field, `faviconId` the `favicon`). */
+export const settingsFormField = (key: string) => (key === "logoId" ? "logo" : key === "faviconId" ? "favicon" : key);

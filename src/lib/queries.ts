@@ -1,6 +1,9 @@
 // What the public pages read. Thin wrappers over src/server (the data layer) that keep the
 // names the pages already use, add the "no database during `next build`" fallback, and make sure a
 // visitor can never ask for unlisted pets.
+import type { Metadata } from 'next'
+import { cache } from 'react'
+
 import {
   AGE_GROUPS,
   GOOD_WITH,
@@ -67,9 +70,9 @@ function publicFilters(filters: PetFilters): PetFilters {
   return rest
 }
 
-export async function getSettings(): Promise<SiteSetting> {
-  return safely(loadSettings, DEFAULT_SETTINGS)
-}
+// Memoised per request (React `cache`): a layout, its nested layouts and the page can all ask for
+// the settings and the database is read once. Outside a render it is a plain call.
+export const getSettings = cache(async (): Promise<SiteSetting> => safely(loadSettings, DEFAULT_SETTINGS))
 
 /** Plain, serialisable shape used by pet cards (safe to send through server actions). */
 export type PetCardData = {
@@ -82,6 +85,17 @@ export type PetCardData = {
   ageDescription?: string | null
   location?: string | null
   image: { url: string; alt: string } | null
+}
+
+/**
+ * The browser tab and home-screen icon from Settings > Brand, for a layout's metadata. Every upload
+ * gets a new random file name, so a changed icon is a new URL and browsers cannot keep the old one.
+ * Without one, Next serves no icon and browsers show their default.
+ */
+export function siteIcons(settings: SiteSetting): Metadata['icons'] {
+  const icon = settings.favicon
+  if (!icon?.url) return undefined
+  return { icon: [{ url: icon.url, type: icon.mimeType }], apple: [{ url: icon.url }] }
 }
 
 export function mediaOf(value: MediaItem | null | undefined): { url: string; alt: string } | null {

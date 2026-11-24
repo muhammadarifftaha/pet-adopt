@@ -8,7 +8,7 @@ import { SocialLinks } from '@/components/site/SocialIcons'
 import { ThemeStyle } from '@/components/site/ThemeStyle'
 import { ThemeToggle } from '@/components/site/ThemeToggle'
 import { WhatsAppButton } from '@/components/site/WhatsAppButton'
-import { mediaOf, getSettings } from '@/lib/queries'
+import { getSettings, mediaOf, siteIcons } from '@/lib/queries'
 import { fillMessage } from '@/lib/whatsapp'
 
 import '../globals.css'
@@ -25,6 +25,7 @@ export async function generateMetadata(): Promise<Metadata> {
     title: { default: settings.siteName, template: `%s | ${settings.siteName}` },
     description: settings.tagline ?? undefined,
     openGraph: { siteName: settings.siteName, type: 'website' },
+    icons: siteIcons(settings),
   }
 }
 

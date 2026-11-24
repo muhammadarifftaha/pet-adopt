@@ -92,11 +92,12 @@ export async function updateMediaAlt(id: number, alt: string): Promise<MediaItem
 export async function mediaUsage(id: number) {
   const { db, t } = await getDatabase()
   const one = async (query: Promise<Array<{ n: number }>>) => (await query)[0]?.n ?? 0
-  const [petPhotos, petShares, pages, logo, [row]] = await Promise.all([
+  const [petPhotos, petShares, pages, logo, favicon, [row]] = await Promise.all([
     one(db.select({ n: count() }).from(t.petPhotos).where(eq(t.petPhotos.mediaId, id))),
     one(db.select({ n: count() }).from(t.pets).where(eq(t.pets.seoImageId, id))),
     one(db.select({ n: count() }).from(t.pages).where(eq(t.pages.seoImageId, id))),
     one(db.select({ n: count() }).from(t.siteSettings).where(eq(t.siteSettings.logoId, id))),
+    one(db.select({ n: count() }).from(t.siteSettings).where(eq(t.siteSettings.faviconId, id))),
     db.select({ filename: t.media.filename }).from(t.media).where(eq(t.media.id, id)).limit(1),
   ])
 
@@ -108,7 +109,7 @@ export async function mediaUsage(id: number) {
     const rows = await db.select({ draft: t.pages.puckDraft, published: t.pages.puckPublished }).from(t.pages)
     layouts = rows.filter((page) => JSON.stringify([page.draft, page.published]).includes(row.filename)).length
   }
-  return { pets: petPhotos + petShares, pages, logo: logo > 0, layouts }
+  return { pets: petPhotos + petShares, pages, logo: logo > 0, favicon: favicon > 0, layouts }
 }
 
 /** Deletes the row and returns its filename so the caller can remove the stored files. */
@@ -123,10 +124,11 @@ export async function deleteMediaRow(id: number): Promise<string> {
       usage.pages ? `${usage.pages} page(s)` : '',
       usage.layouts ? `${usage.layouts} page layout(s)` : '',
       usage.logo ? 'the site logo' : '',
+      usage.favicon ? 'the site icon (favicon)' : '',
     ].filter(Boolean)
     return new UserError(`This image is still used by ${where.join(' and ') || 'something else'}. Replace it there first.`)
   }
-  if (usage.pets + usage.pages + usage.layouts > 0 || usage.logo) throw stillUsed()
+  if (usage.pets + usage.pages + usage.layouts > 0 || usage.logo || usage.favicon) throw stillUsed()
   try {
     await db.delete(t.media).where(eq(t.media.id, id))
   } catch (error) {

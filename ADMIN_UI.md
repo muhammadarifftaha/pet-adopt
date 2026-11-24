@@ -137,7 +137,7 @@ Settings `/admin/pages/new` and `/admin/pages/[id]` (`getPageAction`, `savePageD
 
 ### 7. Site settings `/admin/settings` (admin only) — done (`SettingsForm`, schema in `src/lib/zod-schema/settings.ts`; `primaryColor` is no longer in the form, the Theme screen owns the look)
 `getSettingsAction`, `updateSettingsAction(input)`. Tabs:
-- [x] **Brand:** `siteName` (required), `tagline`, `logoId`, `primaryColor` (optional hex override).
+- [x] **Brand:** `siteName` (required), `tagline`, `logoId` (any shape; site header and admin sidebar), `faviconId` ("Site icon": square within 5%, at least 32 px, checked on the server as `faviconId`), `primaryColor` (optional hex override).
 - [x] **Theme:** moved to its own screen, `/admin/theme` (theme library and editor, done). The old (`PRESET_OPTIONS`, `PRESET_HELP` in `src/lib/theme.ts`; swatch
       cards or a live preview would help), `allowModeToggle`, `customize` switch, and when on,
       `customTheme`: `headingFont`, `bodyFont`, `radius`, `button`, `shadow`, `density`, `textSize`,

@@ -127,6 +127,8 @@ export type SiteSetting = {
   siteName: string
   tagline: string | null
   logo: MediaItem | null
+  /** The browser tab icon (square image). */
+  favicon: MediaItem | null
   primaryColor: string | null
   theme: string
   allowModeToggle: boolean

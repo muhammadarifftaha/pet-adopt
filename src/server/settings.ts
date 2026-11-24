@@ -23,7 +23,7 @@ import { normalizePhone } from '@/lib/whatsapp'
 
 import { getMediaByIds } from './media'
 import { asRecord, Fields, ValidationError, type FieldErrors } from './result'
-import type { SiteSetting } from './types'
+import type { MediaItem, SiteSetting } from './types'
 
 type SettingsRow = typeof S.siteSettings.$inferSelect
 type CustomTheme = NonNullable<ThemeSettings['customTheme']>
@@ -37,6 +37,7 @@ export const DEFAULT_SETTINGS: SiteSetting = {
   siteName: 'Pet Adopt',
   tagline: 'Find your new best friend',
   logo: null,
+  favicon: null,
   primaryColor: null,
   theme: 'sunrise',
   allowModeToggle: true,
@@ -53,12 +54,29 @@ export const DEFAULT_SETTINGS: SiteSetting = {
   updatedAt: null,
 }
 
-function toSettings(row: SettingsRow, logo: SiteSetting['logo']): SiteSetting {
+/** The smallest favicon accepted. Browsers show 16 to 32 px, phones' home screens up to 180. */
+export const FAVICON_MIN_SIZE = 32
+
+/**
+ * Why an image cannot be the favicon, or null when it can. Browsers squash a non-square icon, so it
+ * must be square (within 5%, for crops that are a pixel or two off) and at least 32 px.
+ */
+export function faviconProblem(image: Pick<MediaItem, 'width' | 'height'> | undefined | null): string | null {
+  if (!image) return 'That image no longer exists.'
+  const { width, height } = image
+  if (!width || !height) return null
+  if (Math.abs(width - height) > Math.max(width, height) * 0.05) return `Use a square image (this one is ${width} × ${height} px).`
+  if (Math.min(width, height) < FAVICON_MIN_SIZE) return `Use an image at least ${FAVICON_MIN_SIZE} × ${FAVICON_MIN_SIZE} px (this one is ${width} × ${height} px).`
+  return null
+}
+
+function toSettings(row: SettingsRow, logo: SiteSetting['logo'], favicon: SiteSetting['favicon']): SiteSetting {
   return {
     id: row.id,
     siteName: row.siteName,
     tagline: row.tagline,
     logo,
+    favicon,
     primaryColor: row.primaryColor,
     theme: row.theme,
     allowModeToggle: row.allowModeToggle,
@@ -85,8 +103,10 @@ export async function getSettings(): Promise<SiteSetting> {
   const { db, t } = await getDatabase()
   const [row] = await db.select().from(t.siteSettings).where(eq(t.siteSettings.id, SETTINGS_ID)).limit(1)
   if (!row) return DEFAULT_SETTINGS
-  const logo = row.logoId ? ((await getMediaByIds([row.logoId])).get(row.logoId) ?? null) : null
-  const settings = toSettings(row, logo)
+  const ids = [row.logoId, row.faviconId].filter((id): id is number => Boolean(id))
+  const images = ids.length ? await getMediaByIds(ids) : new Map<number, MediaItem>()
+  const image = (id: number | null) => (id ? (images.get(id) ?? null) : null)
+  const settings = toSettings(row, image(row.logoId), image(row.faviconId))
   if (row.activeThemeId) {
     const [theme] = await db.select().from(t.themes).where(eq(t.themes.id, row.activeThemeId)).limit(1)
     if (theme) {
@@ -185,6 +205,7 @@ export async function updateSettings(raw: unknown): Promise<SiteSetting> {
   put('siteName', f.requiredText('siteName', 80))
   put('tagline', f.text('tagline', 160))
   put('logoId', f.id('logoId'))
+  put('faviconId', f.id('faviconId'))
   put('primaryColor', f.text('primaryColor', 9, { validate: (s) => validateHexColor(s) }))
   put('theme', f.oneOf('theme', PRESET_OPTIONS) ?? undefined)
   put('allowModeToggle', f.flag('allowModeToggle'))
@@ -259,7 +280,14 @@ export async function updateSettings(raw: unknown): Promise<SiteSetting> {
   }
 
   if (Object.keys(errors).length) throw new ValidationError(errors)
-  if (v.logoId && !(await getMediaByIds([v.logoId])).has(v.logoId)) throw new ValidationError({ logoId: 'That image no longer exists.' })
+  const chosen = [v.logoId, v.faviconId].filter((id): id is number => Boolean(id))
+  const images = chosen.length ? await getMediaByIds(chosen) : new Map<number, MediaItem>()
+  if (v.logoId && !images.has(v.logoId)) errors.logoId = 'That image no longer exists.'
+  if (v.faviconId) {
+    const problem = faviconProblem(images.get(v.faviconId))
+    if (problem) errors.faviconId = problem
+  }
+  if (Object.keys(errors).length) throw new ValidationError(errors)
 
   await db.insert(t.siteSettings).values({ id: SETTINGS_ID }).onConflictDoNothing()
   await db.update(t.siteSettings).set({ ...v, updatedAt: new Date() }).where(eq(t.siteSettings.id, SETTINGS_ID))

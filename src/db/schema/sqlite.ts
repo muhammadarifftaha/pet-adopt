@@ -272,6 +272,7 @@ export const siteSettings = sqliteTable('site_settings', {
   siteName: text('site_name').notNull().default('Pet Adopt'),
   tagline: text('tagline').default('Find your new best friend'),
   logoId: integer('logo_id').references(() => media.id, { onDelete: 'set null' }),
+  faviconId: integer('favicon_id').references(() => media.id, { onDelete: 'set null' }),
   primaryColor: text('primary_color'),
   theme: text('theme').notNull().default('sunrise'),
   allowModeToggle: integer('allow_mode_toggle', { mode: 'boolean' }).notNull().default(true),

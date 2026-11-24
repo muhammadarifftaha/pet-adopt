@@ -114,29 +114,52 @@ function TextField({
   )
 }
 
-function LogoField({ control }: { control: Control<Values> }) {
+/** Picks one image from the media library (the logo, the site icon). */
+function ImageField({
+  control,
+  name,
+  label,
+  description,
+  pickerTitle,
+  previewSize = 72,
+}: {
+  control: Control<Values>
+  name: 'logo' | 'favicon'
+  label: string
+  description: string
+  pickerTitle: string
+  previewSize?: number
+}) {
   const [open, setOpen] = React.useState(false)
-  const id = fieldId('logo')
+  const id = fieldId(name)
+  const noun = label.toLowerCase()
   return (
     <Controller
-      name="logo"
+      name={name}
       control={control}
       render={({ field, fieldState }) => {
         const image = field.value
         return (
           <FieldSet id={id} data-invalid={fieldState.invalid || undefined} aria-describedby={`${id}-description${fieldState.error ? ` ${id}-error` : ''}`}>
-            <FieldLegend variant="label">Logo</FieldLegend>
-            <FieldDescription id={`${id}-description`}>Shown in the site header. Leave it empty to show the site name only.</FieldDescription>
+            <FieldLegend variant="label">{label}</FieldLegend>
+            <FieldDescription id={`${id}-description`}>{description}</FieldDescription>
             {image ? (
               <div className="flex items-center gap-3 rounded-lg border p-2">
-                {/* Decorative here: the text beside it is the logo's description. */}
-                <Image src={image.thumbnailUrl} alt="" width={72} height={72} className="size-[72px] shrink-0 rounded object-contain" />
+                {/* Decorative here: the text beside it is the image's description. */}
+                <Image
+                  src={image.thumbnailUrl}
+                  alt=""
+                  width={previewSize}
+                  height={previewSize}
+                  style={{ width: previewSize, height: previewSize }}
+                  className="shrink-0 rounded object-contain"
+                />
                 <p className="line-clamp-2 text-sm">{image.alt}</p>
               </div>
             ) : null}
             <div className="flex flex-wrap items-center gap-2">
               <Button type="button" variant="outline" id={`${id}-choose`} ref={field.ref} onClick={() => setOpen(true)}>
-                {image ? 'Change logo' : 'Choose logo'}
+                {image ? `Change ${noun}` : `Choose ${noun}`}
               </Button>
               {image ? (
                 <Button
@@ -147,12 +170,12 @@ function LogoField({ control }: { control: Control<Values> }) {
                     requestAnimationFrame(() => document.getElementById(`${id}-choose`)?.focus())
                   }}
                 >
-                  Remove logo
+                  Remove {noun}
                 </Button>
               ) : null}
             </div>
             <FieldError id={`${id}-error`} errors={[fieldState.error]} />
-            <MediaPickerDialog open={open} onOpenChange={setOpen} title="Choose the logo" max={1} onPick={(items) => field.onChange(items[0] ?? null)} />
+            <MediaPickerDialog open={open} onOpenChange={setOpen} title={pickerTitle} max={1} onPick={(items) => field.onChange(items[0] ?? null)} />
           </FieldSet>
         )
       }}
@@ -322,7 +345,21 @@ export function SettingsForm({ settings }: { settings: SiteSetting }) {
           <FieldGroup className="max-w-2xl">
             <TextField control={control} name="siteName" label="Site name" required description="Shown in the site header, the browser tab, search results and the admin sidebar." />
             <TextField control={control} name="tagline" label="Tagline" description="A short line about your rescue, used on the homepage and in link previews." />
-            <LogoField control={control} />
+            <ImageField
+              control={control}
+              name="logo"
+              label="Logo"
+              pickerTitle="Choose the logo"
+              description="Shown in the site header and the admin sidebar. Any shape works. Leave it empty to show the site name only."
+            />
+            <ImageField
+              control={control}
+              name="favicon"
+              label="Site icon"
+              pickerTitle="Choose the site icon"
+              previewSize={48}
+              description="The small icon in browser tabs, bookmarks and phone home screens (the favicon). Use a square image, at least 32 × 32 px; 512 × 512 px looks sharp everywhere. A simple mark works better than the full logo."
+            />
             <Controller
               name="allowModeToggle"
               control={control}

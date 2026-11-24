@@ -1,13 +1,18 @@
 import '@puckeditor/core/puck.css'
+import type { Metadata } from 'next'
 import React from 'react'
 
 import { PRE_PAINT, ThemeStyle } from '@/components/site/ThemeStyle'
-import { getSettings } from '@/lib/queries'
+import { getSettings, siteIcons } from '@/lib/queries'
 import { puckDarkCss, resolveTheme } from '@/lib/theme'
 
 import '../(frontend)/fonts'
 import '../(frontend)/styles.css'
 import './editor.css'
+
+export async function generateMetadata(): Promise<Metadata> {
+  return { icons: siteIcons(await getSettings()) }
+}
 
 export default async function EditorLayout({ children }: { children: React.ReactNode }) {
   const settings = await getSettings()

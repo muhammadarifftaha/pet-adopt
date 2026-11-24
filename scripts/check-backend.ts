@@ -55,6 +55,7 @@ import {
   guardSignIn,
 } from '../src/server/throttle'
 import { removeUpload, saveUpload } from '../src/server/uploads'
+import { siteIcons } from '../src/lib/queries'
 import { activateTheme, createTheme, deleteTheme, getTheme, listThemes, updateTheme } from '../src/server/themes'
 import { createResetLink, isResetTokenValid, prepareResetEmail, resetPasswordWithToken } from '../src/server/password-reset'
 import type { EmailMessage } from '../src/plugins/define'
@@ -775,6 +776,24 @@ await check('settings: invalid values give nested field errors; valid update is 
   const again = await getSettings()
   ok(again.customTheme?.radius === 'lg' && again.customTheme?.light?.primary === '#0a7d3c', `customTheme ${JSON.stringify(again.customTheme)}`)
   ok(again.whatsappMessage?.includes('{pet}'), 'default message kept')
+})
+
+await check('settings: the site icon must be square and at least 32 px; it is served to every layout and cannot be deleted while used', async () => {
+  const square = (size: number) => sharp({ create: { width: size, height: size, channels: 3, background: '#0a7d3c' } }).png().toBuffer()
+  const wide = await saveUpload({ data: png, alt: 'Wide' })
+  const tiny = await saveUpload({ data: await square(16), alt: 'Tiny' })
+  const icon = await saveUpload({ data: await square(64), alt: 'Paw mark' })
+  ok(/square/.test((await fieldErrors(updateSettings({ faviconId: wide.id }))).faviconId ?? ''), 'a 40 × 30 image is refused')
+  ok(/at least 32/.test((await fieldErrors(updateSettings({ faviconId: tiny.id }))).faviconId ?? ''), 'a 16 px image is refused')
+  ok((await fieldErrors(updateSettings({ faviconId: 2_000_000 }))).faviconId, 'a missing image is refused')
+  const saved = await updateSettings({ faviconId: icon.id, logoId: wide.id })
+  ok(saved.favicon?.id === icon.id && saved.logo?.id === wide.id, 'icon and logo are separate')
+  const icons = siteIcons(saved) as { icon: Array<{ url: string; type?: string }> }
+  ok(icons.icon[0].url === icon.url && icons.icon[0].type === 'image/png', `icon metadata ${JSON.stringify(icons)}`)
+  ok(/site icon/.test(await userError(removeUpload(icon.id))), 'an image used as the site icon cannot be deleted')
+  ok((await updateSettings({ faviconId: null, logoId: null })).favicon === null, 'the icon can be cleared')
+  ok(siteIcons(await getSettings()) === undefined, 'no icon, no metadata')
+  for (const media of [wide, tiny, icon]) await removeUpload(media.id)
 })
 
 await check('settings: partial theme updates merge; contrast is checked on the effective theme; bad shapes are errors', async () => {

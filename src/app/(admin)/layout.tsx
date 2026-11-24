@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import React from "react";
 
 import { ThemeStyle } from "@/components/site/ThemeStyle";
-import { getSettings } from "@/lib/queries";
+import { getSettings, siteIcons } from "@/lib/queries";
 import { getSessionUser } from "@/server/session";
 
 // Tailwind and the shadcn tokens, bridged to the site theme (see the notes in globals.css).
@@ -14,11 +14,17 @@ import Providers from "./providers";
 // Do NOT import ../(frontend)/styles.css here: it is unlayered plain CSS, so it would beat
 // Tailwind's utilities (for example the link colour) and fight with the shadcn components.
 
-export const metadata: Metadata = {
-  title: { default: "Admin", template: "%s | Pet Adopt Admin" },
-  // The admin is for the owners only.
-  robots: { index: false, follow: false },
-};
+// Tabs read "Pets | <site name> admin", so owners with several sites can tell them apart.
+export async function generateMetadata(): Promise<Metadata> {
+  const settings = await getSettings();
+  const { siteName } = settings;
+  return {
+    title: { default: `${siteName} admin`, template: `%s | ${siteName} admin` },
+    // The admin is for the owners only.
+    robots: { index: false, follow: false },
+    icons: siteIcons(settings),
+  };
+}
 
 export default async function AdminRootLayout({
   children,
