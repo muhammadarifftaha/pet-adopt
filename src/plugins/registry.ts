@@ -1,3 +1,5 @@
+import { FiMail } from 'react-icons/fi'
+
 import type { AdminNavItem, NavIcon } from '@/components/admin/nav-items'
 
 import config from '../../pet-adopt.config'
@@ -17,7 +19,35 @@ export type ResolvedScreen = PluginScreen & {
 }
 export type ResolvedWidget = PluginWidget & { plugin: string }
 
-type Registry = { plugins: Plugin[]; screens: ResolvedScreen[]; widgets: ResolvedWidget[]; email: EmailSender | null }
+/**
+ * One registered plugin, for the admin's plugin list and its page. Every plugin has a page at
+ * `href`: its own home screen (`path: ''`) when it declares one, otherwise a built-in overview
+ * (`hasOwnHome: false`), which is admin-only because it shows how the plugin is set up.
+ */
+export type PluginInfo = {
+  name: string
+  title: string
+  description: string | null
+  href: string
+  hasOwnHome: boolean
+  /** Its menu-visible screens (no parameters, not hidden). */
+  screens: Array<{ title: string; href: string; adminOnly: boolean }>
+  widgets: string[]
+  /** It sends the site's email. */
+  email: boolean
+}
+
+type Registry = {
+  plugins: Plugin[]
+  infos: PluginInfo[]
+  screens: ResolvedScreen[]
+  widgets: ResolvedWidget[]
+  email: { plugin: string; sender: EmailSender } | null
+}
+
+/** "resend-email" -> "Resend email". */
+const humanise = (name: string) => name.replace(/-/g, ' ').replace(/^./, (letter) => letter.toUpperCase())
+const MAIL_ICON = toNavIcon(FiMail)
 
 const NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 const LITERAL_SEGMENT = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
@@ -38,8 +68,8 @@ function build(): Registry {
   const seenNames = new Set<string>()
   const screens: ResolvedScreen[] = []
   const widgets: ResolvedWidget[] = []
-  let email: EmailSender | null = null
-  let emailFrom = ''
+  const infos: PluginInfo[] = []
+  let email: Registry['email'] = null
 
   for (const plugin of plugins) {
     const who = `Plugin "${plugin.name}"`
@@ -53,10 +83,15 @@ function build(): Registry {
 
     if (plugin.email !== undefined) {
       if (typeof plugin.email?.send !== 'function') throw new Error(`${who}: email.send must be a function.`)
+      if (plugin.email.status !== undefined && typeof plugin.email.status !== 'function') {
+        throw new Error(`${who}: email.status must be a function.`)
+      }
       // Two senders would leave it unclear which one a reset link goes out through.
-      if (email) throw new Error(`${who} provides email, but "${emailFrom}" already does. Register only one.`)
-      email = plugin.email
-      emailFrom = plugin.name
+      if (email) throw new Error(`${who} provides email, but "${email.plugin}" already does. Register only one.`)
+      email = { plugin: plugin.name, sender: plugin.email }
+    }
+    if (plugin.title !== undefined && (typeof plugin.title !== 'string' || !plugin.title.trim())) {
+      throw new Error(`${who}: title must be a non-empty string.`)
     }
 
     const seenPaths = new Set<string>()
@@ -97,9 +132,23 @@ function build(): Registry {
       seenWidgets.add(widget.id)
       widgets.push({ ...widget, plugin: plugin.name })
     }
+
+    const own = screens.filter((screen) => screen.plugin === plugin.name)
+    infos.push({
+      name: plugin.name,
+      title: plugin.title?.trim() || humanise(plugin.name),
+      description: plugin.description?.trim() || null,
+      href: [PLUGIN_BASE, plugin.name].join('/'),
+      hasOwnHome: own.some((screen) => screen.segments.length === 0),
+      screens: own
+        .filter((screen) => !screen.hidden && !screen.segments.some((segment) => segment.startsWith(':')))
+        .map((screen) => ({ title: screen.title, href: screen.href, adminOnly: Boolean(screen.adminOnly) })),
+      widgets: (plugin.dashboardWidgets ?? []).map((widget) => widget.title),
+      email: email?.plugin === plugin.name,
+    })
   }
 
-  return { plugins, screens, widgets, email }
+  return { plugins, infos, screens, widgets, email }
 }
 
 let cached: Registry | undefined
@@ -107,15 +156,43 @@ function registry(): Registry {
   return (cached ??= build())
 }
 
-/** Menu entries for every screen that has no parameters and is not hidden. */
+/**
+ * Menu entries, plugin by plugin: its overview page first when it has no home screen of its own
+ * (admin-only, the mail icon for an email plugin), then every screen that has no parameters and is
+ * not hidden. So each plugin always has at least one entry.
+ */
 export function getPluginNav(): AdminNavItem[] {
-  return registry()
-    .screens.filter((s) => !s.hidden && !s.segments.some((seg) => seg.startsWith(':')))
-    .map((s) => ({ href: s.href, label: s.nav?.label ?? s.title, adminOnly: s.adminOnly, icon: s.navIcon }))
+  const { infos, screens } = registry()
+  return infos.flatMap((info) => {
+    const overview: AdminNavItem[] = info.hasOwnHome ? [] : [{ href: info.href, label: info.title, adminOnly: true, icon: info.email ? MAIL_ICON : undefined }]
+    const own = screens
+      .filter((s) => s.plugin === info.name && !s.hidden && !s.segments.some((seg) => seg.startsWith(':')))
+      .map((s) => ({ href: s.href, label: s.nav?.label ?? s.title, adminOnly: s.adminOnly, icon: s.navIcon }))
+    return [...overview, ...own]
+  })
 }
 
-/** The email sender a plugin provides, or null when none is registered. */
+/** Every registered plugin, in the order they load. */
+export function getPluginInfos(): PluginInfo[] {
+  return registry().infos
+}
+
+export function getPluginInfo(name: string): PluginInfo | null {
+  return registry().infos.find((info) => info.name === name) ?? null
+}
+
+/**
+ * The email sender, or null when no plugin provides one or it reports that it is not set up yet:
+ * the site then does not offer email (password reset links), rather than offer it and fail.
+ */
 export function getEmailSender(): EmailSender | null {
+  const email = registry().email
+  if (!email) return null
+  return email.sender.status && !email.sender.status().ready ? null : email.sender
+}
+
+/** The plugin that sends email and its sender, set up or not (its admin page shows the status). */
+export function getEmailPlugin(): { plugin: string; sender: EmailSender } | null {
   return registry().email
 }
 

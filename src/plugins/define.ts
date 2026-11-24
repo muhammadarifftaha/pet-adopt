@@ -73,16 +73,38 @@ export type EmailMessage = {
 }
 
 /**
+ * How an email plugin reports its setup on its admin page. Never put a secret in `details`: say
+ * whether it is set ("Set" / "Not set"), not what it is.
+ */
+export type EmailStatus = {
+  /** The service, e.g. "Resend" or "SMTP". */
+  provider: string
+  /** Everything it needs is set. While false the site does not offer email (reset links). */
+  ready: boolean
+  /** Non-secret settings to show, e.g. `{ label: 'Sender', value: 'Pet Adopt <no-reply@…>' }`. */
+  details?: Array<{ label: string; value: string }>
+  /** How to finish the setup, shown while `ready` is false. */
+  setup?: string
+}
+
+/**
  * How the site sends email (password reset links). At most one plugin may provide it. `send` runs on
  * the server and should throw when the message was not accepted, so the failure is logged.
+ * `status`, when given, is shown on the plugin's admin page; a sender that reports `ready: false`
+ * is treated as missing, so the site never offers email it cannot send.
  */
 export type EmailSender = {
   send: (message: EmailMessage) => Promise<void>
+  status?: () => EmailStatus
 }
 
 export type Plugin = {
   /** Lowercase letters, digits and dashes. Used in the URL, so renaming it moves the screens. */
   name: string
+  /** Shown in the admin (menu, plugin list, its page). Defaults to the name, humanised. */
+  title?: string
+  /** One or two sentences on what it does, shown on its page and in the plugin list. */
+  description?: string
   /** Screens that get their own page and menu entry. */
   screens?: PluginScreen[]
   /** Cards shown under the dashboard's numbers. */

@@ -13,6 +13,8 @@ export const adoptionTips = definePlugin<{ heading?: string } | void>((options) 
 
   return {
     name: 'adoption-tips',
+    title: 'Adoption tips',
+    description: 'An example plugin: a Tips screen in the admin and a tip card on the dashboard.',
     screens: [
       {
         path: '',

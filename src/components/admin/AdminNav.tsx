@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { createElement, type ReactNode } from 'react'
 import type { IconType } from 'react-icons'
-import { FiDroplet, FiFileText, FiHeart, FiHome, FiImage, FiPackage, FiSettings, FiUsers } from 'react-icons/fi'
+import { FiDroplet, FiFileText, FiGrid, FiHeart, FiHome, FiImage, FiPackage, FiSettings, FiUsers } from 'react-icons/fi'
 
 import {
   SidebarGroup,
@@ -53,6 +53,7 @@ const ICONS: Record<string, IconType> = {
   '/admin/theme': FiDroplet,
   '/admin/settings': FiSettings,
   '/admin/users': FiUsers,
+  '/admin/plugins': FiGrid,
 }
 
 // A named nav landmark holding the sidebar's menus. Links keep `aria-current="page"` and a non-colour

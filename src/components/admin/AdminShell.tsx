@@ -72,7 +72,7 @@ export async function AdminShell({
           {/* Plugin screens from pet-adopt.config.ts get their own group. Only plain data crosses to the client nav. */}
           <AdminNav
             items={ADMIN_NAV}
-            pluginItems={getPluginNav()}
+            pluginItems={[...getPluginNav(), { href: "/admin/plugins", label: "All plugins", adminOnly: true }]}
             isAdmin={user.role === "admin"}
           />
         </SidebarContent>
