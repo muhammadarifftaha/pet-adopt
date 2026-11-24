@@ -135,18 +135,18 @@ Settings `/admin/pages/new` and `/admin/pages/[id]` (`getPageAction`, `savePageD
       new image without leaving the form, single or multiple selection.
 - [ ] The Puck editor has its own picker (`src/puck/media-picker.tsx`); leave it alone.
 
-### 7. Site settings `/admin/settings` (admin only)
+### 7. Site settings `/admin/settings` (admin only) — done (`SettingsForm`, schema in `src/lib/zod-schema/settings.ts`; `primaryColor` is no longer in the form, the Theme screen owns the look)
 `getSettingsAction`, `updateSettingsAction(input)`. Tabs:
-- [ ] **Brand:** `siteName` (required), `tagline`, `logoId`, `primaryColor` (optional hex override).
+- [x] **Brand:** `siteName` (required), `tagline`, `logoId`, `primaryColor` (optional hex override).
 - [x] **Theme:** moved to its own screen, `/admin/theme` (theme library and editor, done). The old (`PRESET_OPTIONS`, `PRESET_HELP` in `src/lib/theme.ts`; swatch
       cards or a live preview would help), `allowModeToggle`, `customize` switch, and when on,
       `customTheme`: `headingFont`, `bodyFont`, `radius`, `button`, `shadow`, `density`, `textSize`,
       and `light` / `dark` colour sets (`primary`, `background`, `surface`, `text`, `tint`). Colours
       are hex; the server rejects text that is hard to read and reports it as
       `customTheme.light.text` / `customTheme.dark.text`.
-- [ ] **Contact:** `whatsappNumber`, `whatsappMessage` (`{pet}` is replaced by the pet's name),
+- [x] **Contact:** `whatsappNumber`, `whatsappMessage` (`{pet}` is replaced by the pet's name),
       `address`, `openingHours`, `socials[]` (`platform` + https `url`, add / remove / reorder).
-- [ ] **Navigation:** `nav[]` (`label` + `href`, a path such as `/pets` or an https link),
+- [x] **Navigation:** `nav[]` (`label` + `href`, a path such as `/pets` or an https link),
       `footerText`.
 
 ### 8. Users `/admin/users` (admin only)
