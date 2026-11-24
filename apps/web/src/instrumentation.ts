@@ -29,4 +29,9 @@ export async function register() {
     const { logError } = await import('@/server/result')
     logError(error, 'Could not create the system pages')
   }
+
+  // A plugin added since the last `pnpm migrate` (PostgreSQL) has no tables yet: say so now, not on
+  // the first request that needs them. Its admin screens show the same notice.
+  const { warnAboutPluginStorage } = await import('@/plugins/storage')
+  await warnAboutPluginStorage()
 }

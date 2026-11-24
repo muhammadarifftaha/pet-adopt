@@ -291,3 +291,19 @@ export const siteSettings = pgTable('site_settings', {
   createdAt: createdAt(),
   updatedAt: updatedAt(),
 })
+
+// --- Plugins -----------------------------------------------------------------------------
+
+// Which of each plugin's own migrations have run (src/db/plugin-migrations.ts). A plugin's tables are
+// not in this file: the plugin declares them and ships the SQL, and `pnpm migrate` applies it.
+// `checksum` is the sha256 of the SQL that ran, so a migration edited after it ran is refused.
+export const pluginMigrations = pgTable(
+  'plugin_migrations',
+  {
+    plugin: text('plugin').notNull(),
+    migration: text('migration').notNull(),
+    checksum: text('checksum').notNull(),
+    appliedAt: createdAt(),
+  },
+  (t) => [primaryKey({ columns: [t.plugin, t.migration] })],
+)

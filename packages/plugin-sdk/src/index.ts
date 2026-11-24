@@ -106,6 +106,33 @@ export type EmailSender = {
   status?: () => EmailStatus
 }
 
+/**
+ * One change to a plugin's tables, written once for each database. Generate them from the plugin's
+ * schema with `pnpm plugin:generate <plugin folder>` rather than by hand.
+ */
+export type PluginMigration = {
+  /** Runs in id order: "0000_init", "0001_notes". Never rename, edit or remove one that has shipped. */
+  id: string
+  /** The SQL. Several statements are separated by `--> statement-breakpoint` lines (drizzle-kit's output). */
+  sqlite: string
+  pg: string
+}
+
+/**
+ * Tables a plugin owns. Every table (and index) name starts with `pluginTablePrefix(name)`, so two
+ * plugins, or a plugin and the site, can never claim the same table. Plugin tables do not reference
+ * the site's own tables. `pnpm migrate` applies the migrations (SQLite also applies them on start);
+ * until it has, the plugin's screens show a notice instead and its widgets are left out.
+ */
+export type PluginStorage = {
+  /** The Drizzle tables, as twins (same tables and columns) for each database. */
+  tables: { sqlite: Record<string, unknown>; pg: Record<string, unknown> }
+  migrations: readonly PluginMigration[]
+}
+
+/** "form-builder" -> "plugin_form_builder_": what every table and index of that plugin starts with. */
+export const pluginTablePrefix = (pluginName: string) => `plugin_${pluginName.replace(/-/g, '_')}_`
+
 export type Plugin = {
   /** Lowercase letters, digits and dashes. Used in the URL, so renaming it moves the screens. */
   name: string
@@ -119,6 +146,8 @@ export type Plugin = {
   dashboardWidgets?: PluginWidget[]
   /** Sends the site's email. Without one, "email me a reset link" is not offered. */
   email?: EmailSender
+  /** Its own tables and the migrations that create them. */
+  storage?: PluginStorage
   /** Other plugins this one is built from (flattened, in order, before this one). */
   plugins?: Plugin[]
 }

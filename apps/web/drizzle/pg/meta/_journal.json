@@ -71,6 +71,13 @@
       "when": 1795509641924,
       "tag": "0009_amused_lady_bullseye",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1795540539759,
+      "tag": "0010_cute_mauler",
+      "breakpoints": true
     }
   ]
 }

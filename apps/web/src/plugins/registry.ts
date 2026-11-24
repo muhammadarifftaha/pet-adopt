@@ -3,8 +3,9 @@ import { FiMail } from 'react-icons/fi'
 import type { AdminNavItem, NavIcon } from '@/components/admin/nav-items'
 
 import config from '../../pet-adopt.config'
-import type { EmailSender, Plugin, PluginScreen, PluginWidget } from '@pet-adopt/plugin-sdk'
+import type { EmailSender, Plugin, PluginMigration, PluginScreen, PluginWidget } from '@pet-adopt/plugin-sdk'
 import { IconError, toNavIcon } from './icon'
+import { storageProblems } from './storage-rules'
 
 // Reads `pet-adopt.config.ts` once, flattens nested plugins, checks them, and answers the questions
 // the admin asks: which menu entries, which screen for this URL, which dashboard widgets.
@@ -35,6 +36,8 @@ export type PluginInfo = {
   widgets: string[]
   /** It sends the site's email. */
   email: boolean
+  /** It has tables of its own (see `getPluginStorageStatus` for whether they are set up). */
+  storage: boolean
 }
 
 type Registry = {
@@ -89,6 +92,10 @@ function build(): Registry {
       // Two senders would leave it unclear which one a reset link goes out through.
       if (email) throw new Error(`${who} provides email, but "${email.plugin}" already does. Register only one.`)
       email = { plugin: plugin.name, sender: plugin.email }
+    }
+    if (plugin.storage !== undefined) {
+      const problems = storageProblems(plugin.name, plugin.storage)
+      if (problems.length) throw new Error(`${who}: ${problems.join(' ')}`)
     }
     if (plugin.title !== undefined && (typeof plugin.title !== 'string' || !plugin.title.trim())) {
       throw new Error(`${who}: title must be a non-empty string.`)
@@ -145,6 +152,7 @@ function build(): Registry {
         .map((screen) => ({ title: screen.title, href: screen.href, adminOnly: Boolean(screen.adminOnly) })),
       widgets: (plugin.dashboardWidgets ?? []).map((widget) => widget.title),
       email: email?.plugin === plugin.name,
+      storage: plugin.storage !== undefined,
     })
   }
 
@@ -198,6 +206,16 @@ export function getEmailPlugin(): { plugin: string; sender: EmailSender } | null
 
 export function getPluginWidgets(): ResolvedWidget[] {
   return registry().widgets
+}
+
+/** Each plugin that has tables of its own, with its migrations, in load order. */
+export function getPluginMigrationSets(): Array<{ plugin: string; title: string; migrations: PluginMigration[] }> {
+  const { plugins, infos } = registry()
+  return plugins.flatMap((plugin) =>
+    plugin.storage
+      ? [{ plugin: plugin.name, title: infos.find((i) => i.name === plugin.name)!.title, migrations: [...plugin.storage.migrations] }]
+      : [],
+  )
 }
 
 /** The screen for `/admin/plugins/<plugin>/<...segments>`, with its parameter values. */

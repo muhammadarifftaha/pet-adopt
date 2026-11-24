@@ -18,7 +18,8 @@
     "db:generate": "pnpm --filter @pet-adopt/web db:generate",
     "migrate": "pnpm --filter @pet-adopt/web migrate",
     "seed": "pnpm --filter @pet-adopt/web seed",
-    "admin:reset-password": "pnpm --filter @pet-adopt/web admin:reset-password"
+    "admin:reset-password": "pnpm --filter @pet-adopt/web admin:reset-password",
+    "plugin:generate": "pnpm --filter @pet-adopt/web plugin:generate"
   },
   "devDependencies": {
     "turbo": "2.11.10"
