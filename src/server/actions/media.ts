@@ -1,7 +1,7 @@
 'use server'
 
-import { getMedia, listMedia, mediaUsage, updateMediaAlt } from '../media'
-import { assertId, run, ValidationError, type ActionResult } from '../result'
+import { getMedia, listMedia, mediaUsage, updateMediaAlt, updateMediaDetails } from '../media'
+import { assertId, run, UserError, ValidationError, type ActionResult } from '../result'
 import { requireUser } from '../session'
 import type { MediaItem } from '../types'
 import { removeUpload, saveUpload } from '../uploads'
@@ -23,14 +23,20 @@ export async function getMediaAction(id: number): Promise<ActionResult<{ media: 
   })
 }
 
-/** FormData fields: `file` (an image up to 10 MB) and `alt` (a short description). */
+/** FormData fields: `file` (an image up to 10 MB), `alt` (a short description) and optional `name` (display name). */
 export async function uploadMediaAction(formData: FormData): Promise<ActionResult<MediaItem>> {
   return run(async () => {
     await requireUser()
     const file = formData.get('file')
     if (!(file instanceof File) || file.size === 0) throw new ValidationError({ file: 'Choose an image to upload.' })
     const alt = formData.get('alt')
-    return saveUpload({ data: Buffer.from(await file.arrayBuffer()), alt: typeof alt === 'string' ? alt : '' })
+    // The display name: the one typed in the upload dialog, else the file's own name.
+    const name = formData.get('name')
+    return saveUpload({
+      data: Buffer.from(await file.arrayBuffer()),
+      alt: typeof alt === 'string' ? alt : '',
+      name: typeof name === 'string' && name.trim() ? name : file.name,
+    })
   })
 }
 
@@ -46,5 +52,42 @@ export async function deleteMediaAction(id: number): Promise<ActionResult> {
   return run(async () => {
     await requireUser()
     await removeUpload(assertId(id))
+  })
+}
+
+const MAX_BULK = 100
+
+/**
+ * Deletes several images, each on its own: one that is still in use (or already gone) is skipped
+ * with its reason, and the rest are deleted. Up to 100 at a time (a full library page).
+ */
+export async function deleteManyMediaAction(ids: number[]): Promise<ActionResult<{ deleted: number[]; failed: Array<{ id: number; message: string }> }>> {
+  return run(async () => {
+    await requireUser()
+    if (!Array.isArray(ids) || ids.length === 0) throw new ValidationError({ ids: 'Choose at least one image.' })
+    if (ids.length > MAX_BULK) throw new ValidationError({ ids: `Choose at most ${MAX_BULK} images at a time.` })
+    const unique = [...new Set(ids.map((id) => assertId(id)))]
+    const deleted: number[] = []
+    const failed: Array<{ id: number; message: string }> = []
+    // One after another: each delete checks where the image is used, and the files are removed last.
+    for (const id of unique) {
+      try {
+        await removeUpload(id)
+        deleted.push(id)
+      } catch (error) {
+        if (error instanceof UserError) failed.push({ id, message: error.message })
+        else throw error
+      }
+    }
+    return { deleted, failed }
+  })
+}
+
+/** The image page's form: `{ name, alt }`, saved together; field errors on `name` and `alt`. */
+export async function updateMediaDetailsAction(id: number, input: { name: string; alt: string }): Promise<ActionResult<MediaItem>> {
+  return run(async () => {
+    await requireUser()
+    const fields = input && typeof input === 'object' ? input : { name: '', alt: '' }
+    return updateMediaDetails(assertId(id), { name: String(fields.name ?? ''), alt: String(fields.alt ?? '') })
   })
 }
