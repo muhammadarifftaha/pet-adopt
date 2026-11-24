@@ -44,10 +44,17 @@ Already in place, so you can build on it:
 - [ ] Loading skeletons and empty states for each list.
 
 ### 2. Sign in `/admin/login`
-- [ ] Email and password form → `signInAction({ email, password })`, then go to `?redirect=` or `/admin`.
-- [ ] Show the returned error as is. It already says "Incorrect email or password." or how long a
+- [x] Email and password form → `signInAction({ email, password })`, then go to `?redirect=` or `/admin`
+      (the page passes the target through `safeRedirectPath`, so it is always a path on this site).
+- [x] Show the returned error as is. It already says "Incorrect email or password." or how long a
       lockout lasts (5 wrong tries lock an email for 10 minutes).
-- [ ] If already signed in, redirect to `/admin`.
+- [x] If already signed in, redirect to `/admin`.
+
+### 2b. Reset password `/admin/reset-password` (done)
+- No `?token=`: "email me a link" (`requestPasswordResetAction({ email })`) when an email plugin is
+  registered, otherwise a note to ask an admin. The answer is the same whether or not the account exists.
+- `?token=...`: new password form (`resetPasswordWithTokenAction({ token, password })`), or "this link
+  no longer works" (one use, one hour). Saving ends every session of that person.
 
 ### 3. Pets
 List `/admin/pets`
@@ -97,14 +104,21 @@ Form `/admin/pets/new` and `/admin/pets/[id]` (`getPetAction`, `savePetAction(id
 
 ### 4. Pages
 List `/admin/pages` (`listPagesAction`)
-- [ ] Table with title, address, status badge, "unpublished changes" marker, updated.
-- [ ] Row actions: **Open page builder** (`/edit/{id}`), settings, view live (published only), delete.
+- [x] Table (`PagesTable`, TanStack Table v9): ID, title (links to settings), path, live link
+      (published only), status (Draft / Published / Archived, plus "unpublished changes"); sortable.
+- [x] Row actions: **Edit** (`/edit/{id}`) and **Archive** (`archivePageAction`); once archived,
+      **Restore** (`restorePageAction`) and **Delete** (`deletePageAction`, confirm dialog). The server
+      refuses to delete a page that is not archived, and refuses edits to an archived one.
+- [x] Opening a row (`PageDetails`): preview iframe of `/edit/{id}/preview` and the versions list
+      (`listPageVersionsAction`), each with View (`/edit/{id}/preview?version=N`) and "Use as draft"
+      (`restorePageVersionAction(id, number, baseVersion)`).
 
 Settings `/admin/pages/new` and `/admin/pages/[id]` (`getPageAction`, `savePageDetailsAction`)
 - [ ] Fields: `title` (required), `slug` (required; `home` is the homepage; reserved words are
       rejected with a message), `seoDescription` (200), `seoImageId`.
 - [ ] Buttons: **Open page builder**, **Publish** (`publishPageAction(id)`, publishes the saved
-      draft), **Unpublish** (`unpublishPageAction`), **Delete** (`deletePageAction`).
+      draft), **Unpublish** (`unpublishPageAction`), **Archive** (`archivePageAction`). Delete lives in
+      the list, for archived pages only.
 - [ ] New page: after saving, offer "Open page builder" (a page with no layout cannot be published).
 
 ### 5. Media `/admin/media`
@@ -137,6 +151,9 @@ Settings `/admin/pages/new` and `/admin/pages/[id]` (`getPageAction`, `savePageD
 
 ### 8. Users `/admin/users` (admin only)
 - [ ] List (`listUsersAction`): name, email, role, created.
+- [ ] "Reset link" per user (`createResetLinkAction(id)` → `{ url, expiresAt }`): show the link with a
+      copy button and when it expires, for the admin to send by WhatsApp or anything else. Making a
+      new link cancels the older one. Works with or without an email plugin.
 - [ ] Create (`createUserAction({ email, name, password, role })`). Password minimum is 12
       characters in production, 8 in development. The first account is always an admin.
 - [ ] Edit name and role (`updateUserAction(id, { name, role })`), reset password
