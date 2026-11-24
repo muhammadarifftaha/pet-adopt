@@ -1,7 +1,8 @@
 // What the public pages read. Thin wrappers over src/server (the data layer) that keep the
 // names the pages already use, add the "no database during `next build`" fallback, and make sure a
 // visitor can never ask for unlisted pets.
-import type { Option, PetStatus } from '@/lib/options'
+import { GOOD_WITH, labelFor, SEXES, SPECIES, TEMPERAMENTS, type Option, type PetStatus } from '@/lib/options'
+import { richTextToPlain, type RichTextDoc } from '@/lib/rich-text'
 import { getPublishedPage as loadPublishedPage } from '@/server/pages'
 import * as pets from '@/server/pets'
 import { describeError } from '@/server/result'
@@ -110,6 +111,70 @@ export async function queryPets(filters: PetFilters = {}): Promise<PetPage> {
 }
 
 /** Pet cards for page-builder grids. No paging, so it skips the extra COUNT query. */
+/**
+ * A pet for the Pet spotlight and the profile layouts: the card fields, a short plain excerpt of the
+ * description (`story`), and the profile details, with option values already turned into labels.
+ */
+export type PetSpotlightData = PetCardData & {
+  story: string
+  sexLabel: string | null
+  speciesLabel: string
+  breed: string | null
+  color: string | null
+  neutered: boolean
+  /** Health checks that are done, as labels ("Vaccinated", "Microchipped"...). */
+  healthChecks: string[]
+  temperament: string[]
+  goodWith: string[]
+  description: RichTextDoc | null
+  healthNotes: RichTextDoc | null
+}
+
+const STORY_CHARS = 280
+
+function toSpotlight(pet: Pet): PetSpotlightData {
+  const text = pet.description ? richTextToPlain(pet.description).replace(/\s+/g, ' ').trim() : ''
+  const story = text.length > STORY_CHARS ? `${text.slice(0, STORY_CHARS - 1).trimEnd()}…` : text
+  return {
+    ...toPetCard(pet),
+    story,
+    sexLabel: pet.sex && pet.sex !== 'unknown' ? labelFor(SEXES, pet.sex) : null,
+    speciesLabel: labelFor(SPECIES, pet.species),
+    breed: pet.breed,
+    color: pet.color,
+    neutered: pet.neutered,
+    healthChecks: [
+      pet.vaccinated && 'Vaccinated',
+      pet.microchipped && 'Microchipped',
+      pet.houseTrained && 'House trained',
+      pet.specialNeeds && 'Has special needs',
+    ].filter((label): label is string => Boolean(label)),
+    temperament: pet.temperament.map((value) => labelFor(TEMPERAMENTS, value)),
+    goodWith: pet.goodWith.map((value) => labelFor(GOOD_WITH, value)),
+    description: pet.description,
+    healthNotes: pet.healthNotes,
+  }
+}
+
+const visible = (pet: Pet | null): pet is Pet => Boolean(pet && !pet.unlisted && pet.status !== 'adopted')
+
+/** One pet for the Pet spotlight, or null when visitors should not see it (unlisted or adopted). */
+export async function getPetSpotlight(id: number): Promise<PetSpotlightData | null> {
+  return safely(async () => {
+    const pet = await pets.getPetById(id)
+    return visible(pet) ? toSpotlight(pet) : null
+  }, null)
+}
+
+/** Full profiles for the Pet grid's profile layout (at most 12: each is a full pet). */
+export async function queryPetProfiles(filters: PetFilters = {}): Promise<PetSpotlightData[]> {
+  return safely(async () => {
+    const list = await pets.queryPetList(publicFilters({ ...filters, limit: Math.min(Number(filters.limit) || 6, 12) }))
+    const full = await Promise.all(list.map((summary) => pets.getPetById(summary.id)))
+    return full.filter(visible).map(toSpotlight)
+  }, [] as PetSpotlightData[])
+}
+
 export async function queryPetCards(filters: PetFilters = {}): Promise<PetCardData[]> {
   return safely(async () => (await pets.queryPetList(publicFilters(filters))).map(toPetCard), [] as PetCardData[])
 }

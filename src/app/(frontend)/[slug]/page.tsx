@@ -32,5 +32,5 @@ export default async function BuilderPage({ params }: Args) {
   if (slug === 'home') redirect('/')
   const page = await getPublishedPage(slug)
   if (!page || !isPuckData(page.puckData)) notFound()
-  return <BuilderContent data={page.puckData} />
+  return <BuilderContent data={page.puckData} title={page.title} />
 }

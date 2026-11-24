@@ -1,5 +1,5 @@
 import type { SocialLink } from '@/components/site/SocialIcons'
-import type { PetCardData, PetFilters } from '@/lib/queries'
+import type { PetCardData, PetFilters, PetSpotlightData } from '@/lib/queries'
 
 /** What the media picker stores in a block. */
 export type MediaValue = { id: number | string; url: string; alt: string } | null
@@ -18,4 +18,8 @@ export type PuckSiteMetadata = {
     socials: SocialLink[]
   }
   fetchPets: (filters: PetFilters) => Promise<PetCardData[]>
+  /** One pet for the Pet spotlight; null when it is unlisted, adopted or gone. */
+  fetchPet: (id: number) => Promise<PetSpotlightData | null>
+  /** Full profiles for the Pet grid's profile layout. */
+  fetchPetProfiles: (filters: PetFilters) => Promise<PetSpotlightData[]>
 }

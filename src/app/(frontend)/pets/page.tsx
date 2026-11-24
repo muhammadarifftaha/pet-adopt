@@ -110,7 +110,7 @@ export default async function PetsPage({ searchParams }: { searchParams: Promise
         {pets.length ? (
           <div className="pet-grid">
             {pets.map((pet) => (
-              <PetCard key={pet.id} pet={pet} />
+              <PetCard key={pet.id} pet={pet} headingLevel="h2" />
             ))}
           </div>
         ) : (

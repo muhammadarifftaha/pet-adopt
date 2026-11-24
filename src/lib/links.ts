@@ -38,6 +38,36 @@ export const validateLink = (value?: string | null) =>
 
 export const isExternal = (href: string) => /^(https?:)?\/\//i.test(href)
 
+/**
+ * A YouTube or Vimeo link turned into the player address to embed, or null for anything else. The
+ * embed URL is built here from a checked video id, never taken from what was typed, so a block can
+ * only ever frame these two players (the CSP's frame-src lists exactly them). YouTube uses its
+ * no-cookie domain.
+ */
+export function safeVideoEmbed(url?: string | null): string | null {
+  let parsed: URL
+  try {
+    parsed = new URL((url ?? '').trim())
+  } catch {
+    return null
+  }
+  if (parsed.protocol !== 'https:') return null
+  const host = parsed.hostname.replace(/^(www\.|m\.)/, '')
+  const youTubeId = (id: string | null | undefined) =>
+    id && /^[A-Za-z0-9_-]{11}$/.test(id) ? `https://www.youtube-nocookie.com/embed/${id}` : null
+  if (host === 'youtu.be') return youTubeId(parsed.pathname.split('/')[1])
+  if (host === 'youtube.com' || host === 'youtube-nocookie.com') {
+    if (parsed.pathname === '/watch') return youTubeId(parsed.searchParams.get('v'))
+    const [, kind, id] = parsed.pathname.split('/')
+    return kind === 'embed' || kind === 'shorts' || kind === 'live' ? youTubeId(id) : null
+  }
+  if (host === 'vimeo.com' || host === 'player.vimeo.com') {
+    const id = parsed.pathname.split('/').filter(Boolean).find((part) => /^\d{1,12}$/.test(part))
+    return id ? `https://player.vimeo.com/video/${id}` : null
+  }
+  return null
+}
+
 // Only Google Maps embed URLs may be placed in an iframe.
 export function safeMapEmbed(url?: string | null): string | null {
   const value = (url ?? '').trim()

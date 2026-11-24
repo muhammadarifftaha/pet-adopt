@@ -1,4 +1,4 @@
-import { getSettings, queryPetCards } from '@/lib/queries'
+import { getPetSpotlight, getSettings, queryPetCards, queryPetProfiles } from '@/lib/queries'
 import type { SiteSetting } from '@/server/types'
 
 import type { PuckSiteMetadata } from './types'
@@ -20,5 +20,7 @@ export async function buildSiteMetadata(): Promise<PuckSiteMetadata> {
   return {
     site: toSiteMeta(settings),
     fetchPets: (filters) => queryPetCards(filters),
+    fetchPet: (id) => getPetSpotlight(id),
+    fetchPetProfiles: (filters) => queryPetProfiles(filters),
   }
 }

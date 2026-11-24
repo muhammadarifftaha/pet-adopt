@@ -1,21 +1,143 @@
-/* Editor-only styles: header actions and the media picker field. */
-.editor-actions { display: flex; align-items: center; gap: 12px; font-size: 14px; }
+/* Editor-only styles: header actions, the dark preview switch, the media picker field, and Puck's
+   own colours in dark mode. Colours here come from Puck's variables, so they follow its palette. */
+
+/* The canvas: page blocks in the site's colours (light, or dark when the switch is on). */
+.editor-canvas { min-height: 100%; background: var(--bg); color: var(--ink); }
+
+.editor-actions { display: flex; align-items: center; gap: 12px; font-size: 14px; color: var(--puck-color-text); }
 .editor-actions a { color: inherit; }
-.editor-actions button { padding: 6px 14px; border: 1px solid #c9ced6; background: #fff; border-radius: 6px; cursor: pointer; font: inherit; }
+.editor-actions button:not([role='switch']) {
+  padding: 6px 14px; border: 1px solid var(--puck-color-grey-08); background: var(--puck-color-white);
+  color: var(--puck-color-text); border-radius: 6px; cursor: pointer; font: inherit;
+}
 .editor-actions button:disabled { opacity: 0.6; cursor: default; }
-.editor-actions .editor-primary { background: #1f2937; border-color: #1f2937; color: #fff; }
-.editor-msg { color: #15803d; }
-.editor-msg-error { color: #b91c1c; }
+.editor-actions .editor-primary { background: var(--puck-color-grey-01); border-color: var(--puck-color-grey-01); color: var(--puck-color-white); }
+.editor-msg { color: var(--puck-color-green-04); }
+.editor-msg-error { color: var(--puck-color-red-04); }
+
+/* "Dark preview": shadcn's Switch (Base UI renders a button with role="switch" and data-checked /
+   data-unchecked). The editor does not load Tailwind, so its look is defined here. */
+.editor-mode-switch { display: inline-flex; align-items: center; gap: 6px; color: var(--puck-color-text-muted); }
+.editor-mode-switch svg { width: 16px; height: 16px; flex: none; }
+.editor-mode-switch [data-slot='switch'] {
+  position: relative; display: inline-flex; align-items: center; flex: none; width: 34px; height: 20px; padding: 2px;
+  border: 1px solid transparent; border-radius: 999px; background: var(--puck-color-grey-08); cursor: pointer;
+  transition: background-color 0.15s;
+}
+.editor-mode-switch [data-slot='switch'][data-checked] { background: var(--puck-color-azure-05); }
+.editor-mode-switch [data-slot='switch']:focus-visible { outline: 2px solid var(--puck-color-azure-05); outline-offset: 2px; }
+.editor-mode-switch [data-slot='switch-thumb'] {
+  display: block; width: 14px; height: 14px; border-radius: 999px; background: #ffffff;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.3); transition: transform 0.15s;
+}
+.editor-mode-switch [data-slot='switch-thumb'][data-checked] { transform: translateX(14px); }
+@media (prefers-reduced-motion: reduce) {
+  .editor-mode-switch [data-slot='switch'], .editor-mode-switch [data-slot='switch-thumb'] { transition: none; }
+}
 
 .media-picker-preview { display: block; width: 100%; max-height: 140px; object-fit: cover; border-radius: 6px; }
-.media-picker-empty { padding: 20px; text-align: center; border: 1px dashed #c9ced6; border-radius: 6px; color: #6b7280; font-size: 13px; }
+.media-picker-empty { padding: 20px; text-align: center; border: 1px dashed var(--puck-color-grey-08); border-radius: 6px; color: var(--puck-color-text-muted); font-size: 13px; }
 .media-picker-actions { display: flex; gap: 8px; margin-top: 8px; }
-.media-picker button { padding: 4px 10px; border: 1px solid #c9ced6; background: #fff; border-radius: 6px; cursor: pointer; font: inherit; font-size: 13px; }
-.media-picker-panel { margin-top: 8px; padding: 8px; border: 1px solid #e5e7eb; border-radius: 6px; background: #f9fafb; }
+.media-picker button { padding: 4px 10px; border: 1px solid var(--puck-color-grey-08); background: var(--puck-color-white); color: var(--puck-color-text); border-radius: 6px; cursor: pointer; font: inherit; font-size: 13px; }
+.media-picker-panel { margin-top: 8px; padding: 8px; border: 1px solid var(--puck-color-grey-09); border-radius: 6px; background: var(--puck-color-grey-12); }
 .media-picker-upload { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; font-size: 13px; }
-.media-picker-upload input[type='text'] { padding: 6px; border: 1px solid #c9ced6; border-radius: 6px; }
-.media-picker-error { color: #b91c1c; font-size: 13px; margin: 0 0 8px; }
+.media-picker-upload input[type='text'] { padding: 6px; border: 1px solid var(--puck-color-grey-08); border-radius: 6px; background: var(--puck-color-white); color: var(--puck-color-text); }
+.media-picker-error { color: var(--puck-color-red-04); font-size: 13px; margin: 0 0 8px; }
 .media-picker-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; max-height: 220px; overflow: auto; }
 .media-picker-grid button { padding: 0; border: 2px solid transparent; overflow: hidden; aspect-ratio: 4 / 3; }
 .media-picker-grid button:hover { border-color: #e8590c; }
 .media-picker-grid img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+/* --- Puck in dark mode ------------------------------------------------------------------------
+   Same rule as the admin: the owner's saved choice (data-mode on <html>, set by the pre-paint
+   script), else their system setting. Only when the layout sets data-follow-mode (the site has dark
+   mode at all). Puck defines these variables on :root inside @layer puck-tokens, so these unlayered
+   rules win, and its semantic colours (text, surface, border...) follow because they are built from
+   them. The grey scale is reversed, white and black swap, and the pale accent tints (selection,
+   errors, success, warnings) become dark tints. The canvas keeps the site's colours (own switch). */
+@media (prefers-color-scheme: dark) {
+  html[data-follow-mode]:not([data-mode='light']) {
+    --puck-color-white: #141414;
+    --puck-color-black: #f2f2f2;
+    --puck-color-grey-01: #fafafa;
+    --puck-color-grey-02: #f0f0f0;
+    --puck-color-grey-03: #e2e2e2;
+    --puck-color-grey-04: #cfcfcf;
+    --puck-color-grey-05: #b0b0b0;
+    --puck-color-grey-06: #8e8e8e;
+    --puck-color-grey-07: #707070;
+    --puck-color-grey-08: #555555;
+    --puck-color-grey-09: #3d3d3d;
+    --puck-color-grey-10: #2c2c2c;
+    --puck-color-grey-11: #222222;
+    --puck-color-grey-12: #1a1a1a;
+    --puck-color-azure-01: #e7eef7;
+    --puck-color-azure-02: #cfdff0;
+    --puck-color-azure-03: #abc7e5;
+    --puck-color-azure-04: #88b0da;
+    --puck-color-azure-09: #1d3a5c;
+    --puck-color-azure-10: #182d47;
+    --puck-color-azure-11: #132235;
+    --puck-color-azure-12: #101b2a;
+    --puck-color-green-10: #173a24;
+    --puck-color-green-11: #12291b;
+    --puck-color-green-12: #0f2016;
+    --puck-color-red-10: #4a1d24;
+    --puck-color-red-11: #33151a;
+    --puck-color-red-12: #261014;
+    --puck-color-rose-10: #44192f;
+    --puck-color-rose-11: #301222;
+    --puck-color-rose-12: #240e1a;
+    --puck-color-yellow-10: #3d3412;
+    --puck-color-yellow-11: #2a240d;
+    --puck-color-yellow-12: #201b0a;
+    --puck-color-text-disabled: var(--puck-color-grey-07);
+    --puck-color-overlay-backdrop: color-mix(in srgb, #000000 75%, transparent);
+    color-scheme: dark;
+  }
+}
+html[data-follow-mode][data-mode='dark'] {
+  --puck-color-white: #141414;
+  --puck-color-black: #f2f2f2;
+  --puck-color-grey-01: #fafafa;
+  --puck-color-grey-02: #f0f0f0;
+  --puck-color-grey-03: #e2e2e2;
+  --puck-color-grey-04: #cfcfcf;
+  --puck-color-grey-05: #b0b0b0;
+  --puck-color-grey-06: #8e8e8e;
+  --puck-color-grey-07: #707070;
+  --puck-color-grey-08: #555555;
+  --puck-color-grey-09: #3d3d3d;
+  --puck-color-grey-10: #2c2c2c;
+  --puck-color-grey-11: #222222;
+  --puck-color-grey-12: #1a1a1a;
+  --puck-color-azure-01: #e7eef7;
+  --puck-color-azure-02: #cfdff0;
+  --puck-color-azure-03: #abc7e5;
+  --puck-color-azure-04: #88b0da;
+  --puck-color-azure-09: #1d3a5c;
+  --puck-color-azure-10: #182d47;
+  --puck-color-azure-11: #132235;
+  --puck-color-azure-12: #101b2a;
+  --puck-color-green-10: #173a24;
+  --puck-color-green-11: #12291b;
+  --puck-color-green-12: #0f2016;
+  --puck-color-red-10: #4a1d24;
+  --puck-color-red-11: #33151a;
+  --puck-color-red-12: #261014;
+  --puck-color-rose-10: #44192f;
+  --puck-color-rose-11: #301222;
+  --puck-color-rose-12: #240e1a;
+  --puck-color-yellow-10: #3d3412;
+  --puck-color-yellow-11: #2a240d;
+  --puck-color-yellow-12: #201b0a;
+  --puck-color-text-disabled: var(--puck-color-grey-07);
+  --puck-color-overlay-backdrop: color-mix(in srgb, #000000 75%, transparent);
+  color-scheme: dark;
+}
+
+/* The Pet spotlight's pet picker (a native select, in Puck's colours). */
+.pet-picker select {
+  width: 100%; padding: 8px; border: 1px solid var(--puck-color-grey-08); border-radius: 6px;
+  background: var(--puck-color-white); color: var(--puck-color-text); font: inherit; font-size: 14px;
+}

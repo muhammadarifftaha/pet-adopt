@@ -4,7 +4,7 @@ import { MODE_STORAGE_KEY, resolveTheme, themeCss, type ThemeSettings } from '@/
 
 // Runs before the first paint so a visitor who chose dark does not see a flash of the light theme.
 // A constant string: nothing from the settings goes into it.
-const PRE_PAINT = `(function(){try{var m=localStorage.getItem('${MODE_STORAGE_KEY}');if(m==='dark'||m==='light'){document.documentElement.setAttribute('data-mode',m)}}catch(e){}})()`
+export const PRE_PAINT = `(function(){try{var m=localStorage.getItem('${MODE_STORAGE_KEY}');if(m==='dark'||m==='light'){document.documentElement.setAttribute('data-mode',m)}}catch(e){}})()`
 
 /**
  * Applies the site theme. Render it inside <head>. The CSS comes from themeCss, which only emits

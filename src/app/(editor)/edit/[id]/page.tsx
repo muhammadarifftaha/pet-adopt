@@ -4,6 +4,7 @@ import { notFound, redirect } from 'next/navigation'
 import React from 'react'
 
 import { getSettings } from '@/lib/queries'
+import { forcedModeCss, resolveTheme } from '@/lib/theme'
 import { EMPTY_DATA, isPuckData } from '@/puck/data'
 import { toSiteMeta } from '@/puck/server'
 import { getPageById } from '@/server/pages'
@@ -28,6 +29,10 @@ export default async function EditPage({ params }: { params: Promise<{ id: strin
   const settings = await getSettings()
   // The builder always opens the latest draft; a page that was never edited starts from what is live.
   const initialData: Data = isPuckData(page.puckDraft) ? page.puckDraft : isPuckData(page.puckPublished) ? page.puckPublished : EMPTY_DATA
+  // The site's dark colours, scoped to the canvas, for the "Dark preview" toggle. Only when visitors
+  // can see dark mode (Settings: light/dark toggle).
+  const theme = resolveTheme(settings)
+  const darkCss = theme.allowModeToggle ? forcedModeCss(theme, 'dark', '.editor-canvas[data-mode="dark"]') : null
 
   return (
     <PageEditor
@@ -38,6 +43,7 @@ export default async function EditPage({ params }: { params: Promise<{ id: strin
       version={page.updatedAt.getTime()}
       initialData={initialData}
       site={toSiteMeta(settings)}
+      darkCss={darkCss}
     />
   )
 }

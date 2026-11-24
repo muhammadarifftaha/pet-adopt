@@ -3,7 +3,7 @@ import type { Data } from '@puckeditor/core'
 export const EMPTY_DATA: Data = { content: [], root: { props: {} }, zones: {} }
 
 /** Props that are filled in at render time and must never be saved into the page JSON. */
-const TRANSIENT_PROPS = ['pets']
+const TRANSIENT_PROPS = ['pets', 'spotlight', 'profiles', 'headingLevel']
 
 /** A saved layout is a few kilobytes. Anything near this size is a mistake or an attack. */
 const MAX_BYTES = 1_000_000
@@ -18,6 +18,29 @@ function stripBlock(item: Block): Block {
   const props = { ...(item.props as Record<string, unknown>) }
   for (const key of TRANSIENT_PROPS) delete props[key]
   return { ...item, props } as Block
+}
+
+/** Whether a block will show a main heading (after its live data has been resolved). */
+function showsHeading(item: Block): boolean {
+  const props = item.props as Record<string, unknown>
+  if (item.type === 'PetSpotlight') return Boolean(props.spotlight)
+  return typeof props.heading === 'string' && props.heading.trim() !== ''
+}
+
+/**
+ * Gives every top-level block a `headingLevel` for the live page: the first block that shows a
+ * heading gets 1 (the page's only <h1>), every other block 2 (its heading is an <h2>, its item
+ * headings <h3>). Size comes from CSS classes, not tags, so this changes structure, never looks.
+ * `hasH1` is false when no block has a heading, so the page can add a hidden <h1> with its title.
+ */
+export function assignHeadingLevels(data: Data): { data: Data; hasH1: boolean } {
+  let hasH1 = false
+  const content = (data.content ?? []).map((item) => {
+    const level = !hasH1 && showsHeading(item) ? 1 : 2
+    if (level === 1) hasH1 = true
+    return { ...item, props: { ...(item.props as Record<string, unknown>), headingLevel: level } } as Block
+  })
+  return { data: { ...data, content } as Data, hasH1 }
 }
 
 export function stripTransient(data: Data): Data {

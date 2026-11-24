@@ -1,12 +1,14 @@
 'use client'
 
 import { Puck, type Data } from '@puckeditor/core'
-import React, { useState, useTransition } from 'react'
+import React, { useMemo, useState, useTransition } from 'react'
+import { FiMoon, FiSun } from 'react-icons/fi'
 
+import { Switch } from '@/components/ui/switch'
 import { config } from '@/puck/config'
 import type { PuckSiteMetadata } from '@/puck/types'
 
-import { fetchPetsAction, publishAction, saveDraftAction } from './actions'
+import { fetchPetProfilesAction, fetchPetsAction, fetchPetSpotlightAction, publishAction, saveDraftAction } from './actions'
 
 type Props = {
   pageId: number
@@ -17,6 +19,8 @@ type Props = {
   version: number
   initialData: Data
   site: PuckSiteMetadata['site']
+  /** CSS for the canvas in dark mode (built on the server from checked theme values), or null when the site has no dark mode. */
+  darkCss: string | null
 }
 
 function HeaderActions({
@@ -26,6 +30,8 @@ function HeaderActions({
   data,
   version,
   onVersion,
+  dark,
+  onDarkChange,
 }: {
   pageId: number
   slug: string
@@ -33,6 +39,9 @@ function HeaderActions({
   data: Data
   version: number
   onVersion: (version: number) => void
+  /** null when the site has no dark mode (no toggle shown). */
+  dark: boolean | null
+  onDarkChange: (dark: boolean) => void
 }) {
   const [pending, startTransition] = useTransition()
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null)
@@ -50,6 +59,14 @@ function HeaderActions({
   return (
     <div className="editor-actions">
       {message && <span className={message.ok ? 'editor-msg' : 'editor-msg editor-msg-error'}>{message.text}</span>}
+      {dark !== null && (
+        // shadcn Switch (a button with role="switch"): its name says what it does, the icons only show it.
+        <span className="editor-mode-switch">
+          <FiSun aria-hidden />
+          <Switch checked={dark} onCheckedChange={(checked) => onDarkChange(checked)} aria-label="Dark preview" />
+          <FiMoon aria-hidden />
+        </span>
+      )}
       <a href={`/admin/pages/${pageId}`}>Page settings</a>
       {status === 'published' && (
         <a href={livePath} target="_blank" rel="noreferrer">
@@ -66,12 +83,28 @@ function HeaderActions({
   )
 }
 
-export function PageEditor({ pageId, title, slug, status, version: initialVersion, initialData, site }: Props) {
+export function PageEditor({ pageId, title, slug, status, version: initialVersion, initialData, site, darkCss }: Props) {
   const [version, setVersion] = useState(initialVersion)
+  // How the canvas looks only; nothing about it is saved with the page.
+  const [dark, setDark] = useState(false)
+  // Stable between renders (a new override would remount the canvas); changes only with the toggle.
+  const overrides = useMemo(
+    () => ({
+      preview: ({ children }: { children: React.ReactNode }) => (
+        <div className="editor-canvas" data-mode={dark ? 'dark' : 'light'}>
+          {children}
+        </div>
+      ),
+    }),
+    [dark],
+  )
   // Blocks read site settings and fetch live pets through Puck's metadata.
-  const metadata: PuckSiteMetadata = { site, fetchPets: fetchPetsAction }
+  const metadata: PuckSiteMetadata = { site, fetchPets: fetchPetsAction, fetchPet: fetchPetSpotlightAction, fetchPetProfiles: fetchPetProfilesAction }
 
   return (
+    <>
+    {/* Constant CSS from validated theme values, scoped to the canvas wrapper. */}
+    {darkCss && <style dangerouslySetInnerHTML={{ __html: darkCss }} />}
     <Puck
       config={config}
       data={initialData}
@@ -80,9 +113,21 @@ export function PageEditor({ pageId, title, slug, status, version: initialVersio
       headerPath={slug === 'home' ? '/' : `/${slug}`}
       // The preview renders in the page itself so it picks up the site's real styles.
       iframe={{ enabled: false }}
+      // Wraps the canvas so the site's dark colours can apply to the blocks only, not to the editor.
+      overrides={overrides}
       renderHeaderActions={({ state }) => (
-        <HeaderActions pageId={pageId} slug={slug} status={status} data={state.data} version={version} onVersion={setVersion} />
+        <HeaderActions
+          pageId={pageId}
+          slug={slug}
+          status={status}
+          data={state.data}
+          version={version}
+          onVersion={setVersion}
+          dark={darkCss ? dark : null}
+          onDarkChange={setDark}
+        />
       )}
     />
+    </>
   )
 }
