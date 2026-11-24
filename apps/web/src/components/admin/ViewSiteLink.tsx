@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { FiExternalLink } from 'react-icons/fi'
 
-import { SidebarMenu, SidebarMenuButton, SidebarMenuItem } from '@/components/ui/sidebar'
+import { SidebarMenu, SidebarMenuButton, SidebarMenuItem } from '@pet-adopt/ui/components/sidebar'
 
 // The sidebar footer's link to the public site. A client component only because the icon library
 // builds its icons on a React context, which server components cannot render.

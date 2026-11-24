@@ -3,7 +3,7 @@ import { FiArrowLeft } from 'react-icons/fi'
 
 import { MediaDetails } from '@/components/admin/MediaDetails'
 import { PageHeader } from '@/components/admin/PageHeader'
-import { buttonVariants } from '@/components/ui/button'
+import { buttonVariants } from '@pet-adopt/ui/components/button'
 import { parseId, unwrapOrNotFound } from '@/lib/admin/unwrap'
 import { extensionOf } from '@/lib/media-name'
 import { getMediaAction } from '@/server/actions/media'

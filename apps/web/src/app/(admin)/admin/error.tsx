@@ -1,6 +1,6 @@
 'use client'
 
-import { Button } from '@/components/ui/button'
+import { Button } from '@pet-adopt/ui/components/button'
 
 // A screen failed to load (the data layer threw). The message comes from `unwrap`, which only has
 // user-safe text.

@@ -208,6 +208,9 @@ importers:
       '@pet-adopt/plugin-sdk':
         specifier: workspace:*
         version: link:../../packages/plugin-sdk
+      '@pet-adopt/ui':
+        specifier: workspace:*
+        version: link:../../packages/ui
       '@puckeditor/core':
         specifier: ^0.24.0
         version: 0.24.0(@floating-ui/dom@1.8.0)(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)(use-sync-external-store@1.7.0(react@19.2.6))
@@ -285,7 +288,7 @@ importers:
         version: 1.72.0(@types/react@19.2.14)(react@19.2.6)
       next:
         specifier: 16.4.5
-        version: 16.4.5(@babel/core@7.29.13(supports-color@7.2.0))(@types/node@22.19.9)(babel-plugin-macros@3.1.0)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)(sass@1.77.4)
+        version: 16.4.5(@babel/core@7.29.13)(@types/node@22.19.9)(babel-plugin-macros@3.1.0)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)(sass@1.77.4)
       nuqs:
         specifier: ^2.10.3
         version: 2.10.3(next@16.4.5(@babel/core@7.29.13(supports-color@7.2.0))(@types/node@22.19.9)(babel-plugin-macros@3.1.0)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)(sass@1.77.4))(react@19.2.6)
@@ -378,6 +381,52 @@ importers:
         specifier: 5.7.3
         version: 5.7.3
 
+  packages/ui:
+    dependencies:
+      '@base-ui/react':
+        specifier: ^1.9.0
+        version: 1.9.0(@types/react@19.2.14)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
+      class-variance-authority:
+        specifier: ^0.7.1
+        version: 0.7.1
+      cn:
+        specifier: ^0.5.2
+        version: 0.5.2
+      embla-carousel-react:
+        specifier: ^8.6.0
+        version: 8.6.0(react@19.2.6)
+      lucide-react:
+        specifier: ^1.72.0
+        version: 1.72.0(@types/react@19.2.14)(react@19.2.6)
+      react-icons:
+        specifier: ^5.7.0
+        version: 5.7.0(react@19.2.6)
+      shadcn:
+        specifier: ^4.23.0
+        version: 4.23.0(babel-plugin-macros@3.1.0)(supports-color@7.2.0)
+      tailwindcss:
+        specifier: ^4.3.5
+        version: 4.3.5
+      tw-animate-css:
+        specifier: ^1.4.0
+        version: 1.4.0
+    devDependencies:
+      '@types/react':
+        specifier: 19.2.14
+        version: 19.2.14
+      '@types/react-dom':
+        specifier: 19.2.3
+        version: 19.2.3(@types/react@19.2.14)
+      react:
+        specifier: 19.2.6
+        version: 19.2.6
+      react-dom:
+        specifier: 19.2.6
+        version: 19.2.6(react@19.2.6)
+      typescript:
+        specifier: 5.7.3
+        version: 5.7.3
+
   plugins/adoption-tips:
     dependencies:
       '@pet-adopt/plugin-sdk':
@@ -402,6 +451,9 @@ importers:
       '@pet-adopt/plugin-sdk':
         specifier: workspace:*
         version: link:../../packages/plugin-sdk
+      '@pet-adopt/ui':
+        specifier: workspace:*
+        version: link:../../packages/ui
     devDependencies:
       '@types/node':
         specifier: 22.19.9
@@ -409,12 +461,21 @@ importers:
       '@types/react':
         specifier: 19.2.14
         version: 19.2.14
+      '@types/react-dom':
+        specifier: 19.2.3
+        version: 19.2.3(@types/react@19.2.14)
       drizzle-orm:
         specifier: ^0.45.4
         version: 0.45.4(@libsql/client@0.14.0)(@types/better-sqlite3@9.6.0)(@types/pg@8.23.1)(better-sqlite3@13.1.1)(kysely@0.29.8)(pg@8.23.1)
+      next:
+        specifier: 16.4.5
+        version: 16.4.5(@babel/core@7.29.13)(@types/node@22.19.9)(babel-plugin-macros@3.1.0)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)(sass@1.77.4)
       react:
         specifier: 19.2.6
         version: 19.2.6
+      react-dom:
+        specifier: 19.2.6
+        version: 19.2.6(react@19.2.6)
       react-icons:
         specifier: ^5.7.0
         version: 5.7.0(react@19.2.6)
@@ -6982,7 +7043,7 @@ snapshots:
     optionalDependencies:
       drizzle-kit: 0.31.11
       drizzle-orm: 0.45.4(@libsql/client@0.14.0)(@types/better-sqlite3@9.6.0)(@types/pg@8.23.1)(better-sqlite3@13.1.1)(kysely@0.29.8)(pg@8.23.1)
-      next: 16.4.5(@babel/core@7.29.13(supports-color@7.2.0))(@types/node@22.19.9)(babel-plugin-macros@3.1.0)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)(sass@1.77.4)
+      next: 16.4.5(@babel/core@7.29.13)(@types/node@22.19.9)(babel-plugin-macros@3.1.0)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)(sass@1.77.4)
       pg: 8.23.1
       react: 19.2.6
       react-dom: 19.2.6(react@19.2.6)
@@ -8364,7 +8425,7 @@ snapshots:
 
   natural-compare@1.4.0: {}
 
-  next@16.4.5(@babel/core@7.29.13(supports-color@7.2.0))(@types/node@22.19.9)(babel-plugin-macros@3.1.0)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)(sass@1.77.4):
+  next@16.4.5(@babel/core@7.29.13)(@types/node@22.19.9)(babel-plugin-macros@3.1.0)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)(sass@1.77.4):
     dependencies:
       '@next/env': 16.4.5
       '@swc/helpers': 0.5.23
@@ -8373,7 +8434,7 @@ snapshots:
       postcss: 8.5.23
       react: 19.2.6
       react-dom: 19.2.6(react@19.2.6)
-      styled-jsx: 5.1.6(@babel/core@7.29.13(supports-color@7.2.0))(babel-plugin-macros@3.1.0)(react@19.2.6)
+      styled-jsx: 5.1.6(@babel/core@7.29.13)(babel-plugin-macros@3.1.0)(react@19.2.6)
     optionalDependencies:
       '@next/swc-darwin-arm64': 16.4.5
       '@next/swc-darwin-x64': 16.4.5
@@ -8428,7 +8489,7 @@ snapshots:
       '@standard-schema/spec': 1.1.0
       react: 19.2.6
     optionalDependencies:
-      next: 16.4.5(@babel/core@7.29.13(supports-color@7.2.0))(@types/node@22.19.9)(babel-plugin-macros@3.1.0)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)(sass@1.77.4)
+      next: 16.4.5(@babel/core@7.29.13)(@types/node@22.19.9)(babel-plugin-macros@3.1.0)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)(sass@1.77.4)
 
   object-assign@4.1.1: {}
 
@@ -9155,7 +9216,7 @@ snapshots:
 
   strip-json-comments@3.1.1: {}
 
-  styled-jsx@5.1.6(@babel/core@7.29.13(supports-color@7.2.0))(babel-plugin-macros@3.1.0)(react@19.2.6):
+  styled-jsx@5.1.6(@babel/core@7.29.13)(babel-plugin-macros@3.1.0)(react@19.2.6):
     dependencies:
       client-only: 0.0.1
       react: 19.2.6

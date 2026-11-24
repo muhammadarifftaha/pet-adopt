@@ -3,8 +3,8 @@ import Image from "next/image";
 import useSWR, { useSWRConfig } from "swr";
 import { FiChevronLeft, FiChevronRight } from "react-icons/fi";
 
-import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
+import { Button } from "@pet-adopt/ui/components/button";
+import { Checkbox } from "@pet-adopt/ui/components/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -12,10 +12,10 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog";
-import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
-import { Input } from "@/components/ui/input";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+} from "@pet-adopt/ui/components/dialog";
+import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from "@pet-adopt/ui/components/field";
+import { Input } from "@pet-adopt/ui/components/input";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@pet-adopt/ui/components/tabs";
 import { unwrapResult } from "@/lib/admin/unwrap-client";
 import type { PetFormMedia } from "@/lib/zod-schema/pet";
 import { listMediaAction, uploadMediaAction } from "@/server/actions/media";

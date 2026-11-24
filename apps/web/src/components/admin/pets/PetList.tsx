@@ -1,7 +1,7 @@
 "use client";
 import React from "react";
 import { EmptyState } from "@/components/admin/EmptyState";
-import { Button } from "@/components/ui/button";
+import { Button } from "@pet-adopt/ui/components/button";
 import { useInvalidatePets } from "@/lib/admin/pets-cache";
 import { usePetList, type PetListSeed } from "@/lib/admin/use-pet-list";
 import PetCard from "./PetCard";

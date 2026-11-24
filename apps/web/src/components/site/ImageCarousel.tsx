@@ -9,7 +9,7 @@ import {
   CarouselItem,
   CarouselNext,
   CarouselPrevious,
-} from "@/components/ui/carousel";
+} from "@pet-adopt/ui/components/carousel";
 
 // The Image carousel block (shadcn's Carousel, on Embla). It is laid out by `.carousel-block` rules in
 // the site's styles.css, keyed to the `data-slot` attributes the shadcn parts render, so it looks the

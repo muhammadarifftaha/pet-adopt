@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
-import { buttonVariants } from "@/components/ui/button";
+import { buttonVariants } from "@pet-adopt/ui/components/button";
 import { FaRegArrowAltCircleLeft } from "react-icons/fa";
 import { cn } from "@/lib/utils";
 

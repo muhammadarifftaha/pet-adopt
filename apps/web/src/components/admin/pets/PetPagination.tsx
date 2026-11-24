@@ -7,7 +7,7 @@ import {
   PaginationLink,
   PaginationNext,
   PaginationPrevious,
-} from "@/components/ui/pagination";
+} from "@pet-adopt/ui/components/pagination";
 import { pageItems } from "@/lib/pagination";
 
 // shadcn's pagination for the pet list. Every item is a real link (`hrefFor`), so it can be opened

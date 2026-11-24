@@ -13,10 +13,10 @@ import {
   requestPasswordResetAction,
   resetPasswordWithTokenAction,
 } from "@/server/actions/password-reset";
-import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from "../ui/field";
-import { Input } from "../ui/input";
-import { Button, buttonVariants } from "../ui/button";
-import { Card, CardContent, CardFooter, CardHeader } from "../ui/card";
+import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from "@pet-adopt/ui/components/field";
+import { Input } from "@pet-adopt/ui/components/input";
+import { Button, buttonVariants } from "@pet-adopt/ui/components/button";
+import { Card, CardContent, CardFooter, CardHeader } from "@pet-adopt/ui/components/card";
 
 // The two forms of /admin/reset-password, styled like the sign-in form:
 //  - RequestResetForm: "email me a link" (only shown when an email plugin is set up);

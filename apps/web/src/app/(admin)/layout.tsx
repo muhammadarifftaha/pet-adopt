@@ -7,7 +7,7 @@ import { getSettings, siteIcons } from "@/lib/queries";
 import { getSessionUser } from "@/server/session";
 
 // Tailwind and the shadcn tokens, bridged to the site theme (see the notes in globals.css).
-import "../globals.css";
+import "@pet-adopt/ui/globals.css";
 // Self-hosted fonts. The theme decides which one is used.
 import "../(frontend)/fonts";
 import Providers from "./providers";

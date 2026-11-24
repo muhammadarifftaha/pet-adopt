@@ -2,9 +2,9 @@
 
 import React from 'react'
 
-import { Button } from '@/components/ui/button'
-import { Combobox, ComboboxContent, ComboboxEmpty, ComboboxInput, ComboboxItem, ComboboxList, ComboboxTrigger } from '@/components/ui/combobox'
-import { Input } from '@/components/ui/input'
+import { Button } from '@pet-adopt/ui/components/button'
+import { Combobox, ComboboxContent, ComboboxEmpty, ComboboxInput, ComboboxItem, ComboboxList, ComboboxTrigger } from '@pet-adopt/ui/components/combobox'
+import { Input } from '@pet-adopt/ui/components/input'
 import { countryOf, DEFAULT_REGION, formatNational, joinPhone, listCountries, splitPhone, type Country } from '@/lib/phone'
 
 // A phone number as a country picker (searchable by name, ISO code or "+60") plus the number.

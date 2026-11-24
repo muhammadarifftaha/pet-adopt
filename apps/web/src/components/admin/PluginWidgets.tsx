@@ -1,4 +1,4 @@
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent, CardHeader, CardTitle } from '@pet-adopt/ui/components/card'
 import { getPluginWidgets } from '@/plugins/registry'
 import { getPluginStorageStatus } from '@/plugins/storage'
 import { getSessionUser } from '@/server/session'

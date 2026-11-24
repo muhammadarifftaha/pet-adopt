@@ -13,7 +13,7 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
-} from '@/components/ui/sidebar'
+} from '@pet-adopt/ui/components/sidebar'
 import { cn } from '@/lib/utils'
 
 import type { AdminNavItem, NavIcon, NavIconNode } from './nav-items'

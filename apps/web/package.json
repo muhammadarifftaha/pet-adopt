@@ -34,6 +34,7 @@
     "@pet-adopt/plugin-form-builder": "workspace:*",
     "@pet-adopt/plugin-resend-email": "workspace:*",
     "@pet-adopt/plugin-sdk": "workspace:*",
+    "@pet-adopt/ui": "workspace:*",
     "@puckeditor/core": "^0.24.0",
     "@tailwindcss/postcss": "^4.3.5",
     "@tanstack/react-table": "^9.3.1",

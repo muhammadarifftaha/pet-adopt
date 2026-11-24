@@ -4,7 +4,7 @@ import { Puck, useGetPuck, type Data } from '@puckeditor/core'
 import React, { createContext, useContext, useMemo, useState, useTransition } from 'react'
 import { FiMoon, FiSun } from 'react-icons/fi'
 
-import { Switch } from '@/components/ui/switch'
+import { Switch } from '@pet-adopt/ui/components/switch'
 import { config } from '@/puck/config'
 import type { PuckSiteMetadata } from '@/puck/types'
 

@@ -5,9 +5,9 @@ import React from "react";
 import useSWR from "swr";
 import { FiExternalLink, FiMoon, FiRotateCcw, FiSun } from "react-icons/fi";
 
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
+import { Badge } from "@pet-adopt/ui/components/badge";
+import { Button } from "@pet-adopt/ui/components/button";
+import { Skeleton } from "@pet-adopt/ui/components/skeleton";
 import { unwrapResult } from "@/lib/admin/unwrap-client";
 import { listPageVersionsAction, restorePageVersionAction } from "@/server/actions/pages";
 import type { PageListItem } from "@/server/pages";

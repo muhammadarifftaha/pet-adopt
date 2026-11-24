@@ -11,7 +11,7 @@ import { WhatsAppButton } from '@/components/site/WhatsAppButton'
 import { getSettings, mediaOf, siteIcons } from '@/lib/queries'
 import { fillMessage } from '@/lib/whatsapp'
 
-import '../globals.css'
+import '@pet-adopt/ui/globals.css'
 import './fonts'
 // Loaded after globals.css on purpose: this plain CSS is unlayered, so it wins over Tailwind's base.
 import './styles.css'

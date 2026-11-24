@@ -6,7 +6,7 @@ import { EditorContent, useEditor, useEditorState, type Editor } from "@tiptap/r
 import { FiBold, FiItalic, FiLink, FiList, FiUnderline } from "react-icons/fi";
 import type { IconType } from "react-icons";
 
-import { Button } from "@/components/ui/button";
+import { Button } from "@pet-adopt/ui/components/button";
 import {
   Dialog,
   DialogContent,
@@ -14,9 +14,9 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog";
-import { Field, FieldDescription, FieldError, FieldLabel } from "@/components/ui/field";
-import { Input } from "@/components/ui/input";
+} from "@pet-adopt/ui/components/dialog";
+import { Field, FieldDescription, FieldError, FieldLabel } from "@pet-adopt/ui/components/field";
+import { Input } from "@pet-adopt/ui/components/input";
 import {
   HEALTH_NOTES_MAX_CHARS,
   HREF_HELP,

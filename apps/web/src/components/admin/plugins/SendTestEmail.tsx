@@ -3,9 +3,9 @@
 import React from 'react'
 import { FiSend } from 'react-icons/fi'
 
-import { Button } from '@/components/ui/button'
-import { Field, FieldDescription, FieldError, FieldLabel } from '@/components/ui/field'
-import { Input } from '@/components/ui/input'
+import { Button } from '@pet-adopt/ui/components/button'
+import { Field, FieldDescription, FieldError, FieldLabel } from '@pet-adopt/ui/components/field'
+import { Input } from '@pet-adopt/ui/components/input'
 import { sendTestEmailAction } from '@/server/actions/email'
 
 // "Send a test email" on the email plugin's page: proves the setup works end to end. Starts with

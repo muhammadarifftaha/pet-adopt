@@ -12,11 +12,11 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-} from '@/components/ui/alert-dialog'
-import { Button } from '@/components/ui/button'
-import { Field, FieldDescription, FieldError, FieldLabel } from '@/components/ui/field'
-import { Input } from '@/components/ui/input'
-import { Textarea } from '@/components/ui/textarea'
+} from '@pet-adopt/ui/components/alert-dialog'
+import { Button } from '@pet-adopt/ui/components/button'
+import { Field, FieldDescription, FieldError, FieldLabel } from '@pet-adopt/ui/components/field'
+import { Input } from '@pet-adopt/ui/components/input'
+import { Textarea } from '@pet-adopt/ui/components/textarea'
 import { useInvalidateMedia } from '@/lib/admin/media-cache'
 import { cleanMediaName, MEDIA_NAME_MAX } from '@/lib/media-name'
 import { deleteMediaAction, updateMediaDetailsAction } from '@/server/actions/media'

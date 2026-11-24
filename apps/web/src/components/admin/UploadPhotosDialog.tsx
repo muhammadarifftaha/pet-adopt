@@ -12,10 +12,10 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-} from '@/components/ui/alert-dialog'
-import { Button } from '@/components/ui/button'
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
-import { Input } from '@/components/ui/input'
+} from '@pet-adopt/ui/components/alert-dialog'
+import { Button } from '@pet-adopt/ui/components/button'
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@pet-adopt/ui/components/dialog'
+import { Input } from '@pet-adopt/ui/components/input'
 import { useInvalidateMedia } from '@/lib/admin/media-cache'
 import { cleanMediaName, extensionOf, MEDIA_NAME_MAX } from '@/lib/media-name'
 import { cn } from '@/lib/utils'

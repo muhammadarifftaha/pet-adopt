@@ -1,6 +1,6 @@
 import { FiAlertTriangle } from 'react-icons/fi'
 
-import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardDescription, CardHeader, CardTitle } from '@pet-adopt/ui/components/card'
 import type { PluginStorageStatus } from '@/plugins/storage'
 import type { SessionUser } from '@/server/types'
 
