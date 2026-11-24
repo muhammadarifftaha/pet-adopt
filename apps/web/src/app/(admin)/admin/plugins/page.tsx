@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge'
 import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { requireAdminPage } from '@/lib/admin/unwrap'
 import { getEmailPlugin, getPluginInfos } from '@/plugins/registry'
+import { getPluginStorageStatus } from '@/plugins/storage'
 
 export const metadata = { title: 'Plugins' }
 
@@ -16,6 +17,7 @@ export default async function PluginsPage() {
   await requireAdminPage()
   const plugins = getPluginInfos()
   const emailStatus = getEmailPlugin()?.sender.status?.() ?? null
+  const notReady = new Set((await getPluginStorageStatus()).filter((s) => !s.ready).map((s) => s.plugin))
 
   return (
     <>
@@ -42,6 +44,7 @@ export default async function PluginsPage() {
                           {plugin.title}
                         </Link>
                       </CardTitle>
+                      {notReady.has(plugin.name) ? <Badge variant="destructive">Needs migrate</Badge> : null}
                       {plugin.email && emailStatus ? (
                         <Badge variant={emailStatus.ready ? 'default' : 'destructive'}>{emailStatus.ready ? 'Ready' : 'Not set up'}</Badge>
                       ) : null}
