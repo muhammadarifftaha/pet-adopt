@@ -130,7 +130,7 @@ export function validateFormFields(raw: unknown): FieldsResult {
     }
 
     const label = cleanLine(item.label)
-    if (!label) errors[`${at}.label`] = 'Give this field a label.'
+    if (!label) errors[`${at}.label`] = 'Write the question.'
     else if (label.length > FORM_LIMITS.label) errors[`${at}.label`] = `Use at most ${FORM_LIMITS.label} characters.`
 
     const hint = cleanLine(item.hint)
@@ -186,4 +186,124 @@ export function answerToText(answer: Pick<FormAnswer, 'value'>): string {
   if (typeof value === 'boolean') return value ? 'Yes' : 'No'
   if (Array.isArray(value)) return value.join(', ')
   return value
+}
+
+export type SettingsResult = { ok: true; settings: FormSettings } | { ok: false; errors: Record<string, string> }
+
+/** Checks and rebuilds a form's settings. Blank values are dropped (the defaults apply). Errors: `settings.<key>`. */
+export function validateFormSettings(raw: unknown): SettingsResult {
+  if (raw === null || raw === undefined) return { ok: true, settings: {} }
+  if (!isRecord(raw)) return { ok: false, errors: { settings: 'Not valid settings.' } }
+  const errors: Record<string, string> = {}
+  const settings: FormSettings = {}
+
+  const submitLabel = cleanLine(raw.submitLabel)
+  if (submitLabel.length > FORM_LIMITS.submitLabel) errors['settings.submitLabel'] = `Use at most ${FORM_LIMITS.submitLabel} characters.`
+  else if (submitLabel) settings.submitLabel = submitLabel
+
+  const successMessage = cleanText(raw.successMessage)
+  if (successMessage.length > FORM_LIMITS.successMessage) errors['settings.successMessage'] = `Use at most ${FORM_LIMITS.successMessage} characters.`
+  else if (successMessage) settings.successMessage = successMessage
+
+  const notifyEmail = cleanLine(raw.notifyEmail).toLowerCase()
+  if (notifyEmail && (notifyEmail.length > 254 || !EMAIL_PATTERN.test(notifyEmail))) errors['settings.notifyEmail'] = 'Enter a valid email address.'
+  else if (notifyEmail) settings.notifyEmail = notifyEmail
+
+  return Object.keys(errors).length ? { ok: false, errors } : { ok: true, settings }
+}
+
+/** How a phone answer is checked: the cleaned number to store, or why it cannot be used. */
+export type PhoneCheck = (raw: string) => { ok: true; value: string } | { ok: false; error: string }
+
+export type AnswersResult = { ok: true; answers: FormAnswer[] } | { ok: false; errors: Record<string, string> }
+
+const DATE = /^\d{4}-\d{2}-\d{2}$/
+const NUMBER = /^-?\d+(\.\d+)?$/
+
+/**
+ * Checks a visitor's answers against the form's fields and builds the stored snapshot (one answer
+ * per field, in field order, with its label and type). `raw` is `{ [fieldId]: value }`; keys that
+ * are not fields are ignored. Errors are keyed by field id, so the form can show each one in place.
+ */
+export function validateAnswers(fields: readonly FormField[], raw: unknown, opts: { phone: PhoneCheck }): AnswersResult {
+  const input = isRecord(raw) ? raw : {}
+  const errors: Record<string, string> = {}
+  const answers: FormAnswer[] = []
+  const required = 'This field is required.'
+
+  for (const field of fields) {
+    const value = input[field.id]
+    let answer: FormAnswer['value'] = null
+    const fail = (message: string) => {
+      errors[field.id] = message
+    }
+
+    switch (field.type) {
+      case 'text':
+      case 'email':
+      case 'phone':
+      case 'number':
+      case 'date': {
+        if (value !== undefined && value !== null && typeof value !== 'string' && typeof value !== 'number') {
+          fail('Not a valid answer.')
+          break
+        }
+        const text = cleanLine(typeof value === 'number' ? String(value) : value)
+        if (!text) break
+        if (text.length > FORM_LIMITS.text) fail(`Use at most ${FORM_LIMITS.text} characters.`)
+        else if (field.type === 'email') {
+          if (text.length > 254 || !EMAIL_PATTERN.test(text)) fail('Enter a valid email address.')
+          else answer = text.toLowerCase()
+        } else if (field.type === 'phone') {
+          const checked = opts.phone(text)
+          if (checked.ok) answer = checked.value
+          else fail(checked.error)
+        } else if (field.type === 'number') {
+          if (!NUMBER.test(text) || Math.abs(Number(text)) > 1_000_000_000) fail('Enter a number.')
+          else answer = text
+        } else if (field.type === 'date') {
+          // Date.parse rolls 2026-02-31 over to March: require a round trip.
+          if (!DATE.test(text) || new Date(`${text}T00:00:00Z`).toISOString().slice(0, 10) !== text) fail('Enter a real date (YYYY-MM-DD).')
+          else answer = text
+        } else answer = text
+        break
+      }
+      case 'textarea': {
+        if (value !== undefined && value !== null && typeof value !== 'string') {
+          fail('Not a valid answer.')
+          break
+        }
+        const text = cleanText(value)
+        if (text.length > FORM_LIMITS.textarea) fail(`Use at most ${FORM_LIMITS.textarea} characters.`)
+        else if (text) answer = text
+        break
+      }
+      case 'choice': {
+        if (value === undefined || value === null || value === '') break
+        if (typeof value !== 'string' || !field.options?.includes(value)) fail('Pick one of the listed options.')
+        else answer = value
+        break
+      }
+      case 'checkboxes': {
+        if (value === undefined || value === null) break
+        const picked = Array.isArray(value) ? value : [value]
+        if (!picked.every((v) => typeof v === 'string' && field.options?.includes(v))) fail('Pick from the listed options.')
+        // Stored in the form's order, each once.
+        else if (picked.length) answer = (field.options ?? []).filter((option) => picked.includes(option))
+        break
+      }
+      case 'checkbox': {
+        // A ticked HTML checkbox sends "on"; JSON callers send booleans.
+        answer = value === true || value === 'true' || value === 'on'
+        if (!answer && value !== undefined && value !== null && value !== false && value !== 'false' && value !== '') fail('Not a valid answer.')
+        break
+      }
+    }
+
+    const blank = answer === null || answer === false || (Array.isArray(answer) && !answer.length)
+    if (field.required && blank && !errors[field.id]) fail(field.type === 'checkbox' ? 'Tick this box to continue.' : required)
+    answers.push({ id: field.id, label: field.label, type: field.type, value: answer })
+  }
+
+  return Object.keys(errors).length ? { ok: false, errors } : { ok: true, answers }
 }
