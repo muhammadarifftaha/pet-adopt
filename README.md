@@ -27,7 +27,7 @@ pnpm dev
 
 Open <http://localhost:3000>.
 
-Local development uses a SQLite file (`pet-adopt.db`), so there is nothing else to install. SQLite creates and migrates its own schema on first start. Set `BETTER_AUTH_SECRET` in `.env` to a long random string (`openssl rand -hex 32`). It is required in production and optional in development.
+Local development uses a SQLite file (`data/pet-adopt.db` at the repo root, git-ignored, with uploads in `data/media`), so there is nothing else to install. SQLite creates and migrates its own schema on first start. Set `BETTER_AUTH_SECRET` in `.env` to a long random string (`openssl rand -hex 32`). It is required in production and optional in development.
 
 ### The first owner account
 
@@ -50,16 +50,15 @@ There is no public sign-up. If you leave these unset, create the first account w
 | `/pets` | Catalog with filters and pagination (fixed route) |
 | `/pets/[slug]` | Pet page with photos, details and WhatsApp button (fixed route) |
 | `/[slug]` | Any page you build, such as `/about` |
-| `/admin` | Owner admin: Pets, Pages, Media, Users, Site settings (screens listed in [`ADMIN_UI.md`](ADMIN_UI.md)) |
+| `/admin` | Owner admin: Pets, Pages, Media, Theme, Site settings, Users, Plugins |
 | `/media/[file]` | Uploaded images, served from local disk or S3 |
 | `/api/auth/*` | Sign-in endpoints (Better Auth). Sign-up and its admin endpoints are switched off |
 | `/edit/[id]` | Puck page builder for one page (owners only) |
 | `/health` | Liveness check for hosting platforms |
 
-> **Status:** the backend (database, sign-in, uploads, data rules) is finished and tested. The admin
-> screens under `/admin` are being built; the sign-in screens and the navigation shell exist, and the
-> forms are scaffolded with `TODO(ui)` notes. [`ADMIN_UI.md`](ADMIN_UI.md) lists every screen and the
-> function each one calls, so it is a good place to start if you want to contribute.
+> **Status:** the backend (database, sign-in, uploads, data rules) is finished and tested, and most
+> admin screens under `/admin` are built. Account and Users are still being finished; their files
+> carry `TODO(ui)` notes naming the server action each form calls.
 
 ## Project structure
 
@@ -184,7 +183,7 @@ Keep `render` functions free of hooks and browser-only code: the same components
    - `BETTER_AUTH_SECRET`: at least 32 random characters (`openssl rand -hex 32`).
    - `NEXT_PUBLIC_SERVER_URL`: your public URL, such as `https://adopt.example.com`. It is also the only origin allowed to make signed-in requests, so use the exact address visitors and owners use.
    - `SEED_ADMIN_EMAIL` and `SEED_ADMIN_PASSWORD`: so the first owner exists before anyone can reach `/admin` (see above).
-4. **Store uploads somewhere durable.** Without configuration, uploads are written to `./media` (change it with `UPLOAD_DIR`), which suits a VPS or a Docker volume. Visitors always load images through this site's `/media` route, never from the bucket. On serverless platforms (Vercel and similar) set the `S3_*` variables for S3, Cloudflare R2 or MinIO. If `S3_BUCKET` is set, the access key and secret are required too, and `S3_REGION` must be a real region for AWS S3 (`auto` is for R2).
+4. **Store uploads somewhere durable.** Without configuration, uploads are written to `data/media` at the repo root (change it with `UPLOAD_DIR`, relative to `apps/web`), which suits a VPS or a Docker volume. Visitors always load images through this site's `/media` route, never from the bucket. On serverless platforms (Vercel and similar) set the `S3_*` variables for S3, Cloudflare R2 or MinIO. If `S3_BUCKET` is set, the access key and secret are required too, and `S3_REGION` must be a real region for AWS S3 (`auto` is for R2).
 5. `pnpm build && pnpm start`
 
 Pages are cached and refresh immediately when you publish; they also revalidate every 60 seconds.
