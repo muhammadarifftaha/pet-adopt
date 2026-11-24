@@ -50,16 +50,15 @@ There is no public sign-up. If you leave these unset, create the first account w
 | `/pets` | Catalog with filters and pagination (fixed route) |
 | `/pets/[slug]` | Pet page with photos, details and WhatsApp button (fixed route) |
 | `/[slug]` | Any page you build, such as `/about` |
-| `/admin` | Owner admin: Pets, Pages, Media, Users, Site settings (screens listed in [`ADMIN_UI.md`](ADMIN_UI.md)) |
+| `/admin` | Owner admin: Pets, Pages, Media, Theme, Site settings, Users, Plugins |
 | `/media/[file]` | Uploaded images, served from local disk or S3 |
 | `/api/auth/*` | Sign-in endpoints (Better Auth). Sign-up and its admin endpoints are switched off |
 | `/edit/[id]` | Puck page builder for one page (owners only) |
 | `/health` | Liveness check for hosting platforms |
 
-> **Status:** the backend (database, sign-in, uploads, data rules) is finished and tested. The admin
-> screens under `/admin` are being built; the sign-in screens and the navigation shell exist, and the
-> forms are scaffolded with `TODO(ui)` notes. [`ADMIN_UI.md`](ADMIN_UI.md) lists every screen and the
-> function each one calls, so it is a good place to start if you want to contribute.
+> **Status:** the backend (database, sign-in, uploads, data rules) is finished and tested, and most
+> admin screens under `/admin` are built. Account and Users are still being finished; their files
+> carry `TODO(ui)` notes naming the server action each form calls.
 
 ## Project structure
 

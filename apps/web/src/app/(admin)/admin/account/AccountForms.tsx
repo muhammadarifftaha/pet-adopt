@@ -2,7 +2,7 @@
 
 import type { SessionUser } from '@/server/types'
 
-// TODO(ui): two forms (ADMIN_UI.md section 9).
+// TODO(ui): two forms.
 //  - Name: `updateProfileAction({ name })`.
 //  - Password: `changePasswordAction({ currentPassword, newPassword })`; signs out other devices.
 //    Minimum length is 12 in production, 8 in development.

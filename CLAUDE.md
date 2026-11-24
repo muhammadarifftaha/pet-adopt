@@ -24,7 +24,7 @@ The Payload CMS backend was replaced with a custom one on branch `custom-backend
 
 **Not done or not verified:**
 
-1. **The admin UI does not exist.** The user is building it themself (see `ADMIN_UI.md`: screens, fields, and the action each one calls). `/admin` is a 404, so `/admin/login` (where `/edit/[id]` redirects) is too. Until then, sign in over `POST /api/auth/sign-in/email`.
+1. **The admin UI is the user's work** and mostly built; Account and Users are still stubs. Their own checklist is `COMPONENTS.md` (git-ignored); `ADMIN_UI.md` was retired.
 2. The Puck editor was only checked up to "renders when signed in". Dragging blocks, Save draft, Publish and the media picker (now server actions) were never exercised in a browser.
 3. S3 / R2 storage (`S3_*`) is untested. So are the Postgres pooler settings and the docker-compose Postgres. The compose database `pet_adopt` still holds Payload's old tables: reset it (`docker compose down -v`) before `pnpm migrate`.
 4. `.env` still has `PAYLOAD_SECRET`; production needs `BETTER_AUTH_SECRET` instead (dev falls back to a built-in secret). The user's `.env` points `DATABASE_URL` at compose Postgres, which was not running, so runs here overrode it with `DATABASE_URL=file:./pet-adopt.db` (see the `dev-sqlite` entry in the git-ignored `.claude/launch.json`).
@@ -92,7 +92,7 @@ The Payload CMS backend was replaced with a custom one on branch `custom-backend
 
 ## Suggested next steps
 
-- [ ] Build the admin UI from `ADMIN_UI.md` (the user's work), starting with the `(admin)` layout and `/admin/login`.
+- [ ] Finish the admin UI (the user's work: Account forms, Users actions, toaster; see their `COMPONENTS.md`).
 - [ ] Click through the Puck editor in a browser: drag blocks, Save draft, Publish, the media picker (choose, upload with alt text, remove), the PetGrid block showing live pets with no `pets` prop in the saved JSON, and mobile widths.
 - [ ] Exercise S3/R2 uploads and the compose Postgres (reset its old volume first).
 - [ ] Rename `PAYLOAD_SECRET` to `BETTER_AUTH_SECRET` in `.env`; consider a `Dockerfile` and migrating on deploy.
