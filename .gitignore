@@ -19,7 +19,7 @@ next-env.d.ts
 *.db-journal
 *.db-shm
 *.db-wal
-/apps/web/media
+/data
 
 # misc
 .DS_Store

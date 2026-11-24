@@ -45,7 +45,9 @@ function isDatabaseMissing(error: unknown): boolean {
   for (let depth = 0; depth < 4 && current && typeof current === 'object'; depth++) {
     const { code, message, cause } = current as { code?: unknown; message?: unknown; cause?: unknown }
     if (typeof code === 'string' && ['ECONNREFUSED', 'ENOTFOUND', 'ETIMEDOUT', 'SQLITE_CANTOPEN', '42P01', '3D000'].includes(code)) return true
-    if (typeof message === 'string' && /no such table|unable to open database|timeout exceeded when trying to connect/i.test(message)) return true
+    // "directory does not exist": a fresh clone has no data/ folder yet (the app creates it on start,
+    // the build must not), and better-sqlite3 reports that as a plain TypeError with no code.
+    if (typeof message === 'string' && /no such table|unable to open database|cannot open database because the directory does not exist|timeout exceeded when trying to connect/i.test(message)) return true
     current = cause
   }
   return false

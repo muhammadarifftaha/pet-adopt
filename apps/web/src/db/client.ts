@@ -2,13 +2,15 @@
 //
 // DATABASE_URL picks the dialect:
 //   postgres://...      -> PostgreSQL (production)
-//   file:./pet-adopt.db -> SQLite (zero-setup local development, the default)
+//   file:./pet-adopt.db -> SQLite (zero-setup local development). The default is
+//                          data/pet-adopt.db at the repo root (DEFAULT_SQLITE_URL).
 //
 // Drizzle's SQLite and Postgres tables are different TypeScript types, so the repositories are
 // written once against the SQLite-typed objects and this file hands them the right ones at runtime.
 // Both query builders share the same API (select / insert / update / delete / where / returning),
 // and `scripts/check-schemas.ts` plus the dual-database test run guard against the two drifting.
 import { AsyncLocalStorage } from 'node:async_hooks'
+import { mkdirSync } from 'node:fs'
 import path from 'node:path'
 
 import { sql } from 'drizzle-orm'
@@ -55,8 +57,14 @@ export type Database = {
 const MIGRATIONS_ROOT = path.resolve(/* turbopackIgnore: true */ process.cwd(), 'drizzle')
 export const migrationsFolder = (dialect: Dialect) => path.join(MIGRATIONS_ROOT, dialect)
 
+/**
+ * Local data lives in data/ at the monorepo root (git-ignored), not inside the app: relative to the
+ * app's folder (apps/web), which is the working directory for `next` and the scripts.
+ */
+export const DEFAULT_SQLITE_URL = 'file:../../data/pet-adopt.db'
+
 export function resolveDatabaseUrl(): { dialect: Dialect; url: string } {
-  const url = process.env.DATABASE_URL || 'file:./pet-adopt.db'
+  const url = process.env.DATABASE_URL || DEFAULT_SQLITE_URL
   if (/^postgres(ql)?:\/\//.test(url)) return { dialect: 'pg', url }
   if (/^(file:|sqlite:)/.test(url) || !url.includes('://')) return { dialect: 'sqlite', url }
   throw new Error(`Unsupported DATABASE_URL "${url.split('@').pop()}". Use postgres://... or file:./path.db`)
@@ -70,7 +78,8 @@ async function openSqlite(url: string): Promise<Database> {
     import('drizzle-orm/better-sqlite3'),
   ])
   const file = path.resolve(/* turbopackIgnore: true */ process.cwd(), url.replace(/^(sqlite:\/\/|sqlite:|file:)/, ''))
-  // `next build` must not create an empty database file as a side effect.
+  // `next build` must not create an empty database file (or its folder) as a side effect.
+  if (!isBuildPhase()) mkdirSync(path.dirname(file), { recursive: true })
   const client = new BetterSqlite3(file, { fileMustExist: isBuildPhase() })
   client.pragma('journal_mode = WAL')
   // SQLite ignores foreign keys unless asked; the schema relies on them (cascade, restrict).

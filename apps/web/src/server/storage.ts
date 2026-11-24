@@ -91,7 +91,7 @@ async function s3Storage(): Promise<Storage> {
 let cached: Promise<Storage> | undefined
 
 export function getStorage(): Promise<Storage> {
-  cached ??= process.env.S3_BUCKET ? s3Storage() : Promise.resolve(localStorage(process.env.UPLOAD_DIR || './media'))
+  cached ??= process.env.S3_BUCKET ? s3Storage() : Promise.resolve(localStorage(process.env.UPLOAD_DIR || '../../data/media'))
   cached.catch(() => {
     cached = undefined
   })
