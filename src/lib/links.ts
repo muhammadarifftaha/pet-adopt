@@ -10,6 +10,18 @@ export function safeHref(href?: string | null): string {
   return '#'
 }
 
+/**
+ * Where to go after signing in: a path on this site only, so `?redirect=` cannot send someone to
+ * another site (an open redirect). Anything else, including another sign-in page, gives `fallback`.
+ */
+export function safeRedirectPath(value: unknown, fallback = '/admin'): string {
+  if (typeof value !== 'string') return fallback
+  const path = value.trim()
+  if (!/^\/(?![/\\])[^\u0000-\u001f\u007f\\]*$/.test(path)) return fallback
+  if (/^\/admin\/login(?:[/?#]|$)/.test(path)) return fallback
+  return path
+}
+
 /** A validator for an absolute http(s) link, such as a social profile. */
 export const validateWebUrl = (value?: string | null) =>
   !value || /^https?:\/\/\S+$/i.test(value.trim()) ? true : 'Enter a full link starting with https://'

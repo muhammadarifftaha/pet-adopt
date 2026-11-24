@@ -1,16 +1,25 @@
 "use client";
 import React from "react";
+import { useRouter } from "next/navigation";
 import { Controller, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { loginSchema, LoginSchemaType } from "@/lib/zod-schema/auth";
 import { signInAction } from "@/server/actions/auth";
-import { Field, FieldGroup, FieldLabel } from "../ui/field";
+import { Field, FieldError, FieldGroup, FieldLabel } from "../ui/field";
 import { Input } from "../ui/input";
 import { Button } from "../ui/button";
 import { Card, CardContent, CardFooter, CardHeader } from "../ui/card";
 import { SiteSetting } from "@/server/types";
 
-export default function LoginForm({ settings }: { settings: SiteSetting }) {
+export default function LoginForm({
+  settings,
+  redirectTo,
+}: {
+  settings: SiteSetting;
+  /** Already checked on the server (`safeRedirectPath`): a path on this site. */
+  redirectTo: string;
+}) {
+  const router = useRouter();
   const form = useForm<LoginSchemaType>({
     resolver: zodResolver(loginSchema),
     values: {
@@ -18,6 +27,22 @@ export default function LoginForm({ settings }: { settings: SiteSetting }) {
       password: "",
     },
   });
+
+  // The action sets the session cookie, but the page Next re-renders in the same response still
+  // sees the old cookies, so nothing redirects by itself: navigate here once it succeeds. /admin
+  // has a different root layout, so this is a full page load that sends the new cookie.
+  const onSubmit = async (values: LoginSchemaType) => {
+    const result = await signInAction(values);
+    if (result.ok) {
+      router.replace(redirectTo);
+      return;
+    }
+    for (const [name, message] of Object.entries(result.fieldErrors ?? {})) {
+      if (name === "email" || name === "password") form.setError(name, { message });
+    }
+    form.setError("root", { message: result.error });
+  };
+  const rootError = form.formState.errors.root?.message;
 
   return (
     <Card className="w-full max-w-lg">
@@ -29,8 +54,13 @@ export default function LoginForm({ settings }: { settings: SiteSetting }) {
         </p>
       </CardHeader>
       <CardContent className="w-full">
-        <form id="login-form" onSubmit={form.handleSubmit(signInAction)}>
+        <form id="login-form" noValidate onSubmit={form.handleSubmit(onSubmit)}>
           <FieldGroup>
+            {rootError && (
+              <p role="alert" className="text-sm text-destructive">
+                {rootError}
+              </p>
+            )}
             <Controller
               name="email"
               control={form.control}
@@ -41,8 +71,11 @@ export default function LoginForm({ settings }: { settings: SiteSetting }) {
                     id={field.name}
                     type="email"
                     placeholder="Enter your email"
+                    autoComplete="username"
+                    aria-invalid={fieldState.invalid}
                     {...field}
                   />
+                  {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
                 </Field>
               )}
             />
@@ -56,8 +89,11 @@ export default function LoginForm({ settings }: { settings: SiteSetting }) {
                     id={field.name}
                     type="password"
                     placeholder="Enter your password"
+                    autoComplete="current-password"
+                    aria-invalid={fieldState.invalid}
                     {...field}
                   />
+                  {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
                 </Field>
               )}
             />
@@ -66,8 +102,12 @@ export default function LoginForm({ settings }: { settings: SiteSetting }) {
       </CardContent>
       <CardFooter>
         <Field orientation="horizontal" className="w-full justify-end">
-          <Button type="submit" form="login-form">
-            Sign In
+          <Button
+            type="submit"
+            form="login-form"
+            aria-disabled={form.formState.isSubmitting}
+          >
+            {form.formState.isSubmitting ? "Signing in…" : "Sign In"}
           </Button>
         </Field>
       </CardFooter>
