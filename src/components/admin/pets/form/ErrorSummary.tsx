@@ -12,25 +12,31 @@ export function ErrorSummary({
   general,
   onSelect,
   ref,
+  idOf = fieldId,
+  failureTitle = "The pet could not be saved",
 }: {
   items: SummaryItem[];
   /** A problem that is not about one field, such as "You need to be signed in". */
   general: string | null;
   onSelect: (name: string) => void;
   ref?: React.Ref<HTMLDivElement>;
+  /** The DOM id of a field, for the links (the pet form's ids by default). */
+  idOf?: (name: string) => string;
+  /** Heading when nothing is wrong with a single field. */
+  failureTitle?: string;
 }) {
   const count = items.length;
   const title =
     count > 0
       ? `There ${count === 1 ? "is 1 problem" : `are ${count} problems`} with this form`
-      : "The pet could not be saved";
+      : failureTitle;
 
   return (
     <div
       ref={ref}
       tabIndex={-1}
       role="alert"
-      className="mb-6 rounded-lg border border-destructive/50 bg-destructive/5 p-4 outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+      className="mb-6 rounded-lg border border-destructive/50 bg-destructive/5 p-4 outline-none focus-visible:ring-3 focus-visible:ring-ring"
     >
       <h2 className="text-base font-semibold text-destructive">{title}</h2>
       {general ? <p className="mt-1 text-sm">{general}</p> : null}
@@ -39,7 +45,7 @@ export function ErrorSummary({
           {items.map((item) => (
             <li key={item.name}>
               <a
-                href={`#${fieldId(item.name)}`}
+                href={`#${idOf(item.name)}`}
                 onClick={(event) => {
                   event.preventDefault();
                   onSelect(item.name);

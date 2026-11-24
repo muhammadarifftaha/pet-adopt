@@ -8,6 +8,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 
 import { AgeFields } from "@/components/admin/pets/form/AgeFields";
+import { useUnsavedChanges } from "@/components/admin/useUnsavedChanges";
 import { ErrorSummary, type SummaryItem } from "@/components/admin/pets/form/ErrorSummary";
 import {
   CheckboxField,
@@ -63,9 +64,12 @@ export function PetForm({ pet, siteName }: { pet: Pet | null; siteName: string }
   const form = useForm<PetFormValues>({
     resolver: zodResolver(petFormSchema),
     values: initial,
+    // When the page reloads, fields the person has changed keep their text.
+    resetOptions: { keepDirtyValues: true },
     mode: "onBlur",
   });
   const { control, formState } = form;
+  const { dialog: leaveDialog, allowNavigation } = useUnsavedChanges(formState.isDirty);
 
   const [tab, setTab] = React.useState<TabId>("basics");
   const [saving, setSaving] = React.useState(false);
@@ -120,10 +124,14 @@ export function PetForm({ pet, siteName }: { pet: Pet | null; siteName: string }
     if (result.ok) {
       setSummaryOpen(false);
       void invalidatePets();
+      // What was just saved is the new clean state; the reload then brings the server's version
+      // (a generated slug, a normalised species) into the fields nobody is editing.
+      form.reset(values);
       if (pet) {
         setSaved(true);
         router.refresh();
       } else {
+        allowNavigation();
         router.push(`/admin/pets/${result.data.id}`);
       }
       return;
@@ -368,6 +376,7 @@ export function PetForm({ pet, siteName }: { pet: Pet | null; siteName: string }
           {saving ? "Saving…" : showSaved ? "Saved." : ""}
         </p>
       </div>
+      {leaveDialog}
     </form>
   );
 }

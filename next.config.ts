@@ -25,7 +25,8 @@ const contentSecurityPolicy = [
   "img-src 'self' data: blob:",
   "font-src 'self' data:",
   `connect-src 'self'${isDev ? ' ws: wss:' : ''}`,
-  'frame-src https://www.google.com/maps/',
+  // 'self': the admin pages table previews pages in an iframe (/edit/<id>/preview).
+  "frame-src 'self' https://www.google.com/maps/",
   "object-src 'none'",
   "base-uri 'self'",
   "form-action 'self'",

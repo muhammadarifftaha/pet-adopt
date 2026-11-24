@@ -364,6 +364,16 @@ export function themeCss(theme: ResolvedTheme, options: { lightOnly?: boolean } 
   ].join('\n')
 }
 
+/**
+ * One mode, whatever the visitor's system or toggle says: for the admin's page preview, which has no
+ * script to set data-mode (`html:root:root` outranks the light rule from themeCss), and for the page
+ * builder's canvas (a selector for its wrapper, so the editor's own panels stay light). `selector`
+ * is always a constant from our code, never from settings.
+ */
+export function forcedModeCss(theme: ResolvedTheme, mode: 'light' | 'dark', selector = 'html:root:root'): string {
+  return `${selector}{${declarations({ ...theme.shared, ...theme[mode] })};color-scheme:${mode}}`
+}
+
 // ---------------------------------------------------------------------------------------------
 // Admin validation
 // ---------------------------------------------------------------------------------------------
