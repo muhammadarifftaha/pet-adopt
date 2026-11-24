@@ -64,6 +64,22 @@ export type PluginWidget = {
   adminOnly?: boolean
 }
 
+/** One email. `text` is always sent; `html` is the formatted version, when the sender supports it. */
+export type EmailMessage = {
+  to: string
+  subject: string
+  text: string
+  html?: string
+}
+
+/**
+ * How the site sends email (password reset links). At most one plugin may provide it. `send` runs on
+ * the server and should throw when the message was not accepted, so the failure is logged.
+ */
+export type EmailSender = {
+  send: (message: EmailMessage) => Promise<void>
+}
+
 export type Plugin = {
   /** Lowercase letters, digits and dashes. Used in the URL, so renaming it moves the screens. */
   name: string
@@ -71,6 +87,8 @@ export type Plugin = {
   screens?: PluginScreen[]
   /** Cards shown under the dashboard's numbers. */
   dashboardWidgets?: PluginWidget[]
+  /** Sends the site's email. Without one, "email me a reset link" is not offered. */
+  email?: EmailSender
   /** Other plugins this one is built from (flattened, in order, before this one). */
   plugins?: Plugin[]
 }

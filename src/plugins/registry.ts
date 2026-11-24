@@ -1,7 +1,7 @@
 import type { AdminNavItem, NavIcon } from '@/components/admin/nav-items'
 
 import config from '../../pet-adopt.config'
-import type { Plugin, PluginScreen, PluginWidget } from './define'
+import type { EmailSender, Plugin, PluginScreen, PluginWidget } from './define'
 import { IconError, toNavIcon } from './icon'
 
 // Reads `pet-adopt.config.ts` once, flattens nested plugins, checks them, and answers the questions
@@ -17,7 +17,7 @@ export type ResolvedScreen = PluginScreen & {
 }
 export type ResolvedWidget = PluginWidget & { plugin: string }
 
-type Registry = { plugins: Plugin[]; screens: ResolvedScreen[]; widgets: ResolvedWidget[] }
+type Registry = { plugins: Plugin[]; screens: ResolvedScreen[]; widgets: ResolvedWidget[]; email: EmailSender | null }
 
 const NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 const LITERAL_SEGMENT = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
@@ -38,6 +38,8 @@ function build(): Registry {
   const seenNames = new Set<string>()
   const screens: ResolvedScreen[] = []
   const widgets: ResolvedWidget[] = []
+  let email: EmailSender | null = null
+  let emailFrom = ''
 
   for (const plugin of plugins) {
     const who = `Plugin "${plugin.name}"`
@@ -48,6 +50,14 @@ function build(): Registry {
       throw new Error(`${who} is registered twice. Names must be unique.`)
     }
     seenNames.add(plugin.name)
+
+    if (plugin.email !== undefined) {
+      if (typeof plugin.email?.send !== 'function') throw new Error(`${who}: email.send must be a function.`)
+      // Two senders would leave it unclear which one a reset link goes out through.
+      if (email) throw new Error(`${who} provides email, but "${emailFrom}" already does. Register only one.`)
+      email = plugin.email
+      emailFrom = plugin.name
+    }
 
     const seenPaths = new Set<string>()
     for (const screen of plugin.screens ?? []) {
@@ -89,7 +99,7 @@ function build(): Registry {
     }
   }
 
-  return { plugins, screens, widgets }
+  return { plugins, screens, widgets, email }
 }
 
 let cached: Registry | undefined
@@ -102,6 +112,11 @@ export function getPluginNav(): AdminNavItem[] {
   return registry()
     .screens.filter((s) => !s.hidden && !s.segments.some((seg) => seg.startsWith(':')))
     .map((s) => ({ href: s.href, label: s.nav?.label ?? s.title, adminOnly: s.adminOnly, icon: s.navIcon }))
+}
+
+/** The email sender a plugin provides, or null when none is registered. */
+export function getEmailSender(): EmailSender | null {
+  return registry().email
 }
 
 export function getPluginWidgets(): ResolvedWidget[] {
