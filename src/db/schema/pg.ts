@@ -219,10 +219,39 @@ export const pages = pgTable(
     seoDescription: text('seo_description'),
     seoImageId: integer('seo_image_id').references(() => media.id, { onDelete: 'set null' }),
     publishedAt: timestamp('published_at'),
+    // Set while the page is archived: off the site and read-only, but kept (with its address) until
+    // it is restored or deleted. Only an archived page can be deleted.
+    archivedAt: timestamp('archived_at'),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
   (t) => [uniqueIndex('pages_slug_idx').on(t.slug), index('pages_seo_image_idx').on(t.seoImageId)],
+)
+
+// A page's history, one version per publish cycle (the latest 50 per page are kept). Version N
+// collects every draft save after publish N-1 and is closed by the next publish: `kind` is 'draft'
+// while it is open (at most one, always the newest) and 'published' once closed. `number` counts
+// up per page.
+export const pageVersions = pgTable(
+  'page_versions',
+  {
+    id: id(),
+    pageId: integer('page_id')
+      .notNull()
+      // onUpdate: a page's history follows it when its id changes (the homepage is moved to id 1).
+      .references(() => pages.id, { onDelete: 'cascade', onUpdate: 'cascade' }),
+    number: integer('number').notNull(),
+    kind: text('kind').notNull(),
+    title: text('title').notNull(),
+    data: jsonb('data').notNull(),
+    // Who saved it last (an open version is saved many times).
+    createdBy: text('created_by').references(() => users.id, { onDelete: 'set null' }),
+    // The version whose layout was copied in with "Use as draft", if any.
+    restoredFrom: integer('restored_from'),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [uniqueIndex('page_versions_page_number_idx').on(t.pageId, t.number)],
 )
 
 export const siteSettings = pgTable('site_settings', {

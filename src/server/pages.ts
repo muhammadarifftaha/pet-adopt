@@ -5,25 +5,43 @@
 // publish can carry the `version` it was based on (the page's `updatedAt` in milliseconds, which
 // every save returns). If the page has changed since, nothing is written and the person is told to
 // reload. Leave `baseVersion` out to write regardless.
-import { and, desc, eq, gte, isNotNull, lt, sql } from 'drizzle-orm'
+//
+// History: one version per publish cycle, in `page_versions` (the latest KEEP_VERSIONS kept).
+// The first draft save after a publish opens the next version; later saves update it in place;
+// the next publish closes it. So version N holds the layout published as the Nth release (or, for
+// the newest, the unpublished work since). Any version can be previewed and copied into the draft.
+//
+// Archiving takes a page off the site and makes it read-only, keeping everything (including its
+// address) so it can be restored as it was. Only an archived page can be deleted.
+import { and, desc, eq, gte, isNotNull, isNull, lt, lte, sql } from 'drizzle-orm'
+import { isEqual } from 'es-toolkit'
 
-import { getDatabase } from '@/db/client'
+import { getDatabase, type Db, type Schema } from '@/db/client'
 import type * as S from '@/db/schema/sqlite'
 import { RESERVED_SLUGS } from '@/lib/options'
 import { safeRevalidate } from '@/lib/revalidate'
-import { isPuckData, stripControlChars, stripTransient } from '@/puck/data'
+import { DEFAULT_HOME_DATA, isPuckData, stripControlChars, stripTransient } from '@/puck/data'
 
 import { getMediaByIds } from './media'
 import { asRecord, Fields, isUniqueViolation, UserError, ValidationError } from './result'
-import type { MediaItem, Page, PageStatus } from './types'
+import type { MediaItem, Page, PageState, PageStatus, PageVersionSummary } from './types'
 
 type PageRow = typeof S.pages.$inferSelect
 
+/** The page shown at "/". It always exists (see ensureHomePage), keeps this slug, and is never archived. */
+export const HOME_SLUG = 'home'
+
+/** How many snapshots each page keeps. */
+export const KEEP_VERSIONS = 50
+
 const toPath = (slug: string) => (slug === 'home' ? '/' : `/${slug}`)
+/** Serialises writes to one page, so version numbers cannot collide. */
+const pageLock = (id: number) => `pages:${id}`
 
 const CONFLICT =
   'This page was changed somewhere else (another tab, or another person) since you opened it. ' +
   'Reload the page builder to see the latest version, then make your change again.'
+const ARCHIVED = 'This page is archived. Restore it before making changes.'
 
 function toPage(row: PageRow, image: MediaItem | null): Page {
   return {
@@ -35,6 +53,7 @@ function toPage(row: PageRow, image: MediaItem | null): Page {
     puckPublished: row.puckPublished ?? null,
     seo: { description: row.seoDescription, image },
     publishedAt: row.publishedAt,
+    archivedAt: row.archivedAt ?? null,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   }
@@ -46,14 +65,28 @@ async function withImage(row: PageRow | undefined): Promise<Page | null> {
   return toPage(row, image)
 }
 
-export async function listPages(): Promise<Array<Omit<Page, 'puckDraft' | 'puckPublished'> & { hasUnpublishedChanges: boolean }>> {
+export type PageListItem = Omit<Page, 'puckDraft' | 'puckPublished'> & {
+  state: PageState
+  hasUnpublishedChanges: boolean
+  /** The newest snapshot's number, or 0 when the page has none yet. */
+  latestVersion: number
+}
+
+export async function listPages(): Promise<PageListItem[]> {
   const { db, t } = await getDatabase()
   const rows = await db.select().from(t.pages).orderBy(desc(t.pages.updatedAt))
+  const latest = await db
+    .select({ pageId: t.pageVersions.pageId, n: sql<number>`max(${t.pageVersions.number})` })
+    .from(t.pageVersions)
+    .groupBy(t.pageVersions.pageId)
+  const latestOf = new Map(latest.map((r) => [r.pageId, Number(r.n)]))
   return rows.map((row) => {
     const { puckDraft, puckPublished, ...page } = toPage(row, null)
     return {
       ...page,
-      hasUnpublishedChanges: JSON.stringify(puckDraft ?? null) !== JSON.stringify(puckPublished ?? null) && puckDraft != null,
+      state: page.archivedAt ? 'archived' : page.status,
+      hasUnpublishedChanges: puckDraft != null && !isEqual(puckDraft, puckPublished ?? null),
+      latestVersion: latestOf.get(row.id) ?? 0,
     }
   })
 }
@@ -64,11 +97,11 @@ export async function getPageById(id: number): Promise<Page | null> {
   return withImage(row)
 }
 
-/** The published version of a page, or null. Visitors only ever see this. */
+/** The published version of a page, or null. Visitors only ever see this, and never an archived page. */
 export async function getPublishedPage(slug: string): Promise<(Page & { puckData: unknown }) | null> {
   const { db, t } = await getDatabase()
   const [row] = await db.select().from(t.pages).where(eq(t.pages.slug, slug)).limit(1)
-  if (!row || row.status !== 'published' || row.puckPublished == null) return null
+  if (!row || row.status !== 'published' || row.puckPublished == null || row.archivedAt) return null
   const page = await withImage(row)
   return page && { ...page, puckData: page.puckPublished }
 }
@@ -106,14 +139,22 @@ export async function savePageDetails(id: number | null, raw: unknown): Promise<
       safeRevalidate([toPath(row.slug)])
       return row
     }
-    const [before] = await db.select({ slug: t.pages.slug }).from(t.pages).where(eq(t.pages.id, id)).limit(1)
+    const [before] = await db
+      .select({ slug: t.pages.slug, archivedAt: t.pages.archivedAt })
+      .from(t.pages)
+      .where(eq(t.pages.id, id))
+      .limit(1)
     if (!before) throw new UserError('Page not found.')
+    if (before.archivedAt) throw new UserError(ARCHIVED)
+    if (before.slug === HOME_SLUG && defined.slug !== undefined && defined.slug !== HOME_SLUG) {
+      throw new ValidationError({ slug: 'The homepage keeps the address "home".' })
+    }
     const [row] = await db
       .update(t.pages)
       .set({ ...defined, updatedAt: new Date() })
-      .where(eq(t.pages.id, id))
+      .where(and(eq(t.pages.id, id), isNull(t.pages.archivedAt)))
       .returning({ id: t.pages.id, slug: t.pages.slug })
-    // Deleted by someone else between the lookup and the update.
+    // Deleted or archived by someone else between the lookup and the update.
     if (!row) throw new UserError('Page not found.')
     safeRevalidate([toPath(row.slug), toPath(before.slug)])
     return row
@@ -148,19 +189,123 @@ function cleanLayout(data: unknown) {
   return stripTransient(stripControlChars(data))
 }
 
-export async function saveDraft(id: number, data: unknown, baseVersion?: number): Promise<{ version: number }> {
-  const layout = cleanLayout(data)
-  const { db, t } = await getDatabase()
-  const now = nextVersion(baseVersion)
-  // With a base version the update only matches if nobody has changed the page since.
-  const where = baseVersion === undefined ? eq(t.pages.id, id) : and(eq(t.pages.id, id), atVersion(t, baseVersion))
-  const updated = await db.update(t.pages).set({ puckDraft: layout, updatedAt: now }).where(where).returning({ id: t.pages.id })
-  if (!updated.length) {
-    // Nothing matched: either the page is gone, or someone else saved first.
-    const [page] = await db.select({ id: t.pages.id }).from(t.pages).where(eq(t.pages.id, id)).limit(1)
-    throw new UserError(page ? CONFLICT : 'Page not found.')
+/** Why a guarded update matched nothing: gone, archived, or changed by someone else. */
+async function explainMiss(tx: Db, t: Schema, id: number, opts: { needsDraft?: boolean } = {}): Promise<never> {
+  const [page] = await tx
+    .select({ draft: t.pages.puckDraft, archivedAt: t.pages.archivedAt })
+    .from(t.pages)
+    .where(eq(t.pages.id, id))
+    .limit(1)
+  if (!page) throw new UserError('Page not found.')
+  if (page.archivedAt) throw new UserError(ARCHIVED)
+  if (opts.needsDraft && page.draft == null) throw new UserError('This page has no layout yet. Open the page builder first.')
+  throw new UserError(CONFLICT)
+}
+
+type VersionInput = { pageId: number; title: string; data: unknown; by?: string | null }
+
+async function latestVersion(tx: Db, t: Schema, pageId: number) {
+  const [latest] = await tx
+    .select({ number: t.pageVersions.number, kind: t.pageVersions.kind, data: t.pageVersions.data })
+    .from(t.pageVersions)
+    .where(eq(t.pageVersions.pageId, pageId))
+    .orderBy(desc(t.pageVersions.number))
+    .limit(1)
+  return latest
+}
+
+async function trimVersions(tx: Db, t: Schema, pageId: number, newest: number) {
+  await tx
+    .delete(t.pageVersions)
+    .where(and(eq(t.pageVersions.pageId, pageId), lte(t.pageVersions.number, newest - KEEP_VERSIONS)))
+}
+
+/**
+ * A draft save: updates the open (unpublished) version, or opens the next one after a publish.
+ * Nothing is opened while the layout is still what was last published. Returns the open version's
+ * number, or null when there is none. `restoredFrom` marks a "Use as draft" from that version;
+ * a plain save leaves an earlier mark alone.
+ */
+async function saveOpenVersion(tx: Db, t: Schema, input: VersionInput & { restoredFrom?: number }): Promise<number | null> {
+  const latest = await latestVersion(tx, t, input.pageId)
+  const now = new Date()
+  if (latest?.kind === 'draft') {
+    await tx
+      .update(t.pageVersions)
+      .set({
+        title: input.title,
+        data: input.data as never,
+        createdBy: input.by ?? null,
+        updatedAt: now,
+        ...(input.restoredFrom !== undefined ? { restoredFrom: input.restoredFrom } : {}),
+      })
+      .where(and(eq(t.pageVersions.pageId, input.pageId), eq(t.pageVersions.number, latest.number)))
+    return latest.number
   }
-  return { version: now.getTime() }
+  // isEqual ignores key order: PostgreSQL's jsonb hands objects back with their keys re-sorted.
+  if (latest && isEqual(latest.data, input.data)) return null
+  const number = (latest?.number ?? 0) + 1
+  await tx.insert(t.pageVersions).values({
+    pageId: input.pageId,
+    number,
+    kind: 'draft',
+    title: input.title,
+    data: input.data as never,
+    createdBy: input.by ?? null,
+    restoredFrom: input.restoredFrom ?? null,
+    createdAt: now,
+    updatedAt: now,
+  })
+  await trimVersions(tx, t, input.pageId, number)
+  return number
+}
+
+/**
+ * A publish: closes the open version with what went live. With no open version, a new published
+ * version is added, unless the layout is the same as the last one published (a re-publish).
+ */
+async function closeVersion(tx: Db, t: Schema, input: VersionInput): Promise<void> {
+  const latest = await latestVersion(tx, t, input.pageId)
+  const now = new Date()
+  if (latest?.kind === 'draft') {
+    await tx
+      .update(t.pageVersions)
+      .set({ kind: 'published', title: input.title, data: input.data as never, createdBy: input.by ?? null, updatedAt: now })
+      .where(and(eq(t.pageVersions.pageId, input.pageId), eq(t.pageVersions.number, latest.number)))
+    return
+  }
+  if (latest && isEqual(latest.data, input.data)) return
+  const number = (latest?.number ?? 0) + 1
+  await tx.insert(t.pageVersions).values({
+    pageId: input.pageId,
+    number,
+    kind: 'published',
+    title: input.title,
+    data: input.data as never,
+    createdBy: input.by ?? null,
+    createdAt: now,
+    updatedAt: now,
+  })
+  await trimVersions(tx, t, input.pageId, number)
+}
+
+export type SaveOptions = { baseVersion?: number; by?: string | null }
+
+export async function saveDraft(id: number, data: unknown, baseVersion?: number, by?: string | null): Promise<{ version: number }> {
+  const layout = cleanLayout(data)
+  const { t, withTransaction } = await getDatabase()
+  const now = nextVersion(baseVersion)
+  return withTransaction(
+    async (tx) => {
+      // With a base version the update only matches if nobody has changed the page since.
+      const where = and(eq(t.pages.id, id), isNull(t.pages.archivedAt), baseVersion === undefined ? undefined : atVersion(t, baseVersion))
+      const [row] = await tx.update(t.pages).set({ puckDraft: layout, updatedAt: now }).where(where).returning({ title: t.pages.title })
+      if (!row) return explainMiss(tx, t, id)
+      await saveOpenVersion(tx, t, { pageId: id, title: row.title, data: layout, by })
+      return { version: now.getTime() }
+    },
+    { lock: pageLock(id) },
+  )
 }
 
 /**
@@ -168,29 +313,37 @@ export async function saveDraft(id: number, data: unknown, baseVersion?: number)
  * statement). Without it, the draft already stored is copied across inside the database, so a draft
  * saved at the same moment cannot be overwritten by an older copy read earlier.
  */
-export async function publishPage(id: number, data?: unknown, baseVersion?: number): Promise<{ slug: string; version: number }> {
-  const { db, t } = await getDatabase()
+export async function publishPage(
+  id: number,
+  data?: unknown,
+  baseVersion?: number,
+  by?: string | null,
+): Promise<{ slug: string; version: number }> {
+  const { t, withTransaction } = await getDatabase()
   const layout = data !== undefined ? cleanLayout(data) : undefined
   const now = nextVersion(baseVersion)
   const set = layout !== undefined ? { puckDraft: layout, puckPublished: layout } : { puckPublished: sql`${t.pages.puckDraft}` }
-  const where = and(
-    eq(t.pages.id, id),
-    baseVersion === undefined ? undefined : atVersion(t, baseVersion),
-    layout === undefined ? isNotNull(t.pages.puckDraft) : undefined,
+  const result = await withTransaction(
+    async (tx) => {
+      const where = and(
+        eq(t.pages.id, id),
+        isNull(t.pages.archivedAt),
+        baseVersion === undefined ? undefined : atVersion(t, baseVersion),
+        layout === undefined ? isNotNull(t.pages.puckDraft) : undefined,
+      )
+      const [row] = await tx
+        .update(t.pages)
+        .set({ ...set, status: 'published' as PageStatus, publishedAt: now, updatedAt: now } as never)
+        .where(where)
+        .returning({ slug: t.pages.slug, title: t.pages.title, published: t.pages.puckPublished })
+      if (!row) return explainMiss(tx, t, id, { needsDraft: layout === undefined })
+      await closeVersion(tx, t, { pageId: id, title: row.title, data: row.published, by })
+      return { slug: row.slug, version: now.getTime() }
+    },
+    { lock: pageLock(id) },
   )
-  const [row] = await db
-    .update(t.pages)
-    .set({ ...set, status: 'published' as PageStatus, publishedAt: now, updatedAt: now } as never)
-    .where(where)
-    .returning({ slug: t.pages.slug })
-  if (!row) {
-    const [page] = await db.select({ draft: t.pages.puckDraft }).from(t.pages).where(eq(t.pages.id, id)).limit(1)
-    if (!page) throw new UserError('Page not found.')
-    if (layout === undefined && page.draft == null) throw new UserError('This page has no layout yet. Open the page builder first.')
-    throw new UserError(CONFLICT)
-  }
-  safeRevalidate([toPath(row.slug)])
-  return { slug: row.slug, version: now.getTime() }
+  safeRevalidate([toPath(result.slug)])
+  return result
 }
 
 /** Takes the page offline. The draft is kept. */
@@ -205,9 +358,205 @@ export async function unpublishPage(id: number): Promise<void> {
   safeRevalidate([toPath(row.slug)])
 }
 
-export async function deletePage(id: number): Promise<void> {
+/** Takes the page off the site and makes it read-only. Everything is kept for a restore. */
+export async function archivePage(id: number): Promise<void> {
   const { db, t } = await getDatabase()
-  const [row] = await db.delete(t.pages).where(eq(t.pages.id, id)).returning({ slug: t.pages.slug })
+  await assertNotHome(id, 'The homepage cannot be archived. Unpublish it to show the built-in homepage instead.')
+  const now = new Date()
+  const [row] = await db
+    .update(t.pages)
+    .set({ archivedAt: now, updatedAt: now })
+    .where(and(eq(t.pages.id, id), isNull(t.pages.archivedAt)))
+    .returning({ slug: t.pages.slug })
+  if (!row) {
+    const [page] = await db.select({ id: t.pages.id }).from(t.pages).where(eq(t.pages.id, id)).limit(1)
+    if (!page) throw new UserError('Page not found.')
+    return // Already archived.
+  }
+  safeRevalidate([toPath(row.slug)])
+}
+
+/** Brings an archived page back exactly as it was (a published page is live again). */
+export async function restorePage(id: number): Promise<void> {
+  const { db, t } = await getDatabase()
+  const [row] = await db
+    .update(t.pages)
+    .set({ archivedAt: null, updatedAt: new Date() })
+    .where(eq(t.pages.id, id))
+    .returning({ slug: t.pages.slug })
   if (!row) throw new UserError('Page not found.')
   safeRevalidate([toPath(row.slug)])
+}
+
+/** Deletes a page and its history for good. Only an archived page can be deleted. */
+export async function deletePage(id: number): Promise<void> {
+  const { db, t } = await getDatabase()
+  await assertNotHome(id, 'The homepage cannot be deleted.')
+  const [row] = await db
+    .delete(t.pages)
+    .where(and(eq(t.pages.id, id), isNotNull(t.pages.archivedAt)))
+    .returning({ slug: t.pages.slug })
+  if (!row) {
+    const [page] = await db.select({ id: t.pages.id }).from(t.pages).where(eq(t.pages.id, id)).limit(1)
+    throw new UserError(page ? 'Archive the page before deleting it.' : 'Page not found.')
+  }
+  safeRevalidate([toPath(row.slug)])
+}
+
+/** A page's versions, newest first, without their layouts. */
+export async function listPageVersions(pageId: number): Promise<PageVersionSummary[]> {
+  const { db, t } = await getDatabase()
+  const rows = await db
+    .select({
+      number: t.pageVersions.number,
+      kind: t.pageVersions.kind,
+      title: t.pageVersions.title,
+      createdAt: t.pageVersions.createdAt,
+      updatedAt: t.pageVersions.updatedAt,
+      restoredFrom: t.pageVersions.restoredFrom,
+      createdBy: t.users.name,
+    })
+    .from(t.pageVersions)
+    .leftJoin(t.users, eq(t.users.id, t.pageVersions.createdBy))
+    .where(eq(t.pageVersions.pageId, pageId))
+    .orderBy(desc(t.pageVersions.number))
+  return rows.map((r) => ({
+    ...r,
+    kind: r.kind === 'published' ? ('published' as const) : ('draft' as const),
+    restoredFrom: r.restoredFrom ?? null,
+    createdBy: r.createdBy ?? null,
+  }))
+}
+
+/** The layout of one snapshot, for the preview. */
+export async function getPageVersionData(pageId: number, number: number): Promise<unknown | null> {
+  const { db, t } = await getDatabase()
+  const [row] = await db
+    .select({ data: t.pageVersions.data })
+    .from(t.pageVersions)
+    .where(and(eq(t.pageVersions.pageId, pageId), eq(t.pageVersions.number, number)))
+    .limit(1)
+  return row?.data ?? null
+}
+
+/**
+ * "Use as draft": copies a version's layout into the draft (the live page is not touched; publish
+ * to make it live). The open version takes that layout and remembers where it came from. Returns
+ * the open version's number (the latest version's, when the layout is what is already published).
+ * Takes the same `baseVersion` as saveDraft.
+ */
+export async function restorePageVersion(
+  pageId: number,
+  number: number,
+  opts: SaveOptions = {},
+): Promise<{ version: number; number: number }> {
+  const { t, withTransaction } = await getDatabase()
+  const now = nextVersion(opts.baseVersion)
+  return withTransaction(
+    async (tx) => {
+      const [snapshot] = await tx
+        .select({ data: t.pageVersions.data, kind: t.pageVersions.kind })
+        .from(t.pageVersions)
+        .where(and(eq(t.pageVersions.pageId, pageId), eq(t.pageVersions.number, number)))
+        .limit(1)
+      if (!snapshot) throw new UserError('That version no longer exists.')
+      if (snapshot.kind === 'draft') {
+        const latest = await latestVersion(tx, t, pageId)
+        if (latest?.number === number) throw new UserError('That version is already the draft.')
+      }
+      const where = and(
+        eq(t.pages.id, pageId),
+        isNull(t.pages.archivedAt),
+        opts.baseVersion === undefined ? undefined : atVersion(t, opts.baseVersion),
+      )
+      const [row] = await tx
+        .update(t.pages)
+        .set({ puckDraft: snapshot.data, updatedAt: now })
+        .where(where)
+        .returning({ title: t.pages.title })
+      if (!row) return explainMiss(tx, t, pageId)
+      const open = await saveOpenVersion(tx, t, { pageId, title: row.title, data: snapshot.data, by: opts.by, restoredFrom: number })
+      const latest = open ?? (await latestVersion(tx, t, pageId))?.number ?? number
+      return { version: now.getTime(), number: latest }
+    },
+    { lock: pageLock(pageId) },
+  )
+}
+
+async function assertNotHome(id: number, message: string) {
+  const { db, t } = await getDatabase()
+  const [row] = await db.select({ slug: t.pages.slug }).from(t.pages).where(eq(t.pages.id, id)).limit(1)
+  if (row?.slug === HOME_SLUG) throw new UserError(message)
+}
+
+/** The homepage's id. ensureHomePage keeps it there. */
+export const HOME_ID = 1
+
+/**
+ * Makes sure the homepage exists as a page with id HOME_ID, so it is listed, edited, versioned and
+ * previewed like any other, and always first.
+ *
+ *  - No homepage: it is created from the built-in layout (DEFAULT_HOME_DATA), published, with that
+ *    layout as version 1, so "/" looks exactly as before.
+ *  - A homepage with another id (a site set up before this rule): it swaps ids with the page on
+ *    id 1. With no homepage yet, a page on id 1 moves to the next free id. Versions follow
+ *    (page_versions.page_id is ON UPDATE CASCADE), and the id counter is moved past the highest id.
+ *
+ * Cheap when everything is in place (one query), so it can run on every start and list. Two calls at
+ * once are serialised by a lock; the second finds the work done.
+ */
+export async function ensureHomePage(): Promise<'created' | 'moved' | 'exists'> {
+  const { db, t, dialect, withTransaction } = await getDatabase()
+  const [current] = await db.select({ id: t.pages.id }).from(t.pages).where(eq(t.pages.slug, HOME_SLUG)).limit(1)
+  if (current?.id === HOME_ID) return 'exists'
+
+  const layout = cleanLayout(DEFAULT_HOME_DATA)
+  const result = await withTransaction(
+    async (tx) => {
+      const [home] = await tx.select({ id: t.pages.id }).from(t.pages).where(eq(t.pages.slug, HOME_SLUG)).limit(1)
+      if (home?.id === HOME_ID) return 'exists' as const
+
+      const [occupant] = await tx.select({ id: t.pages.id }).from(t.pages).where(eq(t.pages.id, HOME_ID)).limit(1)
+      const [{ max }] = await tx.select({ max: sql<number>`max(${t.pages.id})` }).from(t.pages)
+      const spare = Number(max ?? 0) + 1
+
+      if (home) {
+        // Swap: the homepage takes id 1 and the page that had it takes the homepage's old id
+        // (through a spare id, since ids are unique at every step).
+        await tx.update(t.pages).set({ id: spare }).where(eq(t.pages.id, home.id))
+        if (occupant) await tx.update(t.pages).set({ id: home.id }).where(eq(t.pages.id, HOME_ID))
+        await tx.update(t.pages).set({ id: HOME_ID }).where(eq(t.pages.id, spare))
+      } else {
+        // Free id 1: whatever page holds it moves to the end.
+        if (occupant) await tx.update(t.pages).set({ id: spare }).where(eq(t.pages.id, HOME_ID))
+        const now = new Date()
+        await tx.insert(t.pages).values({
+          id: HOME_ID,
+          title: 'Home',
+          slug: HOME_SLUG,
+          status: 'published',
+          puckDraft: layout,
+          puckPublished: layout,
+          publishedAt: now,
+          createdAt: now,
+          updatedAt: now,
+        } as never)
+        await closeVersion(tx, t, { pageId: HOME_ID, title: 'Home', data: layout })
+      }
+
+      // Explicit ids do not move the id counter, so the next new page could collide: move it past
+      // the highest id. (SQLite's AUTOINCREMENT keeps its counter in sqlite_sequence.)
+      if (dialect === 'pg') {
+        await (tx as unknown as { execute: (q: unknown) => Promise<unknown> }).execute(
+          sql`select setval(pg_get_serial_sequence('pages', 'id'), (select max(id) from pages))`,
+        )
+      } else {
+        await tx.run(sql`update sqlite_sequence set seq = (select max(id) from pages) where name = 'pages' and seq < (select max(id) from pages)`)
+      }
+      return home ? ('moved' as const) : ('created' as const)
+    },
+    { lock: 'pages:home' },
+  )
+  if (result !== 'exists') safeRevalidate(['/'])
+  return result
 }

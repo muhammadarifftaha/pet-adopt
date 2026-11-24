@@ -20,4 +20,13 @@ export async function register() {
     const { logError } = await import('@/server/result')
     logError(error, 'Could not create the owner account from SEED_ADMIN_EMAIL')
   }
+
+  // The homepage is a page like any other; create it from the built-in layout if it is missing.
+  try {
+    const { ensureHomePage } = await import('@/server/pages')
+    await ensureHomePage()
+  } catch (error) {
+    const { logError } = await import('@/server/result')
+    logError(error, 'Could not create the homepage')
+  }
 }

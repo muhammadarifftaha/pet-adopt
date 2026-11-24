@@ -85,6 +85,25 @@ export type PetPage = {
 }
 
 export type PageStatus = 'draft' | 'published'
+/** What the admin shows: the stored status, or 'archived' while `archivedAt` is set. */
+export type PageState = PageStatus | 'archived'
+
+/** 'draft': the open version, collecting saves until the next publish. 'published': closed. */
+export type PageVersionKind = 'draft' | 'published'
+
+/** One saved snapshot of a page's layout (without the layout itself). */
+export type PageVersionSummary = {
+  number: number
+  kind: PageVersionKind
+  title: string
+  createdAt: Date
+  /** Last saved (an open version is saved many times; a published one, when it was published). */
+  updatedAt: Date
+  /** The version copied in with "Use as draft", if any. */
+  restoredFrom: number | null
+  /** Name of the person who saved it last, or null when that account was deleted. */
+  createdBy: string | null
+}
 
 export type Page = {
   id: number
@@ -97,6 +116,8 @@ export type Page = {
   puckPublished: unknown | null
   seo: { description: string | null; image: MediaItem | null }
   publishedAt: Date | null
+  /** Set while the page is archived (off the site, read-only). */
+  archivedAt: Date | null
   createdAt: Date
   updatedAt: Date
 }

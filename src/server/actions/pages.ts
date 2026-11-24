@@ -1,9 +1,22 @@
 'use server'
 
-import { deletePage, getPageById, listPages, publishPage, savePageDetails, saveDraft, unpublishPage } from '../pages'
+import {
+  archivePage,
+  deletePage,
+  ensureHomePage,
+  getPageById,
+  listPages,
+  listPageVersions,
+  publishPage,
+  restorePage,
+  restorePageVersion,
+  savePageDetails,
+  saveDraft,
+  unpublishPage,
+} from '../pages'
 import { assertId, run, type ActionResult } from '../result'
 import { requireUser } from '../session'
-import type { Page } from '../types'
+import type { Page, PageVersionSummary } from '../types'
 
 /** The version a save was based on: a finite number, or nothing (save regardless). */
 const version = (value: unknown) => (typeof value === 'number' && Number.isFinite(value) ? value : undefined)
@@ -11,6 +24,8 @@ const version = (value: unknown) => (typeof value === 'number' && Number.isFinit
 export async function listPagesAction(): Promise<ActionResult<Awaited<ReturnType<typeof listPages>>>> {
   return run(async () => {
     await requireUser()
+    // A site set up before the homepage was a page gets it here, without a restart.
+    await ensureHomePage()
     return listPages()
   })
 }
@@ -37,8 +52,8 @@ export async function savePageDetailsAction(id: number | null, input: unknown): 
  */
 export async function saveDraftAction(id: number, data: unknown, baseVersion?: number): Promise<ActionResult<{ version: number }>> {
   return run(async () => {
-    await requireUser()
-    return saveDraft(assertId(id), data, version(baseVersion))
+    const user = await requireUser()
+    return saveDraft(assertId(id), data, version(baseVersion), user.id)
   })
 }
 
@@ -49,8 +64,8 @@ export async function publishPageAction(
   baseVersion?: number,
 ): Promise<ActionResult<{ slug: string; version: number }>> {
   return run(async () => {
-    await requireUser()
-    return publishPage(assertId(id), data, version(baseVersion))
+    const user = await requireUser()
+    return publishPage(assertId(id), data, version(baseVersion), user.id)
   })
 }
 
@@ -61,6 +76,43 @@ export async function unpublishPageAction(id: number): Promise<ActionResult> {
   })
 }
 
+/** Takes the page off the site and makes it read-only, until it is restored or deleted. */
+export async function archivePageAction(id: number): Promise<ActionResult> {
+  return run(async () => {
+    await requireUser()
+    await archivePage(assertId(id))
+  })
+}
+
+/** Brings an archived page back exactly as it was. */
+export async function restorePageAction(id: number): Promise<ActionResult> {
+  return run(async () => {
+    await requireUser()
+    await restorePage(assertId(id))
+  })
+}
+
+/** The page's saved versions, newest first. */
+export async function listPageVersionsAction(id: number): Promise<ActionResult<PageVersionSummary[]>> {
+  return run(async () => {
+    await requireUser()
+    return listPageVersions(assertId(id))
+  })
+}
+
+/** Copies version `number` back into the draft. The live page changes only when it is published. */
+export async function restorePageVersionAction(
+  id: number,
+  number: number,
+  baseVersion?: number,
+): Promise<ActionResult<{ version: number; number: number }>> {
+  return run(async () => {
+    const user = await requireUser()
+    return restorePageVersion(assertId(id), assertId(number), { baseVersion: version(baseVersion), by: user.id })
+  })
+}
+
+/** Deletes the page and its history for good. Only an archived page can be deleted. */
 export async function deletePageAction(id: number): Promise<ActionResult> {
   return run(async () => {
     await requireUser()
