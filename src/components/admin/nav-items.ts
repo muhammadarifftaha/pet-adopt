@@ -20,6 +20,7 @@ export const ADMIN_NAV: AdminNavItem[] = [
   { href: '/admin/pets', label: 'Pets' },
   { href: '/admin/pages', label: 'Pages' },
   { href: '/admin/media', label: 'Media' },
+  { href: '/admin/theme', label: 'Theme', adminOnly: true },
   { href: '/admin/settings', label: 'Settings', adminOnly: true },
   { href: '/admin/users', label: 'Users', adminOnly: true },
   // Account is in the user menu in the header (UserMenu), not here.

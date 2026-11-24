@@ -42,6 +42,7 @@ export const DEFAULT_SETTINGS: SiteSetting = {
   allowModeToggle: true,
   customize: false,
   customTheme: null,
+  activeThemeId: null,
   whatsappNumber: null,
   whatsappMessage: "Hi! I'm interested in adopting {pet}.",
   address: null,
@@ -63,6 +64,7 @@ function toSettings(row: SettingsRow, logo: SiteSetting['logo']): SiteSetting {
     allowModeToggle: row.allowModeToggle,
     customize: row.customize,
     customTheme: (row.customTheme as SiteSetting['customTheme']) ?? null,
+    activeThemeId: row.activeThemeId ?? null,
     whatsappNumber: row.whatsappNumber,
     whatsappMessage: row.whatsappMessage,
     address: row.address,
@@ -74,16 +76,34 @@ function toSettings(row: SettingsRow, logo: SiteSetting['logo']): SiteSetting {
   }
 }
 
+/**
+ * The site settings. When the owner uses one of their saved themes, it is laid over the theme
+ * fields here (its base preset, its customisations, no separate brand colour), so everything that
+ * reads the theme (public pages, admin, page builder) needs nothing else.
+ */
 export async function getSettings(): Promise<SiteSetting> {
   const { db, t } = await getDatabase()
   const [row] = await db.select().from(t.siteSettings).where(eq(t.siteSettings.id, SETTINGS_ID)).limit(1)
   if (!row) return DEFAULT_SETTINGS
   const logo = row.logoId ? ((await getMediaByIds([row.logoId])).get(row.logoId) ?? null) : null
-  return toSettings(row, logo)
+  const settings = toSettings(row, logo)
+  if (row.activeThemeId) {
+    const [theme] = await db.select().from(t.themes).where(eq(t.themes.id, row.activeThemeId)).limit(1)
+    if (theme) {
+      return {
+        ...settings,
+        theme: theme.base,
+        customize: true,
+        customTheme: (theme.settings as SiteSetting['customTheme']) ?? {},
+        primaryColor: null,
+      }
+    }
+  }
+  return settings
 }
 
 const COLOR_KEYS = ['primary', 'background', 'surface', 'text', 'tint'] as const
-const MODES: Mode[] = ['light', 'dark']
+export const MODES: Mode[] = ['light', 'dark']
 
 const isPlainObject = (value: unknown): value is Record<string, unknown> =>
   Boolean(value) && typeof value === 'object' && !Array.isArray(value)
@@ -106,7 +126,7 @@ function parseColors(raw: unknown, path: string, errors: FieldErrors): Record<st
 }
 
 /** Only the keys that were sent come back, so they can be merged into what is stored. */
-function parseCustomTheme(raw: unknown, errors: FieldErrors): Record<string, unknown> {
+export function parseCustomTheme(raw: unknown, errors: FieldErrors): Record<string, unknown> {
   if (!isPlainObject(raw)) {
     errors.customTheme = 'Must be an object.'
     return {}

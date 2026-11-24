@@ -12,6 +12,8 @@ import { APIError } from 'better-auth/api'
 import { eq, sql } from 'drizzle-orm'
 import zlib from 'node:zlib'
 
+import { isEqual } from 'es-toolkit'
+
 import sharp from 'sharp'
 
 import { closeDatabase, getDatabase } from '../src/db/client'
@@ -52,6 +54,7 @@ import {
   guardSignIn,
 } from '../src/server/throttle'
 import { removeUpload, saveUpload } from '../src/server/uploads'
+import { activateTheme, createTheme, deleteTheme, getTheme, listThemes, updateTheme } from '../src/server/themes'
 import { createResetLink, isResetTokenValid, prepareResetEmail, resetPasswordWithToken } from '../src/server/password-reset'
 import type { EmailMessage } from '../src/plugins/define'
 import { resendEmail } from '../src/plugins/resend'
@@ -675,6 +678,46 @@ await check('pages: the homepage always exists, starts from the built-in layout,
   ok((await getPublishedPage('home')) === null, 'can be unpublished (the built-in homepage shows instead)')
   ok((await ensureHomePage()) === 'exists', 'an unpublished homepage is not replaced')
   await publishPage(home.id)
+})
+
+await check('themes: created from a preset or duplicated, unique names, readable text enforced, active theme drives the settings', async () => {
+  const before = await getSettings()
+  const { id } = await createTheme({ name: 'Forest', preset: 'meadow' })
+  ok((await getTheme(id))!.base === 'meadow', 'starts from the chosen preset')
+  ok((await fieldErrors(createTheme({ name: 'forest', preset: 'ocean' }))).name, 'names are unique, ignoring case')
+  ok((await fieldErrors(createTheme({ name: 'X', preset: 'nope' }))).preset, 'only real presets')
+
+  // Unreadable text is refused, with the error on the colour set that causes it.
+  const unreadable = await fieldErrors(updateTheme(id, { customTheme: { light: { text: '#f5f5f5', background: '#ffffff' } } }))
+  ok(unreadable['customTheme.light.text'], `light text must be readable: ${JSON.stringify(unreadable)}`)
+  ok((await fieldErrors(updateTheme(id, { customTheme: { radius: 'huge' } })))['customTheme.radius'], 'only known shapes')
+
+  const saved = await updateTheme(id, { name: 'Forest floor', base: 'meadow', customTheme: { headingFont: 'lora', light: { primary: '#2f6b3a', tint: null }, dark: {} } })
+  ok(saved.name === 'Forest floor' && saved.settings.headingFont === 'lora', 'name and fonts saved')
+  // isEqual ignores key order: PostgreSQL's jsonb returns keys in its own order.
+  ok(isEqual(saved.settings, { headingFont: 'lora', light: { primary: '#2f6b3a' } }), `cleared values are dropped: ${JSON.stringify(saved.settings)}`)
+
+  const copy = await createTheme({ name: 'Forest floor copy', fromThemeId: id })
+  ok(isEqual((await getTheme(copy.id))!.settings, saved.settings), 'a duplicate copies the customisations')
+
+  // Using a theme lays it over the settings everything reads.
+  await activateTheme({ themeId: id })
+  let settings = await getSettings()
+  ok(settings.activeThemeId === id && settings.theme === 'meadow' && settings.customize && settings.customTheme?.headingFont === 'lora', 'the active theme drives the settings')
+  ok(settings.primaryColor === null, 'an old brand colour does not override the theme')
+  ok((await listThemes()).activeThemeId === id, 'listed as in use')
+  ok(/in use/.test(await userError(deleteTheme(id))), 'the theme in use cannot be deleted')
+
+  // Back to a built-in preset as designed.
+  await activateTheme({ preset: 'ocean' })
+  settings = await getSettings()
+  ok(settings.activeThemeId === null && settings.theme === 'ocean' && !settings.customize, 'a preset is used as it is')
+
+  await deleteTheme(id)
+  await deleteTheme(copy.id)
+  ok((await getTheme(id)) === null, 'deleted')
+  ok(/no longer exists/.test(await userError(activateTheme({ themeId: id }))), 'a deleted theme cannot be used')
+  await activateTheme({ preset: before.theme })
 })
 
 // --- settings -----------------------------------------------------------------------------

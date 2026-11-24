@@ -254,6 +254,18 @@ export const pageVersions = sqliteTable(
   (t) => [uniqueIndex('page_versions_page_number_idx').on(t.pageId, t.number)],
 )
 
+// Owners' own themes: a built-in preset (`base`) with their customisations laid over it. `settings`
+// has the shape of ThemeSettings['customTheme'] (fonts, text size, corners, buttons, shadows,
+// spacing, and light / dark colours). Which one is in use is site_settings.active_theme_id.
+export const themes = sqliteTable('themes', {
+  id: id(),
+  name: text('name').notNull(),
+  base: text('base').notNull().default('sunrise'),
+  settings: text('settings', { mode: 'json' }).notNull(),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+})
+
 // One row (id = 1) holds the whole site configuration.
 export const siteSettings = sqliteTable('site_settings', {
   id: integer('id').primaryKey(),
@@ -265,6 +277,8 @@ export const siteSettings = sqliteTable('site_settings', {
   allowModeToggle: integer('allow_mode_toggle', { mode: 'boolean' }).notNull().default(true),
   customize: flag('customize'),
   customTheme: text('custom_theme', { mode: 'json' }),
+  // The owner's saved theme in use (themes.id), or null for the preset in `theme`.
+  activeThemeId: integer('active_theme_id').references(() => themes.id, { onDelete: 'set null' }),
   whatsappNumber: text('whatsapp_number'),
   whatsappMessage: text('whatsapp_message').default("Hi! I'm interested in adopting {pet}."),
   address: text('address'),

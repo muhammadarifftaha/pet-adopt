@@ -132,6 +132,11 @@ export type SiteSetting = {
   allowModeToggle: boolean
   customize: boolean
   customTheme: ThemeSettings['customTheme']
+  /**
+   * The owner's saved theme in use, or null for the built-in preset in `theme`. When set,
+   * getSettings has already laid it over `theme`, `customize`, `customTheme` and `primaryColor`.
+   */
+  activeThemeId: number | null
   whatsappNumber: string | null
   whatsappMessage: string | null
   address: string | null
@@ -140,6 +145,16 @@ export type SiteSetting = {
   nav: Array<{ label: string; href: string }>
   footerText: string | null
   updatedAt: Date | null
+}
+
+/** An owner's saved theme: a preset (`base`) plus their customisations. */
+export type ThemeRecord = {
+  id: number
+  name: string
+  base: string
+  settings: NonNullable<ThemeSettings['customTheme']>
+  createdAt: Date
+  updatedAt: Date
 }
 
 export type Role = 'admin' | 'editor'

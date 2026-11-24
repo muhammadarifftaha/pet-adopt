@@ -138,7 +138,7 @@ Settings `/admin/pages/new` and `/admin/pages/[id]` (`getPageAction`, `savePageD
 ### 7. Site settings `/admin/settings` (admin only)
 `getSettingsAction`, `updateSettingsAction(input)`. Tabs:
 - [ ] **Brand:** `siteName` (required), `tagline`, `logoId`, `primaryColor` (optional hex override).
-- [ ] **Theme:** `theme` preset picker (`PRESET_OPTIONS`, `PRESET_HELP` in `src/lib/theme.ts`; swatch
+- [x] **Theme:** moved to its own screen, `/admin/theme` (theme library and editor, done). The old (`PRESET_OPTIONS`, `PRESET_HELP` in `src/lib/theme.ts`; swatch
       cards or a live preview would help), `allowModeToggle`, `customize` switch, and when on,
       `customTheme`: `headingFont`, `bodyFont`, `radius`, `button`, `shadow`, `density`, `textSize`,
       and `light` / `dark` colour sets (`primary`, `background`, `surface`, `text`, `tint`). Colours
