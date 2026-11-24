@@ -21,8 +21,14 @@ import { richTextToPlain } from '../src/lib/rich-text'
 import { getAuth } from '../src/server/auth'
 import { listMedia } from '../src/server/media'
 import {
+  archivePage,
   deletePage,
+  ensureHomePage,
   getPageById,
+  getPageVersionData,
+  listPageVersions,
+  restorePage,
+  restorePageVersion,
   getPublishedPage,
   listPages,
   publishPage,
@@ -46,6 +52,9 @@ import {
   guardSignIn,
 } from '../src/server/throttle'
 import { removeUpload, saveUpload } from '../src/server/uploads'
+import { createResetLink, isResetTokenValid, prepareResetEmail, resetPasswordWithToken } from '../src/server/password-reset'
+import type { EmailMessage } from '../src/plugins/define'
+import { resendEmail } from '../src/plugins/resend'
 import { createUser, deleteUser, ensureOwner, listUsers, resetPassword, updateUser } from '../src/server/users'
 
 let failures = 0
@@ -538,6 +547,136 @@ await check('pages: reserved slug refused; draft stays private until published',
   ok((await fieldErrors(savePageDetails(null, { title: 'Dup', slug: 'about' }))).slug, 'duplicate page slug')
 })
 
+await check('pages: archive first, then restore or delete; archived pages are off the site and read-only', async () => {
+  const page = await savePageDetails(null, { title: 'Old news', slug: 'old-news' })
+  const layout = { root: { props: {} }, zones: {}, content: [{ type: 'TextSection', props: { id: 'a', heading: 'News' } }] }
+  await publishPage(page.id, layout)
+  ok(/Archive the page before deleting/.test(await userError(deletePage(page.id))), 'a page in use cannot be deleted')
+
+  await archivePage(page.id)
+  await archivePage(page.id) // twice is fine
+  ok((await getPublishedPage('old-news')) === null, 'an archived page is off the site')
+  ok((await listPages()).find((p) => p.id === page.id)!.state === 'archived', 'listed as archived')
+  ok(/archived/.test(await userError(saveDraft(page.id, layout))), 'no draft saves while archived')
+  ok(/archived/.test(await userError(publishPage(page.id))), 'no publishing while archived')
+  ok(/archived/.test(await userError(savePageDetails(page.id, { title: 'New' }))), 'no detail edits while archived')
+  ok(/archived/.test(await userError(restorePageVersion(page.id, 1))), 'no version restores while archived')
+  ok((await fieldErrors(savePageDetails(null, { title: 'Taken', slug: 'old-news' }))).slug, 'an archived page keeps its address')
+
+  await restorePage(page.id)
+  ok((await getPublishedPage('old-news')) !== null, 'restoring brings a published page back as it was')
+  await archivePage(page.id)
+  await deletePage(page.id)
+  ok((await getPageById(page.id)) === null, 'deleted once archived')
+  ok(/not found/i.test(await userError(deletePage(page.id))), 'a missing page')
+})
+
+await check('pages: one version per publish cycle; drafts update the open version; Use as draft fills it; the latest 50 kept', async () => {
+  const [admin] = await listUsers()
+  const page = await savePageDetails(null, { title: 'History', slug: 'history' })
+  const layout = (heading: string) => ({ root: { props: {} }, zones: {}, content: [{ type: 'TextSection', props: { id: 'a', heading } }] })
+  const heading = (data: unknown) => (data as { content: Array<{ props: { heading: string } }> }).content[0].props.heading
+  const shape = async () => (await listPageVersions(page.id)).map((v) => `${v.number}:${v.kind}`).join(',')
+
+  // Version 1 collects every draft save until it is published.
+  await saveDraft(page.id, layout('one'), undefined, admin.id)
+  await saveDraft(page.id, layout('one-b'), undefined, admin.id)
+  ok((await shape()) === '1:draft', `drafts update version 1 in place: ${await shape()}`)
+  ok(heading(await getPageVersionData(page.id, 1)) === 'one-b', 'version 1 holds the latest draft')
+  await publishPage(page.id, undefined, undefined, admin.id)
+  ok((await shape()) === '1:published', `publishing closes version 1: ${await shape()}`)
+  ok((await listPageVersions(page.id))[0].createdBy === admin.name, 'records who saved it')
+
+  // Nothing opens while the draft is still what was published; the first real change opens version 2.
+  await saveDraft(page.id, layout('one-b'))
+  ok((await shape()) === '1:published', 'saving the published layout again opens nothing')
+  await saveDraft(page.id, layout('two'))
+  await saveDraft(page.id, layout('two-b'))
+  ok((await shape()) === '2:draft,1:published', `changes after a publish are version 2: ${await shape()}`)
+  await publishPage(page.id)
+  await publishPage(page.id)
+  ok((await shape()) === '2:published,1:published', `a re-publish adds nothing: ${await shape()}`)
+  ok(heading(await getPageVersionData(page.id, 2)) === 'two-b', 'version 2 is what went live')
+
+  // Use as draft: fills the open version (opening one if needed) and remembers the source.
+  const opened = (await getPageById(page.id))!.updatedAt.getTime()
+  const restored = await restorePageVersion(page.id, 1, { baseVersion: opened, by: admin.id })
+  ok(restored.number === 3, `version 1 goes into the open version 3: ${restored.number}`)
+  let versions = await listPageVersions(page.id)
+  ok(versions[0].kind === 'draft' && versions[0].restoredFrom === 1, 'version 3 is open and came from version 1')
+  ok(heading((await getPageById(page.id))!.puckDraft) === 'one-b', 'the draft is version 1 again')
+  ok(heading((await getPublishedPage('history'))!.puckData) === 'two-b', 'the live page is unchanged until published')
+  // A save without a base version stamps Date.now(), which can share a millisecond with `opened`
+  // and make the stale check below pass by accident. (The builder and the table always send one.)
+  await new Promise((resolve) => setTimeout(resolve, 2))
+  await saveDraft(page.id, layout('three'))
+  versions = await listPageVersions(page.id)
+  ok(versions[0].number === 3 && versions[0].restoredFrom === 1, 'later saves stay in version 3 and keep the mark')
+  ok(/already the draft/.test(await userError(restorePageVersion(page.id, 3))), 'the open version cannot be restored onto itself')
+  ok(/changed somewhere else/.test(await userError(restorePageVersion(page.id, 2, { baseVersion: opened }))), 'a stale restore is refused')
+  ok(/no longer exists/.test(await userError(restorePageVersion(page.id, 99))), 'a missing version')
+  await publishPage(page.id)
+
+  // Only the latest 50 versions are kept.
+  for (let i = 0; i < 55; i++) {
+    await saveDraft(page.id, layout(`v${i}`))
+    await publishPage(page.id)
+  }
+  versions = await listPageVersions(page.id)
+  ok(versions.length === 50 && versions[0].number === 58 && versions.at(-1)!.number === 9, `trimmed to 50: ${versions.length}, ${versions[0].number}..${versions.at(-1)!.number}`)
+
+  // Deleting the page removes its history.
+  await archivePage(page.id)
+  await deletePage(page.id)
+  const [{ n }] = await db.select({ n: sql<number>`count(*)` }).from(t.pageVersions).where(eq(t.pageVersions.pageId, page.id))
+  ok(Number(n) === 0, 'versions go with the page')
+})
+
+await check('pages: the homepage always exists, starts from the built-in layout, keeps its address, cannot be archived or deleted', async () => {
+  // Earlier checks created pages, so id 1 may already be taken by another page.
+  const before = await listPages()
+  const occupant = before.find((p) => p.id === 1)
+  const occupantVersions = occupant ? (await listPageVersions(occupant.id)).length : 0
+  ok((await ensureHomePage()) === 'created', 'created when missing')
+  ok((await listPages()).find((p) => p.slug === 'home')!.id === 1, 'the homepage is id 1')
+  if (occupant) {
+    const moved = (await listPages()).find((p) => p.slug === occupant.slug)!
+    ok(moved.id !== 1, 'the page that had id 1 moved')
+    ok((await listPageVersions(moved.id)).length === occupantVersions, 'and its versions moved with it')
+  }
+  const fresh = await savePageDetails(null, { title: 'After home', slug: 'after-home' })
+  ok(fresh.id > 1, `a new page gets a new id, no collision: ${fresh.id}`)
+  // A homepage found under another id is moved back to 1, with its history.
+  // A homepage found under another id swaps ids with the page on id 1, histories included.
+  await db.update(t.pages).set({ id: 9999 }).where(eq(t.pages.slug, 'home'))
+  await db.update(t.pages).set({ id: 1 }).where(eq(t.pages.id, fresh.id))
+  ok((await ensureHomePage()) === 'moved', 'moved back')
+  ok((await getPageById(1))!.slug === 'home' && (await listPageVersions(1)).length === 1, 'id 1 again, version 1 kept')
+  ok((await getPageById(9999))!.slug === 'after-home', 'the other page took the homepage\'s old id (a swap)')
+  fresh.id = 9999
+  await archivePage(fresh.id)
+  await deletePage(fresh.id)
+  ok((await ensureHomePage()) === 'exists', 'not twice')
+  const results = await Promise.all([ensureHomePage(), ensureHomePage()])
+  ok(results.every((r) => r === 'exists'), 'parallel calls do not duplicate it')
+  const home = (await listPages()).find((p) => p.slug === 'home')!
+  ok(home.title === 'Home' && home.state === 'published' && !home.hasUnpublishedChanges, 'published, as the built-in layout')
+  ok(home.latestVersion === 1, 'the built-in layout is version 1')
+  const { DEFAULT_HOME_DATA } = await import('../src/puck/data')
+  ok(JSON.stringify((await getPublishedPage('home'))!.puckData).length > 0 && (await listPageVersions(home.id))[0].kind === 'published', 'live and versioned')
+  ok(Array.isArray(DEFAULT_HOME_DATA.content), 'built-in layout loaded')
+
+  ok((await fieldErrors(savePageDetails(home.id, { slug: 'start' }))).slug, 'its address cannot change')
+  await savePageDetails(home.id, { title: 'Welcome', slug: 'home' })
+  ok((await getPageById(home.id))!.title === 'Welcome', 'its title can change')
+  ok(/cannot be archived/.test(await userError(archivePage(home.id))), 'cannot be archived')
+  ok(/cannot be deleted/.test(await userError(deletePage(home.id))), 'cannot be deleted')
+  await unpublishPage(home.id)
+  ok((await getPublishedPage('home')) === null, 'can be unpublished (the built-in homepage shows instead)')
+  ok((await ensureHomePage()) === 'exists', 'an unpublished homepage is not replaced')
+  await publishPage(home.id)
+})
+
 // --- settings -----------------------------------------------------------------------------
 await check('settings: invalid values give nested field errors; valid update is saved', async () => {
   const errs = await fieldErrors(
@@ -889,6 +1028,7 @@ await check('an image placed inside a page layout counts as in use', async () =>
   const layout = { root: { props: {} }, zones: {}, content: [{ type: 'Hero', props: { id: 'h', image: { id: m.id, url: m.url, alt: 'In a hero block' } } }] }
   await publishPage(page.id, layout)
   ok(/page layout/.test(await userError(removeUpload(m.id))), 'refused while a layout uses it')
+  await archivePage(page.id)
   await deletePage(page.id)
   await removeUpload(m.id)
 })
@@ -920,8 +1060,93 @@ await check('pages: stale saves are refused, publish copies the stored draft, ba
   await saveDraft(page.id, layout('a\u0000b'))
   const draft = (await getPageById(page.id))!.puckDraft as { content: Array<{ props: { heading: string } }> }
   ok(draft.content[0].props.heading === 'ab', 'a NUL is removed before it can break the save')
+  await archivePage(page.id)
+  await archivePage(empty.id)
   await deletePage(page.id)
   await deletePage(empty.id)
+})
+
+// --- password reset links ------------------------------------------------------------------
+await check('reset links: one use, hashed at rest, expire, cancel older ones, end sessions, lift lockouts', async () => {
+  const email = 'reset@example.test'
+  const { id } = await createUser({ email, name: 'Reset', password: 'old-password-123456', role: 'editor' })
+  const auth = await getAuth()
+  const signIn = (password: string) => auth.api.signInEmail({ body: { email, password }, headers: ip(70) })
+  await signIn('old-password-123456')
+
+  const first = await createResetLink(id)
+  const tokenOf = (url: string) => new URL(url).searchParams.get('token')!
+  const token = tokenOf(first.url)
+  ok(/^[A-Za-z0-9_-]{43}$/.test(token), 'the token is 32 random bytes in base64url')
+  const stored = await db.select().from(t.verifications).where(eq(t.verifications.value, id))
+  ok(stored.length === 1 && !stored[0].identifier.includes(token), 'only a hash of the token is stored')
+  ok(await isResetTokenValid(token), 'a fresh link is valid')
+  ok(!(await isResetTokenValid('x'.repeat(43))) && !(await isResetTokenValid(['a'])), 'made-up tokens are not')
+
+  // A newer link cancels the older one.
+  const second = await createResetLink(id)
+  ok(!(await isResetTokenValid(token)), 'the older link stops working')
+  const token2 = tokenOf(second.url)
+
+  // A password that breaks the rules is a field error, and does not use up the link.
+  ok((await fieldErrors(resetPasswordWithToken({ token: token2, password: 'short' }))).password, 'short password is a field error')
+  ok(await isResetTokenValid(token2), 'the link survives a refused password')
+
+  // Locked out by wrong guesses, then the reset lets them back in.
+  for (let i = 0; i < 5; i++) await guardSignIn(email, ip(70)).catch(() => undefined)
+  ok(/Too many attempts/.test(await userError(guardSignIn(email, ip(70)))), 'locked out before the reset')
+
+  // Two requests with the same link at once: exactly one gets it.
+  const results = await Promise.allSettled([
+    resetPasswordWithToken({ token: token2, password: 'new-password-123456' }),
+    resetPasswordWithToken({ token: token2, password: 'other-password-123456' }),
+  ])
+  ok(results.filter((r) => r.status === 'fulfilled').length === 1, `one of two parallel uses succeeds: ${results.map((r) => r.status)}`)
+  ok(/expired or was already used/.test(await userError(resetPasswordWithToken({ token: token2, password: 'again-password-123456' }))), 'a used link is refused')
+
+  const [{ n: sessions }] = await db.select({ n: sql<number>`count(*)` }).from(t.sessions).where(eq(t.sessions.userId, id))
+  ok(Number(sessions) === 0, 'every session of that person ended')
+  await guardSignIn(email, ip(70))
+  const winner = results.findIndex((r) => r.status === 'fulfilled') === 0 ? 'new-password-123456' : 'other-password-123456'
+  await signIn(winner)
+  let oldWorks = true
+  await signIn('old-password-123456').catch(() => (oldWorks = false))
+  ok(!oldWorks, 'the old password no longer works')
+
+  // Expired links are refused.
+  const third = await createResetLink(id)
+  await db.update(t.verifications).set({ expiresAt: new Date(Date.now() - 1000) }).where(eq(t.verifications.value, id))
+  ok(!(await isResetTokenValid(tokenOf(third.url))), 'an expired link is not valid')
+  ok(/expired/.test(await userError(resetPasswordWithToken({ token: tokenOf(third.url), password: 'late-password-123456' }))), 'and cannot be used')
+
+  ok(/not found/.test(await userError(createResetLink('no-such-user'))), 'no link for a missing account')
+  await deleteUser(id)
+})
+
+await check('reset emails: same answer for unknown addresses, sent only to real accounts, limited per email', async () => {
+  const sent: EmailMessage[] = []
+  const sender = { send: async (m: EmailMessage) => void sent.push(m) }
+  const email = 'mailme@example.test'
+  const { id } = await createUser({ email, name: 'Mail <Me>', password: 'mail-password-123456', role: 'editor' })
+
+  await (await prepareResetEmail('MailMe@Example.test', ip(71), sender))()
+  ok(sent.length === 1 && sent[0].to === email, 'one email, to the lower-cased address')
+  const url = sent[0].text.match(/https?:\/\/\S+/)?.[0] ?? ''
+  ok(url.startsWith(`${process.env.NEXT_PUBLIC_SERVER_URL || 'http://localhost:3000'}/admin/reset-password?token=`), `the link uses the configured site URL: ${url}`)
+  ok(await isResetTokenValid(new URL(url).searchParams.get('token')), 'the emailed link works')
+  ok(sent[0].html?.includes('Mail &lt;Me&gt;') && !sent[0].html.includes('<Me>'), 'names are escaped in the HTML')
+
+  await (await prepareResetEmail('nobody-here@example.test', ip(71), sender))()
+  ok(sent.length === 1, 'nothing is sent for an address without an account')
+  ok((await fieldErrors(prepareResetEmail('not-an-email', ip(71), sender))).email, 'a malformed address is a field error')
+
+  // A failing sender is logged, never thrown at the person.
+  await (await prepareResetEmail(email, ip(72), { send: async () => { throw new Error('down') } }))()
+  await (await prepareResetEmail(email, ip(73), sender))()
+  ok(/Too many attempts/.test(await userError(prepareResetEmail(email, ip(74), sender))), 'the fourth request for one email within the hour is refused')
+
+  ok(/RESEND_API_KEY/.test(await resendEmail({ apiKey: '', from: 'a@b.test' }).email!.send(sent[0]).then(() => '', (e: Error) => e.message)), 'Resend without a key fails clearly, without a request')
+  await deleteUser(id)
 })
 
 // FK enforcement is on (SQLite needs a pragma)
