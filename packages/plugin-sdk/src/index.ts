@@ -235,3 +235,81 @@ export function definePlugin<Options = void>(
 ): (options: Options) => Plugin {
   return (options) => (typeof factory === 'function' ? factory(options) : factory)
 }
+
+// --- Errors and action results -------------------------------------------------------------
+// The same classes the app throws and understands: an action wrapped in `host().run()` turns a
+// ValidationError into field errors and a UserError into its message; anything else is logged and
+// shown as a generic failure.
+
+export type FieldErrors = Record<string, string>
+
+export type ActionResult<T = void> = { ok: true; data: T } | { ok: false; error: string; fieldErrors?: FieldErrors }
+
+/** One or more fields are invalid. Safe to show to the user. */
+export class ValidationError extends Error {
+  constructor(
+    public fieldErrors: FieldErrors,
+    message = 'Please fix the highlighted fields.',
+  ) {
+    super(message)
+    this.name = 'ValidationError'
+  }
+}
+
+/** A rule was broken (not found, still in use, not allowed). The message is safe to show. */
+export class UserError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'UserError'
+  }
+}
+
+// --- Host services -------------------------------------------------------------------------
+
+export type RateRule = { max: number; windowMs: number }
+
+/**
+ * What the app does for plugins, so a plugin never imports the app. Server-only; get it with
+ * `host()` inside a server action or server component (not at module load).
+ */
+export type PluginHost = {
+  /** The signed-in person; throws a UserError when nobody is. */
+  requireUser(): Promise<PluginUser>
+  /** The signed-in admin; throws a UserError otherwise. */
+  requireAdmin(): Promise<PluginUser>
+  /** Runs `fn` and turns what it throws into an ActionResult (wrap every server action in it). */
+  run<T>(fn: () => Promise<T>): Promise<ActionResult<T>>
+  /** The visitor's address as the site's proxy reports it, or null when it cannot tell. */
+  clientAddress(): Promise<string | null>
+  /**
+   * Counts one attempt on `key` and throws a UserError ("Too many attempts...") once `rule.max` is
+   * passed within `rule.windowMs`. Keys are stored as `plugin:<key>`; start yours with the plugin name.
+   */
+  consumeAttempt(key: string, rule: RateRule): Promise<void>
+  phone: {
+    /** True, or why the number cannot be used. Numbers without "+code" use the site's country. */
+    validate(raw: string): true | string
+    /** The number as E.164 ("+60123456789"), or null when it is not valid. */
+    toE164(raw: string): string | null
+  }
+  /** The site's email sender, or null while no email plugin is set up. */
+  emailSender(): EmailSender | null
+  /** Logs an error without the values a failed database query carries. Never log error objects yourself. */
+  logError(error: unknown, context?: string): void
+}
+
+const HOST = Symbol.for('pet-adopt.plugin-host')
+const hostSlot = globalThis as unknown as Record<symbol, PluginHost | undefined>
+
+/** The app's services for plugins. Throws outside the app (a plugin's own tests should stub it). */
+export function host(): PluginHost {
+  const current = hostSlot[HOST]
+  if (!current) throw new Error('Plugin host services are only available inside the Pet Adopt app.')
+  return current
+}
+
+/** For the app only. Plugins never call this. */
+export function provideHost(services: PluginHost): void {
+  hostSlot[HOST] = services
+}
+

@@ -32,6 +32,7 @@ export async function register() {
 
   // A plugin added since the last `pnpm migrate` (PostgreSQL) has no tables yet: say so now, not on
   // the first request that needs them. Its admin screens show the same notice.
+  await import('@/plugins/host') // the services plugins reach through `host()`
   const { warnAboutPluginStorage } = await import('@/plugins/storage')
   await warnAboutPluginStorage()
 }

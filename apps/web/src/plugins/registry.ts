@@ -6,7 +6,8 @@ import config from '../../pet-adopt.config'
 import type { EmailSender, Plugin, PluginMigration, PluginScreen, PluginStorage, PluginWidget } from '@pet-adopt/plugin-sdk'
 import { IconError, toNavIcon } from './icon'
 import { storageProblems } from './storage-rules'
-// Registers the provider behind plugins' `storage.open()` (see storage.ts).
+// Register what plugins reach through the SDK: `storage.open()` and `host()`.
+import './host'
 import './storage'
 
 // Reads `pet-adopt.config.ts` once, flattens nested plugins, checks them, and answers the questions

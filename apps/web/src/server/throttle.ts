@@ -131,7 +131,13 @@ async function purgeExpired(): Promise<void> {
     .delete(t.rateLimits)
     .where(
       and(
-        or(like(t.rateLimits.key, 'login:%'), like(t.rateLimits.key, 'chpw:%'), like(t.rateLimits.key, 'pwreset:%')),
+        or(
+          like(t.rateLimits.key, 'login:%'),
+          like(t.rateLimits.key, 'chpw:%'),
+          like(t.rateLimits.key, 'pwreset:%'),
+          like(t.rateLimits.key, 'emailtest:%'),
+          like(t.rateLimits.key, 'plugin:%'),
+        ),
         lt(t.rateLimits.lastRequest, Date.now() - 2 * 60 * 60 * 1000),
       ),
     )
