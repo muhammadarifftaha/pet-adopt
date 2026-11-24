@@ -4,7 +4,9 @@
 import { getPublicForm, type PublicForm } from '@pet-adopt/plugin-form-builder/server'
 
 import { logError } from '@/server/result'
-// Registers how plugin storage is opened (a no-op if the server start already did).
+// Register what the form builder reaches through the SDK (a no-op if the server start already did):
+// storage, and the host services that fill a "Which pet?" question.
+import '@/plugins/host'
 import '@/plugins/storage'
 import { PluginNotReadyError } from '@/plugins/storage'
 

@@ -1459,6 +1459,44 @@ await check('form builder: forms are validated and unique; answers are checked p
   await db.delete(t.rateLimits).where(sql`${t.rateLimits.key} like 'plugin:form-builder:%'`)
 })
 
+await check('form builder: a "Which pet?" question offers listed pets that are not adopted, checks the pick when sent, and stores the name with a reference', async () => {
+  ok((await fieldErrors(forms.createForm({ name: 'Bad list', fields: [{ type: 'source', label: 'Pick', source: 'cars' }] })))['fields.0.source'], 'an unknown list is refused')
+
+  // Its own photo: earlier checks delete the shared one. Say which field broke if a pet cannot be made.
+  const photo = await saveUpload({ data: png, alt: 'Pet question' })
+  const pet = (input: Record<string, unknown>) =>
+    savePet(null, { species: 'dog', photoIds: [photo.id], ...input }).catch((e) => {
+      throw new Error(`savePet ${input.name}: ${JSON.stringify((e as ValidationError).fieldErrors ?? e.message)}`)
+    })
+  const listed = await pet({ name: 'Zuri Pickme' })
+  const pending = await pet({ name: 'Ayla Pending', species: 'cat', status: 'pending' })
+  const adopted = await pet({ name: 'Bo Adopted', status: 'adopted' })
+  const hidden = await pet({ name: 'Cy Hidden', unlisted: true })
+  const { id } = await forms.createForm({ name: 'Pet question', fields: [{ id: 'pet', type: 'source', source: 'pets', label: 'Which pet?', required: true }] })
+  try {
+    const choices = (await forms.getPublicForm(id))!.fields[0].choices ?? []
+    const labels = choices.map((c) => c.label)
+    ok(labels.includes('Zuri Pickme') && labels.includes('Ayla Pending (adoption pending)'), `listed pets are offered, pending ones marked: ${labels.join(', ')}`)
+    ok(!labels.some((l) => /Bo Adopted|Cy Hidden/.test(l)), 'adopted and unlisted pets are not offered')
+    ok(choices.find((c) => c.label === 'Zuri Pickme')?.value === String(listed.id), "a choice's value is the pet's id")
+
+    const client = { client: '10.78.0.1' }
+    ok(/no longer available/.test((await fieldErrors(forms.submitResponse(id, { pet: String(adopted.id) }, client))).pet ?? ''), 'an adopted pet cannot be picked')
+    ok(/no longer available/.test((await fieldErrors(forms.submitResponse(id, { pet: String(hidden.id) }, client))).pet ?? ''), 'an unlisted pet cannot be picked')
+    ok(/required/.test((await fieldErrors(forms.submitResponse(id, { pet: '' }, client))).pet ?? ''), 'a required pick cannot be blank')
+
+    await forms.submitResponse(id, { pet: String(listed.id) }, client)
+    const [answer] = (await forms.listResponses(id)).items[0].answers
+    ok(answer.value === 'Zuri Pickme' && answer.ref === `pets:${listed.id}` && answer.type === 'source', `stored as the name with a reference: ${JSON.stringify(answer)}`)
+    ok((await forms.exportResponsesCsv(id)).csv.includes('Zuri Pickme'), 'the CSV shows the name')
+  } finally {
+    await forms.deleteForm(id)
+    for (const made of [listed, pending, adopted, hidden]) await deletePet(made.id)
+    await removeUpload(photo.id)
+    await db.delete(t.rateLimits).where(sql`${t.rateLimits.key} like 'plugin:form-builder:%'`)
+  }
+})
+
 // FK enforcement is on (SQLite needs a pragma)
 await check('foreign keys are enforced', async () => {
   let blocked = false

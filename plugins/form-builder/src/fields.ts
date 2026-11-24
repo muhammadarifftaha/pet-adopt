@@ -15,9 +15,14 @@ export const FORM_FIELD_TYPES = [
   { value: 'choice', label: 'One choice' },
   { value: 'checkboxes', label: 'Several choices' },
   { value: 'checkbox', label: 'Tick box' },
+  { value: 'source', label: 'Choice from site data' },
 ] as const
 
 export type FormFieldType = (typeof FORM_FIELD_TYPES)[number]['value']
+
+/** The lists a `source` question can offer, filled in when the form is shown (see host().choices). */
+export const FORM_SOURCES = [{ value: 'pets', label: 'Pets up for adoption' }] as const
+export type FormSource = (typeof FORM_SOURCES)[number]['value']
 
 /** Types whose answer is picked from `options`. */
 export const OPTION_TYPES: readonly FormFieldType[] = ['choice', 'checkboxes']
@@ -34,7 +39,15 @@ export type FormField = {
   options?: string[]
   /** `choice` only: radio buttons (default) or a dropdown. */
   display?: 'radio' | 'dropdown'
+  /** `source` only: which list of site data fills the dropdown. */
+  source?: FormSource
 }
+
+/** One option of a `source` question, as the site shows it. */
+export type SourceChoice = { value: string; label: string }
+
+/** A field as the public site draws it: a `source` question carries its current choices. */
+export type PublicField = FormField & { choices?: SourceChoice[] }
 
 /** Per-form options that are not fields. All optional; missing means the default. */
 export type FormSettings = {
@@ -164,6 +177,12 @@ export function validateFormFields(raw: unknown): FieldsResult {
       }
     }
 
+    if (field.type === 'source') {
+      const source = FORM_SOURCES.find((s) => s.value === item.source)
+      if (!source) errors[`${at}.source`] = 'Pick which list to offer.'
+      else field.source = source.value
+    }
+
     fields.push(field)
   })
 
@@ -177,6 +196,8 @@ export type FormAnswer = {
   type: FormFieldType
   /** Text for most types, the picked options for `checkboxes`, true/false for `checkbox`; null when left blank. */
   value: string | string[] | boolean | null
+  /** `source` questions: what was picked, as `<source>:<id>` ("pets:12"). `value` keeps its name then. */
+  ref?: string
 }
 
 /** An answer as one line of text (lists, CSV, email). */
@@ -225,7 +246,11 @@ const NUMBER = /^-?\d+(\.\d+)?$/
  * per field, in field order, with its label and type). `raw` is `{ [fieldId]: value }`; keys that
  * are not fields are ignored. Errors are keyed by field id, so the form can show each one in place.
  */
-export function validateAnswers(fields: readonly FormField[], raw: unknown, opts: { phone: PhoneCheck }): AnswersResult {
+export function validateAnswers(
+  fields: readonly FormField[],
+  raw: unknown,
+  opts: { phone: PhoneCheck; choices?: Partial<Record<FormSource, readonly SourceChoice[]>> },
+): AnswersResult {
   const input = isRecord(raw) ? raw : {}
   const errors: Record<string, string> = {}
   const answers: FormAnswer[] = []
@@ -234,6 +259,7 @@ export function validateAnswers(fields: readonly FormField[], raw: unknown, opts
   for (const field of fields) {
     const value = input[field.id]
     let answer: FormAnswer['value'] = null
+    let ref: string | undefined
     const fail = (message: string) => {
       errors[field.id] = message
     }
@@ -292,6 +318,18 @@ export function validateAnswers(fields: readonly FormField[], raw: unknown, opts
         else if (picked.length) answer = (field.options ?? []).filter((option) => picked.includes(option))
         break
       }
+      case 'source': {
+        if (value === undefined || value === null || value === '') break
+        const picked = typeof value === 'string' || typeof value === 'number' ? String(value) : null
+        const choice = field.source ? opts.choices?.[field.source]?.find((c) => c.value === picked) : undefined
+        // Usually a pet that was adopted (or hidden) after the page was loaded.
+        if (!choice) fail('That choice is no longer available. Pick another one.')
+        else {
+          answer = choice.label
+          ref = `${field.source}:${choice.value}`
+        }
+        break
+      }
       case 'checkbox': {
         // A ticked HTML checkbox sends "on"; JSON callers send booleans.
         answer = value === true || value === 'true' || value === 'on'
@@ -302,7 +340,7 @@ export function validateAnswers(fields: readonly FormField[], raw: unknown, opts
 
     const blank = answer === null || answer === false || (Array.isArray(answer) && !answer.length)
     if (field.required && blank && !errors[field.id]) fail(field.type === 'checkbox' ? 'Tick this box to continue.' : required)
-    answers.push({ id: field.id, label: field.label, type: field.type, value: answer })
+    answers.push(ref ? { id: field.id, label: field.label, type: field.type, value: answer, ref } : { id: field.id, label: field.label, type: field.type, value: answer })
   }
 
   return Object.keys(errors).length ? { ok: false, errors } : { ok: true, answers }

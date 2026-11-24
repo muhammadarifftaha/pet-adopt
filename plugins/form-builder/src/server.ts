@@ -17,6 +17,9 @@ import {
   type FormAnswer,
   type FormField,
   type FormSettings,
+  type FormSource,
+  type PublicField,
+  type SourceChoice,
 } from './fields'
 import { openFormsDatabase } from './storage'
 
@@ -47,7 +50,14 @@ export type FormSummary = Pick<FormRecord, 'id' | 'name' | 'isOpen' | 'updatedAt
 }
 
 /** What the public site needs to draw a form. Nothing private (no notify address). */
-export type PublicForm = Pick<FormRecord, 'id' | 'name' | 'description' | 'fields' | 'isOpen'> & { submitLabel: string }
+export type PublicForm = Pick<FormRecord, 'id' | 'name' | 'description' | 'isOpen'> & { fields: PublicField[]; submitLabel: string }
+
+/** The current choices for every list the form's `source` questions use, each fetched once. */
+async function choicesFor(fields: readonly FormField[]): Promise<Partial<Record<FormSource, SourceChoice[]>>> {
+  const sources = [...new Set(fields.flatMap((field) => (field.type === 'source' && field.source ? [field.source] : [])))]
+  const lists = await Promise.all(sources.map((source) => host().choices(source)))
+  return Object.fromEntries(sources.map((source, i) => [source, lists[i]]))
+}
 
 export type FormResponse = { id: number; answers: FormAnswer[]; readAt: Date | null; createdAt: Date }
 
@@ -132,11 +142,12 @@ export async function getForm(id: number): Promise<FormRecord | null> {
 export async function getPublicForm(id: number): Promise<PublicForm | null> {
   const form = await getForm(id)
   if (!form) return null
+  const choices = await choicesFor(form.fields)
   return {
     id: form.id,
     name: form.name,
     description: form.description,
-    fields: form.fields,
+    fields: form.fields.map((field) => (field.type === 'source' && field.source ? { ...field, choices: choices[field.source] ?? [] } : field)),
     isOpen: form.isOpen,
     submitLabel: form.settings.submitLabel ?? DEFAULT_SUBMIT_LABEL,
   }
@@ -262,6 +273,7 @@ export async function submitResponse(
 
   const { phone } = host()
   const result = validateAnswers(form.fields, raw, {
+    choices: await choicesFor(form.fields),
     phone: (text) => {
       const problem = phone.validate(text)
       return problem === true ? { ok: true, value: phone.toE164(text) ?? text } : { ok: false, error: problem }

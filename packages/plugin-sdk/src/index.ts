@@ -268,6 +268,13 @@ export class UserError extends Error {
 
 export type RateRule = { max: number; windowMs: number }
 
+/** Lists of site data a plugin can offer as choices (a form's "Which pet?" question). */
+export const CHOICE_SOURCES = ['pets'] as const
+export type ChoiceSource = (typeof CHOICE_SOURCES)[number]
+
+/** One choice: `value` is stable (an id), `label` is what people see. */
+export type Choice = { value: string; label: string }
+
 /**
  * What the app does for plugins, so a plugin never imports the app. Server-only; get it with
  * `host()` inside a server action or server component (not at module load).
@@ -292,6 +299,11 @@ export type PluginHost = {
     /** The number as E.164 ("+60123456789"), or null when it is not valid. */
     toE164(raw: string): string | null
   }
+  /**
+   * The current choices from a list of site data, as visitors may see them. `pets`: listed pets that
+   * are not adopted, by name (pending ones say so); `value` is the pet's id.
+   */
+  choices(source: ChoiceSource): Promise<Choice[]>
   /** The site's email sender, or null while no email plugin is set up. */
   emailSender(): EmailSender | null
   /** Logs an error without the values a failed database query carries. Never log error objects yourself. */

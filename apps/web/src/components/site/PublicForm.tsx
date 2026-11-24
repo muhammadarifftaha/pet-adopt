@@ -1,7 +1,7 @@
 'use client'
 
 import { submitFormAction } from '@pet-adopt/plugin-form-builder/actions'
-import type { FormField } from '@pet-adopt/plugin-form-builder/fields'
+import type { PublicField as FormField } from '@pet-adopt/plugin-form-builder/fields'
 import type { PublicForm as PublicFormData } from '@pet-adopt/plugin-form-builder/server'
 import React, { useId, useRef, useState } from 'react'
 
@@ -173,6 +173,15 @@ function Field({ field, id, error, disabled }: { field: FormField; id: string; e
   const control =
     field.type === 'textarea' ? (
       <textarea id={id} rows={5} maxLength={5000} {...common} aria-required={field.required || undefined} />
+    ) : field.type === 'source' ? (
+      <select id={id} defaultValue="" {...common} aria-required={field.required || undefined}>
+        <option value="">{field.choices?.length ? 'Choose…' : 'None available right now'}</option>
+        {(field.choices ?? []).map((choice) => (
+          <option key={choice.value} value={choice.value}>
+            {choice.label}
+          </option>
+        ))}
+      </select>
     ) : field.type === 'choice' ? (
       <select id={id} defaultValue="" {...common} aria-required={field.required || undefined}>
         <option value="">Choose…</option>

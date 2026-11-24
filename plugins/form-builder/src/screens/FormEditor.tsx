@@ -25,6 +25,7 @@ import { deleteFormAction, updateFormAction } from '../actions'
 import {
   FORM_FIELD_TYPES,
   FORM_LIMITS,
+  FORM_SOURCES,
   OPTION_TYPES,
   newFieldId,
   validateFormFields,
@@ -70,6 +71,7 @@ function toPayload(drafts: Draft[]): FormField[] {
         .filter(Boolean)
       if (field.type === 'choice' && field.display === 'dropdown') out.display = 'dropdown'
     }
+    if (field.type === 'source') out.source = field.source ?? 'pets'
     return out
   })
 }
@@ -104,7 +106,7 @@ export function FormEditor({ form }: { form: EditorForm }) {
       const part = key.split('.')[2]
       const label = draft ? `Question ${fieldIndex(key) + 1}${draft.label ? ` (${draft.label})` : ''}` : 'Questions'
       if (!draft) return { id: 'fb-fields', label }
-      return { id: `fb-${draft.id}-${part === 'options' ? 'options' : part === 'type' ? 'type' : part === 'hint' ? 'hint' : 'label'}`, label }
+      return { id: `fb-${draft.id}-${part === 'options' ? 'options' : part === 'source' ? 'source' : part === 'type' ? 'type' : part === 'hint' ? 'hint' : 'label'}`, label }
     }
     return { id: 'fb-fields', label: 'Questions' }
   }
@@ -145,7 +147,14 @@ export function FormEditor({ form }: { form: EditorForm }) {
 
   function add() {
     if (drafts.length >= FORM_LIMITS.fields) return
-    const draft: Draft = { id: newFieldId(), type: newType, label: '', required: false, optionsText: OPTION_TYPES.includes(newType) ? 'Option 1\nOption 2' : '' }
+    const draft: Draft = {
+      id: newFieldId(),
+      type: newType,
+      label: '',
+      required: false,
+      optionsText: OPTION_TYPES.includes(newType) ? 'Option 1\nOption 2' : '',
+      ...(newType === 'source' ? { source: 'pets' as const } : {}),
+    }
     setDrafts((current) => [...current, draft])
     setAnnounce(`${typeLabel(newType)} question added as number ${drafts.length + 1}.`)
     requestAnimationFrame(() => document.getElementById(`fb-${draft.id}-label`)?.focus())
@@ -297,7 +306,11 @@ export function FormEditor({ form }: { form: EditorForm }) {
                           value={draft.type}
                           onChange={(e) => {
                             const type = e.target.value as FormFieldType
-                            update(index, { type, optionsText: OPTION_TYPES.includes(type) && !draft.optionsText ? 'Option 1\nOption 2' : draft.optionsText })
+                            update(index, {
+                              type,
+                              optionsText: OPTION_TYPES.includes(type) && !draft.optionsText ? 'Option 1\nOption 2' : draft.optionsText,
+                              source: type === 'source' ? (draft.source ?? 'pets') : draft.source,
+                            })
                           }}
                         >
                           {FORM_FIELD_TYPES.map((type) => (
@@ -323,6 +336,28 @@ export function FormEditor({ form }: { form: EditorForm }) {
                           One per line, up to {FORM_LIMITS.options}.
                         </p>
                         {errorText(`fb-${draft.id}-options-error`, optionsError)}
+                      </div>
+                    )}
+
+                    {draft.type === 'source' && (
+                      <div className="flex flex-col gap-2">
+                        <Label htmlFor={`fb-${draft.id}-source`}>List</Label>
+                        <select
+                          id={`fb-${draft.id}-source`}
+                          className={nativeSelect}
+                          value={draft.source ?? 'pets'}
+                          onChange={(e) => update(index, { source: FORM_SOURCES.find((s) => s.value === e.target.value)?.value ?? 'pets' })}
+                          aria-describedby={`fb-${draft.id}-source-hint`}
+                        >
+                          {FORM_SOURCES.map((source) => (
+                            <option key={source.value} value={source.value}>
+                              {source.label}
+                            </option>
+                          ))}
+                        </select>
+                        <p id={`fb-${draft.id}-source-hint`} className="text-sm text-muted-foreground">
+                          Filled in when the form is shown: pets that are listed and not adopted, by name. New pets appear on their own.
+                        </p>
                       </div>
                     )}
 
