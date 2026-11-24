@@ -3,7 +3,16 @@
 import type { Data } from '@puckeditor/core'
 
 import { isPetStatus, normalizeSpecies } from '@/lib/options'
-import { getPetSpotlight, queryPetCards, queryPetProfiles, type PetCardData, type PetFilters, type PetSpotlightData } from '@/lib/queries'
+import {
+  getPetSpotlight,
+  queryCatalog,
+  queryPetCards,
+  queryPetProfiles,
+  type CatalogData,
+  type PetCardData,
+  type PetFilters,
+  type PetSpotlightData,
+} from '@/lib/queries'
 import { publishPage, saveDraft } from '@/server/pages'
 import { assertId, toFailure } from '@/server/result'
 import { requireUser } from '@/server/session'
@@ -37,6 +46,11 @@ export async function fetchPetSpotlightAction(id: number): Promise<PetSpotlightD
   const petId = Number(id)
   if (!Number.isSafeInteger(petId) || petId < 1) return null
   return getPetSpotlight(petId)
+}
+
+/** The first page of the catalogue, for the editor's Pet catalogue preview (no filters). */
+export async function fetchCatalogAction(): Promise<CatalogData> {
+  return queryCatalog({})
 }
 
 /** Full profiles for the editor's pet grid preview (profile layout). Same clamping as below. */

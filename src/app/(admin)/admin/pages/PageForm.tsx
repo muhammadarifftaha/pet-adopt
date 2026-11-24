@@ -26,6 +26,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { slugify } from "@/lib/slugify";
+import { isSystemPageSlug } from "@/puck/data";
 import { cn } from "@/lib/utils";
 import {
   PAGE_FIELD_LABELS,
@@ -350,6 +351,8 @@ export function PageForm({ page }: { page: PageFormPage | null }) {
   const archived = page?.archived ?? false;
   // The homepage keeps its address and is never archived (the server refuses both too).
   const isHome = page?.slug === "home";
+  // The homepage and the Pets page keep their address and are never archived.
+  const isSystem = page ? isSystemPageSlug(page.slug) : false;
   const live = page && !archived && page.status === "published";
   const dirty = formState.isDirty;
 
@@ -394,10 +397,12 @@ export function PageForm({ page }: { page: PageFormPage | null }) {
               label="Address"
               required
               prefix="/"
-              readOnly={isHome}
+              readOnly={isSystem}
               description={
                 isHome
                   ? "This is the homepage, shown at the site's main address. Its address cannot change."
+                  : isSystem
+                  ? "This is the Pets page, shown at /pets. Its address cannot change."
                   : 'Lowercase letters, numbers and dashes. Use "home" for the homepage.' +
                     (page ? " Changing it breaks links to the old address." : " Filled in from the title until you change it.")
               }
@@ -482,9 +487,11 @@ export function PageForm({ page }: { page: PageFormPage | null }) {
                     <span className="sr-only">(opens in a new tab)</span>
                   </a>
                 ) : null}
-                {isHome && !archived ? (
+                {isSystem && !archived ? (
                   <p className="text-muted-foreground">
-                    This is the homepage. If you unpublish it, the site shows its built-in homepage instead.
+                    {isHome
+                      ? "This is the homepage. If you unpublish it, the site shows its built-in homepage instead."
+                      : "This is the Pets page. If you unpublish it, /pets shows the built-in catalogue instead."}
                   </p>
                 ) : null}
                 {!page.hasLayout && !archived ? (
@@ -512,7 +519,7 @@ export function PageForm({ page }: { page: PageFormPage | null }) {
                         {busy === "unpublish" ? "Unpublishing…" : "Unpublish"}
                       </Button>
                     ) : null}
-                    {isHome ? null : (
+                    {isSystem ? null : (
                     <Button
                       type="button"
                       variant="outline"

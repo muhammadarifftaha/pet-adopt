@@ -6,13 +6,14 @@ import type { Config, Fields } from '@puckeditor/core'
 import { PetCard } from '@/components/site/PetCard'
 import { CopyButton } from '@/components/site/CopyButton'
 import { ImageCarousel } from '@/components/site/ImageCarousel'
+import { PetCatalog } from '@/components/site/PetCatalog'
 import { SmartLink } from '@/components/site/SmartLink'
 import { SocialLinks } from '@/components/site/SocialIcons'
 import { RichText } from '@/components/site/RichText'
 import { WhatsAppButton } from '@/components/site/WhatsAppButton'
 import { safeMapEmbed, safeVideoEmbed } from '@/lib/links'
 import { isPetStatus, labelFor, normalizeSpecies, PetStatus, SPECIES, STATUSES } from '@/lib/options'
-import type { PetCardData, PetSpotlightData } from '@/lib/queries'
+import type { CatalogData, PetCardData, PetSpotlightData } from '@/lib/queries'
 import { fillMessage } from '@/lib/whatsapp'
 
 import { BLOCK_ICON_OPTIONS, BlockIcon } from './icons'
@@ -361,6 +362,16 @@ type SpacerProps = { size: 'sm' | 'md' | 'lg' | 'xl' }
 
 type DividerProps = { width: 'container' | 'narrow'; spacing: Spacing }
 
+type PetCatalogProps = {
+  heading: string
+  headingStyle?: HeadingStyle
+  intro: string
+  showFilters: boolean
+  background: Background
+  /** Filled in at render time from the page's query string, never saved. */
+  catalog?: CatalogData
+}
+
 type CostTableProps = {
   heading: string
   headingStyle: HeadingStyle
@@ -437,6 +448,7 @@ export type PuckComponents = {
   Features: FeaturesProps & Level
   WaysToHelp: WaysToHelpProps & Level
   CostTable: CostTableProps & Level
+  PetCatalog: PetCatalogProps & Level
 }
 
 // ---------------------------------------------------------------------------
@@ -448,7 +460,7 @@ export const config: Config<PuckComponents> = {
   categories: {
     layout: { title: 'Sections', components: ['Hero', 'TextSection', 'ImageText', 'Features', 'CallToAction'] },
     media: { title: 'Media', components: ['ImageGallery', 'ImageCarousel', 'Video'] },
-    pets: { title: 'Pets', components: ['PetSpotlight', 'PetGrid', 'AdoptionSteps', 'Stats'] },
+    pets: { title: 'Pets', components: ['PetCatalog', 'PetSpotlight', 'PetGrid', 'AdoptionSteps', 'Stats'] },
     trust: { title: 'Trust & contact', components: ['Testimonials', 'Team', 'WaysToHelp', 'CostTable', 'Faq', 'ContactInfo', 'SocialLinksBlock'] },
     helpers: { title: 'Layout helpers', components: ['Spacer', 'Divider'] },
   },
@@ -1478,6 +1490,47 @@ export const config: Config<PuckComponents> = {
           </Section>
         )
       },
+    },
+
+    PetCatalog: {
+      label: 'Pet catalogue',
+      defaultProps: { heading: 'Adoptable pets', headingStyle: 'normal', intro: '', showFilters: true, background: 'none' },
+      fields: {
+        heading: { type: 'text' },
+        headingStyle: headingStyleField,
+        intro: { type: 'textarea', label: 'Intro (optional)' },
+        showFilters: {
+          type: 'radio',
+          label: 'Filters (they always search the Pets page)',
+          options: [
+            { label: 'Show', value: true },
+            { label: 'Hide', value: false },
+          ],
+        },
+        background: backgroundField,
+      } as Fields<PetCatalogProps>,
+      // Live data: the filters and page come from the address (/pets?species=cat&page=2). In the
+      // editor there is no address to read, so it shows the first page with no filters.
+      resolveData: async ({ props }, { metadata }) => {
+        const meta = metadata as Partial<PuckSiteMetadata>
+        if (!meta.fetchCatalog) return { props }
+        return { props: { ...props, catalog: await meta.fetchCatalog(meta.searchParams ?? {}) } }
+      },
+      render: ({ headingLevel, heading, headingStyle, intro, showFilters, background, catalog }) => (
+        <Section background={background}>
+          {heading && (
+            <Title level={headingLevel} style={headingStyle}>
+              {heading}
+            </Title>
+          )}
+          {intro && <p className="section-intro">{intro}</p>}
+          {catalog ? (
+            <PetCatalog catalog={catalog} showFilters={showFilters} cardHeading={headingLevel === 1 ? 'h2' : 'h3'} />
+          ) : (
+            <p className="muted">Loading pets…</p>
+          )}
+        </Section>
+      ),
     },
 
     CostTable: {

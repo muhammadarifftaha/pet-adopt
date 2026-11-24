@@ -3,7 +3,7 @@
 import {
   archivePage,
   deletePage,
-  ensureHomePage,
+  ensureSystemPages,
   getPageById,
   listPages,
   listPageVersions,
@@ -25,7 +25,7 @@ export async function listPagesAction(): Promise<ActionResult<Awaited<ReturnType
   return run(async () => {
     await requireUser()
     // A site set up before the homepage was a page gets it here, without a restart.
-    await ensureHomePage()
+    await ensureSystemPages()
     return listPages()
   })
 }

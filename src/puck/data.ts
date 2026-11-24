@@ -3,7 +3,7 @@ import type { Data } from '@puckeditor/core'
 export const EMPTY_DATA: Data = { content: [], root: { props: {} }, zones: {} }
 
 /** Props that are filled in at render time and must never be saved into the page JSON. */
-const TRANSIENT_PROPS = ['pets', 'spotlight', 'profiles', 'headingLevel']
+const TRANSIENT_PROPS = ['pets', 'spotlight', 'profiles', 'catalog', 'headingLevel']
 
 /** A saved layout is a few kilobytes. Anything near this size is a mistake or an attack. */
 const MAX_BYTES = 1_000_000
@@ -88,6 +88,25 @@ export function isPuckData(value: unknown): value is Data {
   } catch {
     return false
   }
+}
+
+/**
+ * Pages the site always has, listed with the other pages but fixed in place: they keep their address
+ * and id and cannot be archived or deleted (see ensureSystemPages in src/server/pages.ts).
+ */
+export const SYSTEM_PAGE_SLUGS = ['home', 'pets'] as const
+export const isSystemPageSlug = (slug: string) => (SYSTEM_PAGE_SLUGS as readonly string[]).includes(slug)
+
+/** The Pets page (/pets) until the owners publish their own: just the catalogue. */
+export const DEFAULT_PETS_DATA: Data = {
+  root: { props: {} },
+  zones: {},
+  content: [
+    {
+      type: 'PetCatalog',
+      props: { id: 'pet-catalog', heading: 'Adoptable pets', headingStyle: 'normal', intro: '', showFilters: true, background: 'none' },
+    },
+  ],
 }
 
 /** Shown on "/" until the owners publish a page with the slug "home". */

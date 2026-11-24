@@ -18,7 +18,7 @@ import { closeDatabase, getDatabase } from '../src/db/client'
 import { PetStatus } from '../src/lib/options'
 import { slugify } from '../src/lib/slugify'
 import { getSettings, updateSettings } from '../src/server/settings'
-import { ensureHomePage, publishPage, savePageDetails } from '../src/server/pages'
+import { ensureSystemPages, publishPage, savePageDetails } from '../src/server/pages'
 import { savePet } from '../src/server/pets'
 import { ensureOwner } from '../src/server/users'
 import { removeUpload, saveUpload } from '../src/server/uploads'
@@ -237,7 +237,8 @@ async function main() {
   await seedPets()
   await seedSettings()
   await seedAboutPage()
-  console.log((await ensureHomePage()) === 'created' ? 'Created the homepage from the built-in layout' : 'The homepage already exists, skipping.')
+  await ensureSystemPages()
+  console.log('The homepage and the Pets page are in place.')
 
   console.log('Sample content is in place. Open /admin to continue.')
 }

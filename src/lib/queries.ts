@@ -1,7 +1,20 @@
 // What the public pages read. Thin wrappers over src/server (the data layer) that keep the
 // names the pages already use, add the "no database during `next build`" fallback, and make sure a
 // visitor can never ask for unlisted pets.
-import { GOOD_WITH, labelFor, SEXES, SPECIES, TEMPERAMENTS, type Option, type PetStatus } from '@/lib/options'
+import {
+  AGE_GROUPS,
+  GOOD_WITH,
+  isPetStatus,
+  labelFor,
+  normalizeSpecies,
+  PetStatus,
+  SEXES,
+  SIZES,
+  SPECIES,
+  STATUSES,
+  TEMPERAMENTS,
+  type Option,
+} from '@/lib/options'
 import { richTextToPlain, type RichTextDoc } from '@/lib/rich-text'
 import { getPublishedPage as loadPublishedPage } from '@/server/pages'
 import * as pets from '@/server/pets'
@@ -173,6 +186,58 @@ export async function queryPetProfiles(filters: PetFilters = {}): Promise<PetSpo
     const full = await Promise.all(list.map((summary) => pets.getPetById(summary.id)))
     return full.filter(visible).map(toSpotlight)
   }, [] as PetSpotlightData[])
+}
+
+/** The query string of a catalogue page, as Next gives it. */
+export type CatalogParams = Record<string, string | string[] | undefined>
+
+/** One page of the pet catalogue (the Pet catalogue block), with the filters it was asked for. */
+export type CatalogData = {
+  pets: PetCardData[]
+  page: number
+  totalPages: number
+  hasPrevPage: boolean
+  hasNextPage: boolean
+  filters: { species: string; sex: string; ageGroup: string; size: string; status: string; location: string }
+  /** Species to offer in the filter: those of visible pets, plus the chosen one. */
+  speciesOptions: Option[]
+}
+
+const firstParam = (value: string | string[] | undefined) => (Array.isArray(value) ? value[0] : value)
+const oneOfOptions = (value: string | undefined, options: readonly { value: string }[]) =>
+  value && options.some((o) => o.value === value) ? value : ''
+
+/**
+ * The catalogue for a query string: filters parsed and checked (unknown values are ignored), then
+ * one page of visible pets. No status in the URL means "available"; an empty status means "any".
+ */
+export async function queryCatalog(params: CatalogParams = {}): Promise<CatalogData> {
+  // Species is free text (owners can add their own), so there is no fixed list to check against.
+  const species = normalizeSpecies(firstParam(params.species))
+  const sex = oneOfOptions(firstParam(params.sex), SEXES)
+  const ageGroup = oneOfOptions(firstParam(params.ageGroup), AGE_GROUPS)
+  const size = oneOfOptions(firstParam(params.size), SIZES)
+  const location = (firstParam(params.location) ?? '').trim().slice(0, 80)
+  const rawStatus = firstParam(params.status)
+  const status = rawStatus === undefined ? PetStatus.Available : oneOfOptions(rawStatus, STATUSES)
+  const page = Math.min(Math.max(1, Number.parseInt(firstParam(params.page) ?? '1', 10) || 1), 10_000)
+
+  const [result, speciesChoices] = await Promise.all([
+    queryPets({ species, sex, ageGroup, size, status: isPetStatus(status) ? status : undefined, location, page, limit: PAGE_SIZE }),
+    getSpeciesOptions(),
+  ])
+  // Keep the chosen species selectable even when no listed pet has it (a link to an empty species).
+  const speciesOptions =
+    !species || speciesChoices.some((o) => o.value === species) ? speciesChoices : [...speciesChoices, { label: labelFor(SPECIES, species), value: species }]
+  return {
+    pets: result.docs.map(toPetCard),
+    page: result.page,
+    totalPages: result.totalPages,
+    hasPrevPage: result.hasPrevPage,
+    hasNextPage: result.hasNextPage,
+    filters: { species, sex, ageGroup, size, status, location },
+    speciesOptions,
+  }
 }
 
 export async function queryPetCards(filters: PetFilters = {}): Promise<PetCardData[]> {

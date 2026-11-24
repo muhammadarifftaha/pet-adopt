@@ -13,6 +13,7 @@
 //
 // Archiving takes a page off the site and makes it read-only, keeping everything (including its
 // address) so it can be restored as it was. Only an archived page can be deleted.
+import type { Data } from '@puckeditor/core'
 import { and, desc, eq, gte, isNotNull, isNull, lt, lte, sql } from 'drizzle-orm'
 import { isEqual } from 'es-toolkit'
 
@@ -20,7 +21,7 @@ import { getDatabase, type Db, type Schema } from '@/db/client'
 import type * as S from '@/db/schema/sqlite'
 import { RESERVED_SLUGS } from '@/lib/options'
 import { safeRevalidate } from '@/lib/revalidate'
-import { DEFAULT_HOME_DATA, isPuckData, stripControlChars, stripTransient } from '@/puck/data'
+import { DEFAULT_HOME_DATA, DEFAULT_PETS_DATA, isPuckData, isSystemPageSlug, stripControlChars, stripTransient } from '@/puck/data'
 
 import { getMediaByIds } from './media'
 import { asRecord, Fields, isUniqueViolation, UserError, ValidationError } from './result'
@@ -28,8 +29,10 @@ import type { MediaItem, Page, PageState, PageStatus, PageVersionSummary } from 
 
 type PageRow = typeof S.pages.$inferSelect
 
-/** The page shown at "/". It always exists (see ensureHomePage), keeps this slug, and is never archived. */
+/** The page shown at "/". It always exists (see ensureSystemPages), keeps this slug, and is never archived. */
 export const HOME_SLUG = 'home'
+/** The page shown at "/pets" (the catalogue). Same rules as the homepage. */
+export const PETS_SLUG = 'pets'
 
 /** How many snapshots each page keeps. */
 export const KEEP_VERSIONS = 50
@@ -106,11 +109,12 @@ export async function getPublishedPage(slug: string): Promise<(Page & { puckData
   return page && { ...page, puckData: page.puckPublished }
 }
 
-function parseDetails(raw: unknown, creating: boolean) {
+/** `ownSlug`: a system page may keep its own address even when that word is reserved ("pets"). */
+function parseDetails(raw: unknown, creating: boolean, ownSlug?: string) {
   const f = new Fields(asRecord(raw), creating)
   const values = {
     title: f.requiredText('title', 120),
-    slug: f.slug('slug', { required: true, reserved: RESERVED_SLUGS }),
+    slug: f.slug('slug', { required: true, reserved: RESERVED_SLUGS.filter((word) => word !== ownSlug) }),
     seoDescription: f.text('seoDescription', 200),
     seoImageId: f.id('seoImageId'),
   }
@@ -126,7 +130,14 @@ async function assertImage(imageId: number | null | undefined) {
 
 /** Title, address and share details of a page. The layout is edited with saveDraft/publish. */
 export async function savePageDetails(id: number | null, raw: unknown): Promise<{ id: number; slug: string }> {
-  const values = parseDetails(raw, id === null)
+  // A system page's own address is allowed for that page only (it is reserved for every other).
+  let ownSlug: string | undefined
+  if (id !== null) {
+    const { db: lookup, t: tables } = await getDatabase()
+    const [current] = await lookup.select({ slug: tables.pages.slug }).from(tables.pages).where(eq(tables.pages.id, id)).limit(1)
+    if (current && isSystemPageSlug(current.slug)) ownSlug = current.slug
+  }
+  const values = parseDetails(raw, id === null, ownSlug)
   await assertImage(values.seoImageId)
   const { db, t } = await getDatabase()
   const defined = Object.fromEntries(Object.entries(values).filter(([, v]) => v !== undefined))
@@ -146,8 +157,8 @@ export async function savePageDetails(id: number | null, raw: unknown): Promise<
       .limit(1)
     if (!before) throw new UserError('Page not found.')
     if (before.archivedAt) throw new UserError(ARCHIVED)
-    if (before.slug === HOME_SLUG && defined.slug !== undefined && defined.slug !== HOME_SLUG) {
-      throw new ValidationError({ slug: 'The homepage keeps the address "home".' })
+    if (isSystemPageSlug(before.slug) && defined.slug !== undefined && defined.slug !== before.slug) {
+      throw new ValidationError({ slug: `This page keeps the address "${before.slug}".` })
     }
     const [row] = await db
       .update(t.pages)
@@ -361,7 +372,7 @@ export async function unpublishPage(id: number): Promise<void> {
 /** Takes the page off the site and makes it read-only. Everything is kept for a restore. */
 export async function archivePage(id: number): Promise<void> {
   const { db, t } = await getDatabase()
-  await assertNotHome(id, 'The homepage cannot be archived. Unpublish it to show the built-in homepage instead.')
+  await assertNotSystem(id, 'archived')
   const now = new Date()
   const [row] = await db
     .update(t.pages)
@@ -391,7 +402,7 @@ export async function restorePage(id: number): Promise<void> {
 /** Deletes a page and its history for good. Only an archived page can be deleted. */
 export async function deletePage(id: number): Promise<void> {
   const { db, t } = await getDatabase()
-  await assertNotHome(id, 'The homepage cannot be deleted.')
+  await assertNotSystem(id, 'deleted')
   const [row] = await db
     .delete(t.pages)
     .where(and(eq(t.pages.id, id), isNotNull(t.pages.archivedAt)))
@@ -483,57 +494,76 @@ export async function restorePageVersion(
   )
 }
 
-async function assertNotHome(id: number, message: string) {
+async function assertNotSystem(id: number, verb: 'archived' | 'deleted') {
   const { db, t } = await getDatabase()
   const [row] = await db.select({ slug: t.pages.slug }).from(t.pages).where(eq(t.pages.id, id)).limit(1)
-  if (row?.slug === HOME_SLUG) throw new UserError(message)
+  const def = row ? SYSTEM_PAGES.find((page) => page.slug === row.slug) : undefined
+  if (!def) return
+  throw new UserError(
+    verb === 'archived'
+      ? `${def.label} cannot be archived. Unpublish it to show the built-in ${def.fallback} instead.`
+      : `${def.label} cannot be deleted.`,
+  )
 }
 
-/** The homepage's id. ensureHomePage keeps it there. */
+/** The homepage's id. ensureSystemPages keeps it there. */
 export const HOME_ID = 1
+/** The Pets page's id. */
+export const PETS_ID = 2
+
+type SystemPage = { slug: string; id: number; title: string; data: Data; path: string; label: string; fallback: string }
+
+/** In order: the homepage is placed first, so it can never be the page that moves out of the way. */
+const SYSTEM_PAGES: SystemPage[] = [
+  { slug: HOME_SLUG, id: HOME_ID, title: 'Home', data: DEFAULT_HOME_DATA, path: '/', label: 'The homepage', fallback: 'homepage' },
+  { slug: PETS_SLUG, id: PETS_ID, title: 'Adoptable pets', data: DEFAULT_PETS_DATA, path: '/pets', label: 'The Pets page', fallback: 'catalogue' },
+]
 
 /**
- * Makes sure the homepage exists as a page with id HOME_ID, so it is listed, edited, versioned and
- * previewed like any other, and always first.
+ * Makes sure a system page exists at its fixed id, so it is listed, edited, versioned and previewed
+ * like any other page, in a fixed place.
  *
- *  - No homepage: it is created from the built-in layout (DEFAULT_HOME_DATA), published, with that
- *    layout as version 1, so "/" looks exactly as before.
- *  - A homepage with another id (a site set up before this rule): it swaps ids with the page on
- *    id 1. With no homepage yet, a page on id 1 moves to the next free id. Versions follow
+ *  - Missing: it is created from its built-in layout, published, with that layout as version 1, so
+ *    its address looks exactly as before.
+ *  - Under another id (a site set up before this rule): it swaps ids with the page on its id. When
+ *    it is missing, a page on its id moves to the next free id. Versions follow
  *    (page_versions.page_id is ON UPDATE CASCADE), and the id counter is moved past the highest id.
+ *  - The other system pages are never moved out of the way (they come first in SYSTEM_PAGES).
  *
- * Cheap when everything is in place (one query), so it can run on every start and list. Two calls at
- * once are serialised by a lock; the second finds the work done.
+ * Cheap when everything is in place (one query). Two calls at once are serialised by a lock.
  */
-export async function ensureHomePage(): Promise<'created' | 'moved' | 'exists'> {
+async function ensureSystemPage(def: SystemPage): Promise<'created' | 'moved' | 'exists'> {
   const { db, t, dialect, withTransaction } = await getDatabase()
-  const [current] = await db.select({ id: t.pages.id }).from(t.pages).where(eq(t.pages.slug, HOME_SLUG)).limit(1)
-  if (current?.id === HOME_ID) return 'exists'
+  const [current] = await db.select({ id: t.pages.id }).from(t.pages).where(eq(t.pages.slug, def.slug)).limit(1)
+  if (current?.id === def.id) return 'exists'
 
-  const layout = cleanLayout(DEFAULT_HOME_DATA)
+  const layout = cleanLayout(def.data)
   const result = await withTransaction(
     async (tx) => {
-      const [home] = await tx.select({ id: t.pages.id }).from(t.pages).where(eq(t.pages.slug, HOME_SLUG)).limit(1)
-      if (home?.id === HOME_ID) return 'exists' as const
+      const [page] = await tx.select({ id: t.pages.id }).from(t.pages).where(eq(t.pages.slug, def.slug)).limit(1)
+      if (page?.id === def.id) return 'exists' as const
 
-      const [occupant] = await tx.select({ id: t.pages.id }).from(t.pages).where(eq(t.pages.id, HOME_ID)).limit(1)
+      const [occupant] = await tx.select({ id: t.pages.id, slug: t.pages.slug }).from(t.pages).where(eq(t.pages.id, def.id)).limit(1)
+      if (occupant && isSystemPageSlug(occupant.slug)) {
+        throw new Error(`Page id ${def.id} belongs to the system page "${occupant.slug}"; not moving it.`)
+      }
       const [{ max }] = await tx.select({ max: sql<number>`max(${t.pages.id})` }).from(t.pages)
       const spare = Number(max ?? 0) + 1
 
-      if (home) {
-        // Swap: the homepage takes id 1 and the page that had it takes the homepage's old id
+      if (page) {
+        // Swap: this page takes its id and the page that had it takes this page's old id
         // (through a spare id, since ids are unique at every step).
-        await tx.update(t.pages).set({ id: spare }).where(eq(t.pages.id, home.id))
-        if (occupant) await tx.update(t.pages).set({ id: home.id }).where(eq(t.pages.id, HOME_ID))
-        await tx.update(t.pages).set({ id: HOME_ID }).where(eq(t.pages.id, spare))
+        await tx.update(t.pages).set({ id: spare }).where(eq(t.pages.id, page.id))
+        if (occupant) await tx.update(t.pages).set({ id: page.id }).where(eq(t.pages.id, def.id))
+        await tx.update(t.pages).set({ id: def.id }).where(eq(t.pages.id, spare))
       } else {
-        // Free id 1: whatever page holds it moves to the end.
-        if (occupant) await tx.update(t.pages).set({ id: spare }).where(eq(t.pages.id, HOME_ID))
+        // Free the id: whatever page holds it moves to the end.
+        if (occupant) await tx.update(t.pages).set({ id: spare }).where(eq(t.pages.id, def.id))
         const now = new Date()
         await tx.insert(t.pages).values({
-          id: HOME_ID,
-          title: 'Home',
-          slug: HOME_SLUG,
+          id: def.id,
+          title: def.title,
+          slug: def.slug,
           status: 'published',
           puckDraft: layout,
           puckPublished: layout,
@@ -541,7 +571,7 @@ export async function ensureHomePage(): Promise<'created' | 'moved' | 'exists'> 
           createdAt: now,
           updatedAt: now,
         } as never)
-        await closeVersion(tx, t, { pageId: HOME_ID, title: 'Home', data: layout })
+        await closeVersion(tx, t, { pageId: def.id, title: def.title, data: layout })
       }
 
       // Explicit ids do not move the id counter, so the next new page could collide: move it past
@@ -553,10 +583,20 @@ export async function ensureHomePage(): Promise<'created' | 'moved' | 'exists'> 
       } else {
         await tx.run(sql`update sqlite_sequence set seq = (select max(id) from pages) where name = 'pages' and seq < (select max(id) from pages)`)
       }
-      return home ? ('moved' as const) : ('created' as const)
+      return page ? ('moved' as const) : ('created' as const)
     },
-    { lock: 'pages:home' },
+    { lock: 'pages:system' },
   )
-  if (result !== 'exists') safeRevalidate(['/'])
+  if (result !== 'exists') safeRevalidate([def.path])
   return result
+}
+
+/** The homepage at id 1 (see ensureSystemPage). */
+export const ensureHomePage = () => ensureSystemPage(SYSTEM_PAGES[0])
+/** The Pets page at id 2 (see ensureSystemPage). */
+export const ensurePetsPage = () => ensureSystemPage(SYSTEM_PAGES[1])
+
+/** Every system page, in order. Runs on start, in the seed, and when the pages list loads. */
+export async function ensureSystemPages(): Promise<void> {
+  for (const def of SYSTEM_PAGES) await ensureSystemPage(def)
 }

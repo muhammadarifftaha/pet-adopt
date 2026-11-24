@@ -1,5 +1,5 @@
 import type { SocialLink } from '@/components/site/SocialIcons'
-import type { PetCardData, PetFilters, PetSpotlightData } from '@/lib/queries'
+import type { CatalogData, CatalogParams, PetCardData, PetFilters, PetSpotlightData } from '@/lib/queries'
 
 /** What the media picker stores in a block. */
 export type MediaValue = { id: number | string; url: string; alt: string } | null
@@ -22,4 +22,8 @@ export type PuckSiteMetadata = {
   fetchPet: (id: number) => Promise<PetSpotlightData | null>
   /** Full profiles for the Pet grid's profile layout. */
   fetchPetProfiles: (filters: PetFilters) => Promise<PetSpotlightData[]>
+  /** One page of the pet catalogue for a query string (the Pet catalogue block). */
+  fetchCatalog: (params: CatalogParams) => Promise<CatalogData>
+  /** The page's query string (filters, page number), on the live site only. */
+  searchParams?: CatalogParams
 }

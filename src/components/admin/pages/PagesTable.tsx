@@ -47,6 +47,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
+import { isSystemPageSlug } from "@/puck/data";
 import {
   archivePageAction,
   deletePageAction,
@@ -345,7 +346,7 @@ function RowActions({ page }: { page: PageListItem }) {
           onClick={() =>
             !pending &&
             act(() => restorePageAction(page.id), `“${page.title}” restored.`, () => {
-              focusNext.current = actionId(page.id, page.slug === "home" ? "edit" : "archive");
+              focusNext.current = actionId(page.id, isSystemPageSlug(page.slug) ? "edit" : "archive");
             })
           }
         >
@@ -409,7 +410,7 @@ function RowActions({ page }: { page: PageListItem }) {
         <span className="sr-only">for {page.title}</span>
       </Link>
       {/* The homepage is never archived: the site always needs one (unpublish it instead). */}
-      {page.slug === "home" ? null : (
+      {isSystemPageSlug(page.slug) ? null : (
       <Button
         id={actionId(page.id, "archive")}
         variant="outline"

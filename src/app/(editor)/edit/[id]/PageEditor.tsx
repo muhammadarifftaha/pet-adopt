@@ -8,7 +8,7 @@ import { Switch } from '@/components/ui/switch'
 import { config } from '@/puck/config'
 import type { PuckSiteMetadata } from '@/puck/types'
 
-import { fetchPetProfilesAction, fetchPetsAction, fetchPetSpotlightAction, publishAction, saveDraftAction } from './actions'
+import { fetchCatalogAction, fetchPetProfilesAction, fetchPetsAction, fetchPetSpotlightAction, publishAction, saveDraftAction } from './actions'
 
 type Props = {
   pageId: number
@@ -99,7 +99,7 @@ export function PageEditor({ pageId, title, slug, status, version: initialVersio
     [dark],
   )
   // Blocks read site settings and fetch live pets through Puck's metadata.
-  const metadata: PuckSiteMetadata = { site, fetchPets: fetchPetsAction, fetchPet: fetchPetSpotlightAction, fetchPetProfiles: fetchPetProfilesAction }
+  const metadata: PuckSiteMetadata = { site, fetchPets: fetchPetsAction, fetchPet: fetchPetSpotlightAction, fetchPetProfiles: fetchPetProfilesAction, fetchCatalog: () => fetchCatalogAction() }
 
   return (
     <>

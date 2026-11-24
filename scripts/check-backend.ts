@@ -26,6 +26,7 @@ import {
   archivePage,
   deletePage,
   ensureHomePage,
+  ensurePetsPage,
   getPageById,
   getPageVersionData,
   listPageVersions,
@@ -718,6 +719,33 @@ await check('themes: created from a preset or duplicated, unique names, readable
   ok((await getTheme(id)) === null, 'deleted')
   ok(/no longer exists/.test(await userError(activateTheme({ themeId: id }))), 'a deleted theme cannot be used')
   await activateTheme({ preset: before.theme })
+})
+
+await check('pages: the Pets page is a system page at id 2, keeps /pets, cannot be archived or deleted', async () => {
+  await ensureHomePage()
+  // A page may already sit on id 2: it moves out of the way, keeping its history.
+  const other = (await listPages()).find((p) => p.id === 2)
+  const otherVersions = other ? (await listPageVersions(other.id)).length : 0
+  ok(['created', 'moved', 'exists'].includes(await ensurePetsPage()), 'ensured')
+  const pets = (await getPageById(2))!
+  ok(pets.slug === 'pets' && pets.status === 'published', 'the Pets page is id 2, published')
+  ok((await getPageById(1))!.slug === 'home', 'the homepage stays at id 1')
+  if (other && other.slug !== 'pets') {
+    const moved = (await listPages()).find((p) => p.slug === other.slug)!
+    ok(moved.id !== 2 && (await listPageVersions(moved.id)).length === otherVersions, 'the page on id 2 moved with its history')
+  }
+  ok((await ensurePetsPage()) === 'exists', 'not twice')
+  const layout = (await getPublishedPage('pets'))!.puckData as { content: Array<{ type: string }> }
+  ok(layout.content[0].type === 'PetCatalog', 'starts as the catalogue')
+
+  // Its own reserved address is fine for it, and for nobody else.
+  await savePageDetails(2, { title: 'Meet the pets', slug: 'pets' })
+  ok((await getPageById(2))!.title === 'Meet the pets', 'its title can change')
+  ok((await fieldErrors(savePageDetails(2, { slug: 'animals' }))).slug, 'its address cannot change')
+  ok((await fieldErrors(savePageDetails(null, { title: 'Copy', slug: 'pets' }))).slug, 'no other page can take /pets')
+  ok(/cannot be archived/.test(await userError(archivePage(2))), 'cannot be archived')
+  ok(/cannot be deleted/.test(await userError(deletePage(2))), 'cannot be deleted')
+  await savePageDetails(2, { title: 'Adoptable pets', slug: 'pets' })
 })
 
 // --- settings -----------------------------------------------------------------------------
