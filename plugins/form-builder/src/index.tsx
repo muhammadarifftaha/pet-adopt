@@ -4,6 +4,7 @@ import { definePlugin } from '@pet-adopt/plugin-sdk'
 
 import { EditForm } from './screens/EditForm'
 import { FormsList } from './screens/FormsList'
+import { FormsWidget } from './screens/FormsWidget'
 import { Responses } from './screens/Responses'
 import { FORM_BUILDER, formBuilderStorage } from './storage'
 
@@ -41,6 +42,13 @@ export const formBuilder = definePlugin<{ title?: string } | void>((options) => 
       path: 'forms/:id/responses',
       title: 'Responses',
       component: ({ params, searchParams }) => <Responses id={params.id} page={searchParams.page} />,
+    },
+  ],
+  dashboardWidgets: [
+    {
+      id: 'responses',
+      title: options?.title ?? 'Forms',
+      component: () => <FormsWidget />,
     },
   ],
 }))
