@@ -257,23 +257,38 @@ const darken = (shadow: string) =>
   shadow.replace(/rgba\(0, 0, 0, ([\d.]+)\)/g, (_, alpha) => `rgba(0, 0, 0, ${Math.min(0.6, Number(alpha) * 2.5).toFixed(2)})`)
 
 /** Turn a palette into every colour variable the stylesheet uses. */
+/**
+ * `ensureContrast` against several backgrounds at once: the colour is nudged until it reaches `min`
+ * on every one of them (they are all light, or all dark, in one mode, so the nudges agree).
+ */
+function ensureContrastOnAll(fg: string, backgrounds: string[], min: number): string {
+  let color = fg
+  for (let pass = 0; pass < 2; pass++) for (const background of backgrounds) color = ensureContrast(color, background, min)
+  return color
+}
+
 function colorTokens(p: Palette, mode: Mode, shadow: ShadowKey): Record<string, string> {
   const { primary, bg, surface, ink } = p
   const bandBg = mode === 'light' ? mix(ink, '#000000', 0.2) : mix(bg, '#000000', 0.45)
+  const surfaceAlt = mix(ink, bg, 0.97)
+  const tint = p.tint ?? mix(primary, bg, 0.92)
+  // Muted text and links appear on the page, on cards, on tinted sections and on muted panels, so
+  // they must reach 4.5:1 (WCAG 1.4.3) on all of them, not only on the page background.
+  const textBackgrounds = [bg, surface, surfaceAlt, tint]
   return {
     '--bg': bg,
     '--surface': surface,
-    '--surface-alt': mix(ink, bg, 0.97),
+    '--surface-alt': surfaceAlt,
     '--placeholder': mix(ink, bg, 0.94),
     '--ink': ink,
-    '--muted': ensureContrast(mix(ink, bg, 0.42), bg, 4.5),
+    '--muted': ensureContrastOnAll(mix(ink, bg, 0.42), textBackgrounds, 4.5),
     '--line': mix(ink, bg, 0.9),
     '--line-strong': mix(ink, bg, 0.8),
-    '--tint': p.tint ?? mix(primary, bg, 0.92),
+    '--tint': tint,
     '--primary': primary,
     '--on-primary': readableOn(primary),
     // Brand colours are often too light to read as text, so links and outlined buttons use this.
-    '--primary-text': ensureContrast(primary, bg, 4.5),
+    '--primary-text': ensureContrastOnAll(primary, textBackgrounds, 4.5),
     '--band-bg': bandBg,
     '--band-ink': '#f9fafb',
     '--band-link': ensureContrast(mix(primary, '#ffffff', 0.5), bandBg, 4.5),

@@ -215,7 +215,7 @@ function PickerBody({
                   <li key={item.id}>
                     <label
                       htmlFor={id}
-                      className="flex h-full cursor-pointer flex-col gap-2 rounded-lg border p-2 has-[:focus-visible]:border-ring has-[:focus-visible]:ring-3 has-[:focus-visible]:ring-ring/50 has-[[aria-checked=true]]:border-primary"
+                      className="flex h-full cursor-pointer flex-col gap-2 rounded-lg border p-2 has-[:focus-visible]:border-ring has-[:focus-visible]:ring-3 has-[:focus-visible]:ring-ring has-[[aria-checked=true]]:border-primary"
                     >
                       {/* Decorative: the description under it says what the picture shows. */}
                       <Image

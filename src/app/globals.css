@@ -130,6 +130,6 @@
    site's own styles.css (and the admin layout), not from shadcn. */
 @layer base {
   * {
-    @apply border-border outline-ring/50;
+    @apply border-border outline-ring;
   }
 }

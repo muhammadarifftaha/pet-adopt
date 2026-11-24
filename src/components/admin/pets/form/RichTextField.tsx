@@ -230,7 +230,7 @@ function RichTextEditorField({
       <div
         className={cn(
           "rounded-lg border border-input bg-transparent transition-colors dark:bg-input/30",
-          "focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/50",
+          "focus-within:border-ring focus-within:ring-3 focus-within:ring-ring",
           error && "border-destructive ring-3 ring-destructive/20",
         )}
       >
