@@ -18,7 +18,8 @@
     "check:schemas": "tsx scripts/check-schemas.ts",
     "check:backend": "tsx scripts/check-backend.ts",
     "seed": "tsx --env-file-if-exists=.env scripts/seed.ts",
-    "admin:reset-password": "tsx --env-file-if-exists=.env scripts/reset-password.ts"
+    "admin:reset-password": "tsx --env-file-if-exists=.env scripts/reset-password.ts",
+    "plugin:generate": "tsx scripts/plugin-generate.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1167.0",
@@ -33,6 +34,7 @@
     "@pet-adopt/plugin-form-builder": "workspace:*",
     "@pet-adopt/plugin-resend-email": "workspace:*",
     "@pet-adopt/plugin-sdk": "workspace:*",
+    "@pet-adopt/ui": "workspace:*",
     "@puckeditor/core": "^0.24.0",
     "@tailwindcss/postcss": "^4.3.5",
     "@tanstack/react-table": "^9.3.1",

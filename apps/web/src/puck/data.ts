@@ -3,7 +3,7 @@ import type { Data } from '@puckeditor/core'
 export const EMPTY_DATA: Data = { content: [], root: { props: {} }, zones: {} }
 
 /** Props that are filled in at render time and must never be saved into the page JSON. */
-const TRANSIENT_PROPS = ['pets', 'spotlight', 'profiles', 'catalog', 'headingLevel']
+const TRANSIENT_PROPS = ['pets', 'spotlight', 'profiles', 'catalog', 'form', 'headingLevel']
 
 /** A saved layout is a few kilobytes. Anything near this size is a mistake or an attack. */
 const MAX_BYTES = 1_000_000
@@ -24,6 +24,8 @@ function stripBlock(item: Block): Block {
 function showsHeading(item: Block): boolean {
   const props = item.props as Record<string, unknown>
   if (item.type === 'PetSpotlight') return Boolean(props.spotlight)
+  // The Form block's heading falls back to the form's name, so it shows one whenever the form exists.
+  if (item.type === 'FormBlock') return Boolean(props.form)
   return typeof props.heading === 'string' && props.heading.trim() !== ''
 }
 

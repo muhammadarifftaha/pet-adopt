@@ -7,7 +7,7 @@ import {
   InputGroup,
   InputGroupButton,
   InputGroupInput,
-} from "@/components/ui/input-group";
+} from "@pet-adopt/ui/components/input-group";
 import {
   Select,
   SelectContent,
@@ -16,7 +16,7 @@ import {
   SelectLabel,
   SelectValue,
   SelectTrigger,
-} from "@/components/ui/select";
+} from "@pet-adopt/ui/components/select";
 import { FiSearch } from "react-icons/fi";
 import { petSearchParsers } from "@/app/(admin)/admin/pets/search-params";
 import { SPECIES_CACHE_KEY } from "@/lib/admin/pets-cache";

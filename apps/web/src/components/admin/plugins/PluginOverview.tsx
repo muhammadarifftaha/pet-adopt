@@ -1,8 +1,8 @@
 import Link from 'next/link'
 import { FiAlertTriangle, FiCheckCircle, FiMail } from 'react-icons/fi'
 
-import { Badge } from '@/components/ui/badge'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Badge } from '@pet-adopt/ui/components/badge'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@pet-adopt/ui/components/card'
 import { getEmailPlugin, type PluginInfo } from '@/plugins/registry'
 import type { SessionUser } from '@/server/types'
 

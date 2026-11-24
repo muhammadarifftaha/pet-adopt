@@ -3,7 +3,7 @@
 import React from "react";
 import { Controller, type Control } from "react-hook-form";
 
-import { Checkbox } from "@/components/ui/checkbox";
+import { Checkbox } from "@pet-adopt/ui/components/checkbox";
 import {
   Field,
   FieldContent,
@@ -12,7 +12,7 @@ import {
   FieldLabel,
   FieldLegend,
   FieldSet,
-} from "@/components/ui/field";
+} from "@pet-adopt/ui/components/field";
 import {
   Combobox,
   ComboboxContent,
@@ -20,16 +20,16 @@ import {
   ComboboxInput,
   ComboboxItem,
   ComboboxList,
-} from "@/components/ui/combobox";
-import { Input } from "@/components/ui/input";
+} from "@pet-adopt/ui/components/combobox";
+import { Input } from "@pet-adopt/ui/components/input";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
+} from "@pet-adopt/ui/components/select";
+import { Textarea } from "@pet-adopt/ui/components/textarea";
 import type { Option } from "@/lib/options";
 import type { PetFormValues } from "@/lib/zod-schema/pet";
 

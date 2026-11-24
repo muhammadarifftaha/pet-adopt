@@ -10,7 +10,7 @@ import {
   SidebarHeader,
   SidebarProvider,
   SidebarTrigger,
-} from "@/components/ui/sidebar";
+} from "@pet-adopt/ui/components/sidebar";
 import { getSettings } from "@/lib/queries";
 import { getPluginNav } from "@/plugins/registry";
 import type { SessionUser } from "@/server/types";

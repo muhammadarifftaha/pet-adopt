@@ -5,9 +5,9 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FiChevronDown, FiLogOut, FiUser } from "react-icons/fi";
 
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Badge } from "@/components/ui/badge";
-import { buttonVariants } from "@/components/ui/button";
+import { Avatar, AvatarFallback } from "@pet-adopt/ui/components/avatar";
+import { Badge } from "@pet-adopt/ui/components/badge";
+import { buttonVariants } from "@pet-adopt/ui/components/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -16,7 +16,7 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+} from "@pet-adopt/ui/components/dropdown-menu";
 import { cn } from "@/lib/utils";
 import { signOutAction } from "@/server/actions/auth";
 import type { SessionUser } from "@/server/types";

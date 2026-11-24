@@ -14,10 +14,10 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
   AlertDialogTrigger,
-} from '@/components/ui/alert-dialog'
-import { Badge } from '@/components/ui/badge'
-import { Button, buttonVariants } from '@/components/ui/button'
-import { Card, CardContent, CardFooter, CardHeader } from '@/components/ui/card'
+} from '@pet-adopt/ui/components/alert-dialog'
+import { Badge } from '@pet-adopt/ui/components/badge'
+import { Button, buttonVariants } from '@pet-adopt/ui/components/button'
+import { Card, CardContent, CardFooter, CardHeader } from '@pet-adopt/ui/components/card'
 import {
   Dialog,
   DialogContent,
@@ -26,10 +26,10 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
-} from '@/components/ui/dialog'
-import { Field, FieldError, FieldLabel } from '@/components/ui/field'
-import { Input } from '@/components/ui/input'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+} from '@pet-adopt/ui/components/dialog'
+import { Field, FieldError, FieldLabel } from '@pet-adopt/ui/components/field'
+import { Input } from '@pet-adopt/ui/components/input'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@pet-adopt/ui/components/select'
 import { PRESETS, PRESET_KEYS } from '@/lib/theme'
 import {
   activateThemeAction,

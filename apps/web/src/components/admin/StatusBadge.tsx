@@ -1,4 +1,4 @@
-import { Badge } from '@/components/ui/badge'
+import { Badge } from '@pet-adopt/ui/components/badge'
 
 // Pet statuses (available, pending, adopted ...) and page states (draft, published, archived) share one badge.
 // TODO(ui): pick the colours you want per status.

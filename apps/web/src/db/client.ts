@@ -171,7 +171,8 @@ const holder = ((globalThis as { __petAdoptDb?: Holder }).__petAdoptDb ??= {})
 const tablesFor = (dialect: Dialect): Schema => (dialect === 'pg' ? (pgSchema as unknown as Schema) : sqliteSchema)
 
 /**
- * Opens the database once per process. SQLite also applies pending migrations on first use.
+ * Opens the database once per process. SQLite also applies pending migrations (the site's, then
+ * plugins') on first use.
  *
  * In development the connection outlives hot reloads, but a reload can bring a changed schema
  * module (a new column). The cached tables would then be stale and Drizzle fails on the new column
@@ -191,11 +192,26 @@ export async function getDatabase(): Promise<Database> {
       if (rebound.dialect === 'sqlite' && !isBuildPhase()) {
         const { runMigrations } = await import('./migrate')
         await runMigrations(rebound)
+        await migratePluginsQuietly(rebound)
       }
       return rebound
     })()
   }
   return holder.promise!
+}
+
+/**
+ * SQLite: plugins' own migrations run right after the site's, as the site's do. A plugin that fails
+ * is logged and shown as not ready in the admin; it never stops the site from opening its database.
+ * (Must not call getDatabase: the database is still being opened.)
+ */
+async function migratePluginsQuietly(database: Database) {
+  try {
+    const { migratePlugins } = await import('@/plugins/storage')
+    await migratePlugins(database)
+  } catch (error) {
+    logError(error, 'Could not set up plugin tables')
+  }
 }
 
 function openOnce(): Promise<Database> {
@@ -211,6 +227,7 @@ function openOnce(): Promise<Database> {
         await database.close().catch(() => undefined)
         throw error
       }
+      await migratePluginsQuietly(database)
     }
     return database
   })().catch((error) => {

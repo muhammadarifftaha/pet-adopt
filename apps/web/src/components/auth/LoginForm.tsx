@@ -5,10 +5,10 @@ import { Controller, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { loginSchema, LoginSchemaType } from "@/lib/zod-schema/auth";
 import { signInAction } from "@/server/actions/auth";
-import { Field, FieldError, FieldGroup, FieldLabel } from "../ui/field";
-import { Input } from "../ui/input";
-import { Button } from "../ui/button";
-import { Card, CardContent, CardFooter, CardHeader } from "../ui/card";
+import { Field, FieldError, FieldGroup, FieldLabel } from "@pet-adopt/ui/components/field";
+import { Input } from "@pet-adopt/ui/components/input";
+import { Button } from "@pet-adopt/ui/components/button";
+import { Card, CardContent, CardFooter, CardHeader } from "@pet-adopt/ui/components/card";
 import { SiteSetting } from "@/server/types";
 
 export default function LoginForm({

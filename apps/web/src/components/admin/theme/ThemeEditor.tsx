@@ -7,11 +7,11 @@ import { FiMoon, FiRotateCcw, FiSun } from 'react-icons/fi'
 
 import { useUnsavedChanges } from '@/components/admin/useUnsavedChanges'
 import type { ThemePreviewMessage } from '@/components/site/ThemePreviewBridge'
-import { Badge } from '@/components/ui/badge'
-import { Button, buttonVariants } from '@/components/ui/button'
-import { Field, FieldDescription, FieldError, FieldLabel, FieldLegend, FieldSet } from '@/components/ui/field'
-import { Input } from '@/components/ui/input'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Badge } from '@pet-adopt/ui/components/badge'
+import { Button, buttonVariants } from '@pet-adopt/ui/components/button'
+import { Field, FieldDescription, FieldError, FieldLabel, FieldLegend, FieldSet } from '@pet-adopt/ui/components/field'
+import { Input } from '@pet-adopt/ui/components/input'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@pet-adopt/ui/components/select'
 import {
   BUTTON_OPTIONS,
   DENSITY_OPTIONS,

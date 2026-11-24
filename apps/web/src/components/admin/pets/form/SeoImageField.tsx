@@ -4,8 +4,8 @@ import React from "react";
 import Image from "next/image";
 import { Controller } from "react-hook-form";
 
-import { Button } from "@/components/ui/button";
-import { FieldDescription, FieldError, FieldLegend, FieldSet } from "@/components/ui/field";
+import { Button } from "@pet-adopt/ui/components/button";
+import { FieldDescription, FieldError, FieldLegend, FieldSet } from "@pet-adopt/ui/components/field";
 
 import { MediaPickerDialog } from "./MediaPickerDialog";
 import { fieldId, type FormControl } from "./fields";

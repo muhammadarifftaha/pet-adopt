@@ -59,8 +59,15 @@ import { removeUpload, saveUpload } from '../src/server/uploads'
 import { siteIcons } from '../src/lib/queries'
 import { activateTheme, createTheme, deleteTheme, getTheme, listThemes, updateTheme } from '../src/server/themes'
 import { createResetLink, isResetTokenValid, prepareResetEmail, resetPasswordWithToken } from '../src/server/password-reset'
-import type { EmailMessage } from '@pet-adopt/plugin-sdk'
+import { host, pluginTablePrefix, provideHost, type EmailMessage } from '@pet-adopt/plugin-sdk'
+import { formBuilderStorage, openFormsDatabase } from '@pet-adopt/plugin-form-builder'
+import * as forms from '@pet-adopt/plugin-form-builder/server'
+// The services plugins reach through `host()` (sign-in, limits, phone, email), as the server registers them.
+import '../src/plugins/host'
 import { resendEmail } from '@pet-adopt/plugin-resend-email'
+import { forgetPluginStorageStatus, getPluginStorageStatus } from '../src/plugins/storage'
+import { storageProblems } from '../src/plugins/storage-rules'
+import { applyPluginMigrations, pluginMigrationStates } from '../src/db/plugin-migrations'
 import { createUser, deleteUser, ensureOwner, listUsers, resetPassword, updateUser } from '../src/server/users'
 
 let failures = 0
@@ -1259,6 +1266,235 @@ await check('reset emails: same answer for unknown addresses, sent only to real 
 
   ok(/RESEND_API_KEY/.test(await resendEmail({ apiKey: '', from: 'a@b.test' }).email!.send(sent[0]).then(() => '', (e: Error) => e.message)), 'Resend without a key fails clearly, without a request')
   await deleteUser(id)
+})
+
+// --- plugins with their own tables -------------------------------------------------------
+
+await check('plugin storage: names must carry the plugin prefix, schemas must be twins, migrations in order and only on its own tables', async () => {
+  ok(storageProblems('form-builder', formBuilderStorage).length === 0, `the form builder passes: ${storageProblems('form-builder', formBuilderStorage).join(' ')}`)
+  ok(pluginTablePrefix('form-builder') === 'plugin_form_builder_', 'dashes become underscores in the prefix')
+
+  const wrongOwner = storageProblems('other-plugin', formBuilderStorage)
+  ok(wrongOwner.some((p) => /must start with "plugin_other_plugin_"/.test(p)), 'tables of another plugin are refused')
+  ok(wrongOwner.some((p) => /touches/.test(p)), 'and so is SQL on them')
+
+  const sqlOn = (sqlite: string, pg = sqlite) => storageProblems('form-builder', { ...formBuilderStorage, migrations: [{ id: '0000_x', sqlite, pg }] })
+  ok(sqlOn('CREATE TABLE "plugin_form_builder_x" ("id" integer)').length === 0, 'its own table is fine')
+  ok(sqlOn('ALTER TABLE `pets` ADD `x` text').some((p) => p.includes('"pets"')), 'altering a site table is refused')
+  ok(sqlOn('CREATE TABLE "plugin_form_builder_x" ("m" integer REFERENCES "public"."media"("id"))').some((p) => p.includes('"media"')), 'a foreign key into a site table is refused')
+  ok(sqlOn('CREATE INDEX "media_idx" ON "plugin_form_builder_x" ("id")').some((p) => p.includes('"media_idx"')), 'an index name without the prefix is refused')
+  ok(sqlOn('DELETE FROM users').some((p) => p.includes('"users"')), 'deleting from a site table is refused')
+  ok(sqlOn('CREATE TABLE `__new_plugin_form_builder_x` (`id` integer);\n--> statement-breakpoint\nALTER TABLE `__new_plugin_form_builder_x` RENAME TO `plugin_form_builder_x`').length === 0, "drizzle-kit's table rebuild is allowed")
+
+  const order = storageProblems('form-builder', {
+    ...formBuilderStorage,
+    migrations: [{ id: '0001_b', sqlite: 'select 1', pg: 'select 1' }, { id: '0000_a', sqlite: 'select 1', pg: '' }, { id: 'bad id', sqlite: 'x', pg: 'x' }],
+  })
+  ok(order.some((p) => /must sort after/.test(p)) && order.some((p) => /no pg SQL/.test(p)) && order.some((p) => /must look like/.test(p)), `order, missing SQL and bad ids are reported: ${order.join(' | ')}`)
+
+  const notTwins = storageProblems('form-builder', { ...formBuilderStorage, tables: { sqlite: formBuilderStorage.tables.sqlite, pg: {} } })
+  ok(notTwins.some((p) => /not twins/.test(p)), 'a table missing from one dialect is reported')
+})
+
+await check('plugin migrations: run once in order, recorded with a checksum, a changed or out-of-order migration is refused, a failure rolls back', async () => {
+  const database = await getDatabase()
+  const table = 'plugin_check_notes'
+  const exec = async (q: string) => (dialect === 'pg' ? (db as unknown as { execute(q: unknown): Promise<unknown> }).execute(sql.raw(q)) : db.run(sql.raw(q)))
+  const create = { id: '0000_init', sqlite: `CREATE TABLE "${table}" ("id" integer PRIMARY KEY, "body" text NOT NULL)`, pg: `CREATE TABLE "${table}" ("id" serial PRIMARY KEY, "body" text NOT NULL)` }
+  const addColumn = { id: '0001_pinned', sqlite: `ALTER TABLE "${table}" ADD "pinned" integer`, pg: `ALTER TABLE "${table}" ADD "pinned" integer` }
+  const drop = async () => {
+    await exec(`DROP TABLE IF EXISTS "${table}"`)
+    await db.delete(t.pluginMigrations).where(eq(t.pluginMigrations.plugin, 'check'))
+  }
+  await drop()
+  try {
+    let [state] = await pluginMigrationStates(database, [{ plugin: 'check', migrations: [create] }])
+    ok(state.pending.join() === '0000_init' && !state.applied.length, 'a new plugin has everything pending')
+
+    // Two servers starting at once: the migration runs exactly once.
+    const runs = await Promise.all([applyPluginMigrations(database, { plugin: 'check', migrations: [create] }), applyPluginMigrations(database, { plugin: 'check', migrations: [create] })])
+    ok(runs.flat().length === 1, `ran once, not twice: ${JSON.stringify(runs)}`)
+    await exec(`INSERT INTO "${table}" ("body") VALUES ('hello')`)
+
+    ok((await applyPluginMigrations(database, { plugin: 'check', migrations: [create, addColumn] })).join() === '0001_pinned', 'a later migration runs on its own')
+    ;[state] = await pluginMigrationStates(database, [{ plugin: 'check', migrations: [create, addColumn] }])
+    ok(!state.pending.length && state.applied.length === 2, 'both recorded')
+
+    const edited = { ...create, sqlite: `${create.sqlite} -- edited`, pg: `${create.pg} -- edited` }
+    ;[state] = await pluginMigrationStates(database, [{ plugin: 'check', migrations: [edited, addColumn] }])
+    ok(state.changed.join() === '0000_init', 'an edited migration is reported as changed')
+    ok(/changed after it ran/.test(await applyPluginMigrations(database, { plugin: 'check', migrations: [edited, addColumn] }).then(() => '', (e: Error) => e.message)), 'and is refused')
+
+    const sneaked = { id: '0000_b_sneaked', sqlite: 'select 1', pg: 'select 1' }
+    ok(/sorts before/.test(await applyPluginMigrations(database, { plugin: 'check', migrations: [create, sneaked, addColumn] }).then(() => '', (e: Error) => e.message)), 'a migration slipped in before one that ran is refused')
+
+    // Second statement fails: the first one is rolled back and nothing is recorded.
+    const broken = { id: '0002_broken', sqlite: `ALTER TABLE "${table}" ADD "x" integer;\n--> statement-breakpoint\nALTER TABLE "no_such_table" ADD "y" integer`, pg: `ALTER TABLE "${table}" ADD "x" integer;\n--> statement-breakpoint\nALTER TABLE "no_such_table" ADD "y" integer` }
+    let failed = false
+    await applyPluginMigrations(database, { plugin: 'check', migrations: [create, addColumn, broken] }).catch(() => (failed = true))
+    ;[state] = await pluginMigrationStates(database, [{ plugin: 'check', migrations: [create, addColumn, broken] }])
+    ok(failed && state.pending.join() === '0002_broken', 'the failed migration is still pending')
+    ok(/no such column|does not exist/.test(await exec(`SELECT "x" FROM "${table}"`).then(() => '', (e: Error) => `${e.message} ${String(e.cause ?? '')}`)), 'and its first statement did not stick')
+  } finally {
+    await drop()
+  }
+})
+
+await check('plugin storage: the form builder is set up by migrate, cascades responses, and is flagged (not queried) while its tables are missing', async () => {
+  forgetPluginStorageStatus()
+  const [status] = (await getPluginStorageStatus()).filter((s) => s.plugin === 'form-builder')
+  ok(status?.ready, `the form builder is ready after migrate: ${status?.problem}`)
+
+  const forms = await openFormsDatabase()
+  const [form] = await forms.db.insert(forms.t.forms).values({ name: 'Check form', fields: [] }).returning()
+  await forms.db.insert(forms.t.responses).values({ formId: form.id, answers: [{ id: 'a', label: 'A', type: 'text', value: 'x' }] })
+  ok(form.isOpen === true && Array.isArray(form.fields), 'defaults and JSON columns round-trip')
+  await forms.db.delete(forms.t.forms).where(eq(forms.t.forms.id, form.id))
+  const left = await forms.db.select().from(forms.t.responses).where(eq(forms.t.responses.formId, form.id))
+  ok(left.length === 0, 'deleting a form deletes its responses')
+
+  // As if the plugin had just been added to a site where `pnpm migrate` has not run since.
+  const saved = await db.select().from(t.pluginMigrations).where(eq(t.pluginMigrations.plugin, 'form-builder'))
+  await db.delete(t.pluginMigrations).where(eq(t.pluginMigrations.plugin, 'form-builder'))
+  try {
+    forgetPluginStorageStatus()
+    const [flagged] = (await getPluginStorageStatus()).filter((s) => s.plugin === 'form-builder')
+    ok(!flagged.ready && /pnpm migrate/.test(flagged.problem ?? '') && flagged.pending.join() === '0000_init', `flagged with what to do: ${flagged.problem}`)
+    ok(/not set up yet/.test(await userError(openFormsDatabase())), 'opening its tables is refused with a message an owner can act on')
+  } finally {
+    await db.insert(t.pluginMigrations).values(saved)
+    forgetPluginStorageStatus()
+  }
+  ok((await getPluginStorageStatus()).every((s) => s.ready), 'ready again once recorded')
+})
+
+await check('form builder: forms are validated and unique; answers are checked per field and stored as a snapshot; honeypot, closed forms, limits, CSV and cascade', async () => {
+  // Forms: one message per problem, keyed so the editor can put it next to its input.
+  const bad = await fieldErrors(forms.createForm({ name: ' ', fields: [{ type: 'choice', label: 'Pick' }, { type: 'nope', label: 'x' }], settings: { notifyEmail: 'not-an-email' } }))
+  ok(bad.name && bad['fields.0.options'] && bad['fields.1.type'] && bad['settings.notifyEmail'], `form errors: ${JSON.stringify(bad)}`)
+
+  const fields = [
+    { id: 'name', type: 'text', label: 'Your name', required: true },
+    { id: 'email', type: 'email', label: 'Email', required: true },
+    { id: 'phone', type: 'phone', label: 'Phone' },
+    { id: 'home', type: 'choice', label: 'Home', options: ['House', 'Flat'], display: 'dropdown', required: true },
+    { id: 'pets', type: 'checkboxes', label: 'Other pets', options: ['Dog', 'Cat', 'Bird'] },
+    { id: 'kids', type: 'number', label: 'Children' },
+    { id: 'from', type: 'date', label: 'Available from' },
+    { id: 'notes', type: 'textarea', label: 'Anything else', hint: 'Optional' },
+    { id: 'agree', type: 'checkbox', label: 'I agree to a home visit', required: true },
+    { type: 'text', label: '  Spaces   collapse  ', unknownProp: '<script>' },
+  ]
+  const { id } = await forms.createForm({ name: 'Adoption application', description: 'Tell us about you.\n\n\n\nThanks!', fields, settings: { submitLabel: 'Apply', notifyEmail: 'Team@Example.test' } })
+  ok(/another form/i.test((await fieldErrors(forms.createForm({ name: 'ADOPTION application' }))).name ?? ''), 'names are unique whatever their case')
+  const form = (await forms.getForm(id))!
+  ok(form.fields.length === 10 && form.fields[9].label === 'Spaces collapse' && /^f/.test(form.fields[9].id) && !('unknownProp' in form.fields[9]), 'fields are rebuilt: cleaned label, generated id, unknown props dropped')
+  ok(form.description === 'Tell us about you.\n\nThanks!' && form.settings.notifyEmail === 'team@example.test', 'description and settings are cleaned')
+  ok((await forms.getPublicForm(id))!.submitLabel === 'Apply' && !('settings' in (await forms.getPublicForm(id))!), 'the public view has the button text and no private settings')
+
+  // Answers: checked per type, errors keyed by field id.
+  const client = { client: '10.77.0.1' }
+  const wrong = await fieldErrors(forms.submitResponse(id, { email: 'nope', phone: '123', home: 'Castle', pets: ['Dog', 'Lion'], kids: '2e3', from: '2026-02-31', agree: false }, client))
+  for (const key of ['name', 'email', 'phone', 'home', 'pets', 'kids', 'from', 'agree']) ok(wrong[key], `"${key}" is reported: ${JSON.stringify(wrong)}`)
+
+  const good = { name: '  Ana  ', email: 'Ana@Example.TEST', phone: '+60 12-345 6789', home: 'Flat', pets: ['Bird', 'Dog'], kids: '2', from: '2026-12-01', notes: 'Line one\r\nLine two', agree: 'on', evil: 'ignored' }
+  const sent = await forms.submitResponse(id, good, client)
+  ok(sent.message.length > 0 && sent.stored, 'a valid response is stored')
+  const [stored] = (await forms.listResponses(id)).items
+  const value = (k: string) => stored.answers.find((a) => a.id === k)?.value
+  ok(value('name') === 'Ana' && value('email') === 'ana@example.test' && value('phone') === '+60123456789', `text cleaned, email lower-cased, phone stored as E.164: ${JSON.stringify(stored.answers)}`)
+  ok(JSON.stringify(value('pets')) === '["Dog","Bird"]' && value('agree') === true && value('notes') === 'Line one\nLine two', 'choices in form order, ticked box true, line breaks normalised')
+  ok(stored.answers.length === 10 && !stored.answers.some((a) => a.id === 'evil') && stored.answers[0].label === 'Your name', 'one answer per field, with its label; unknown keys ignored')
+
+  // Honeypot: same answer, nothing stored.
+  const bot = await forms.submitResponse(id, good, { client: '10.77.0.2', honeypot: 'http://spam.test' })
+  ok(bot.message === sent.message && bot.stored === null && (await forms.listResponses(id)).total === 1, 'a filled honeypot looks like success and stores nothing')
+
+  // Renaming a field keeps old answers under their old label; removing one keeps its CSV column.
+  await forms.updateForm(id, { fields: fields.slice(0, 8).map((f) => (f.id === 'name' ? { ...f, label: 'Full name' } : f)) })
+  await forms.submitResponse(id, { ...good, name: '=HYPERLINK("http://evil.test")', notes: 'Says "hi", twice' }, { client: '10.77.0.3' })
+  const { csv, filename } = await forms.exportResponsesCsv(id)
+  const lines = csv.replace(/^﻿/, '').trim().split('\r\n')
+  ok(/^adoption-application-responses-\d{4}-\d{2}-\d{2}\.csv$/.test(filename), `file name: ${filename}`)
+  ok(lines[0] === 'Submitted,Full name,Email,Phone,Home,Other pets,Children,Available from,Anything else,I agree to a home visit,Spaces collapse', `header keeps removed fields at the end: ${lines[0]}`)
+  ok(lines[2].includes(`"'=HYPERLINK(""http://evil.test"")"`) && lines[2].includes('"Says ""hi"", twice"'), `formulas are defused and quotes escaped: ${lines[2]}`)
+
+  // Read state, paging, deleting only this form's responses.
+  let summary = (await forms.listForms()).find((f) => f.id === id)!
+  ok(summary.responses === 2 && summary.unread === 2 && summary.lastResponseAt instanceof Date && summary.fieldCount === 8, `summary: ${JSON.stringify(summary)}`)
+  const page = await forms.listResponses(id, { page: 99, limit: 1 })
+  ok(page.page === 2 && page.totalPages === 2 && page.items.length === 1, 'a page past the end is clamped to the last one')
+  ok((await forms.markResponsesRead(id, [page.items[0].id])) === 1 && (await forms.markResponsesRead(id)) === 1, 'marking read counts only unread rows')
+  const other = await forms.createForm({ name: 'Volunteer sign-up', fields: [{ id: 'n', type: 'text', label: 'Name' }] })
+  await forms.submitResponse(other.id, { n: 'Bo' }, { client: '10.77.0.4' })
+  const otherResponse = (await forms.listResponses(other.id)).items[0].id
+  ok((await forms.deleteResponses(id, [otherResponse, page.items[0].id])) === 1, "another form's response is not deleted through this form")
+  summary = (await forms.listForms()).find((f) => f.id === id)!
+  ok(summary.responses === 1 && summary.unread === 0, 'counts follow')
+
+  // Notification: sent to the form's address through the site's email sender.
+  const mails: EmailMessage[] = []
+  const realHost = host()
+  provideHost({ ...realHost, emailSender: () => ({ send: async (m) => void mails.push(m) }) })
+  try {
+    await forms.notifyNewResponse((await forms.getForm(id))!, stored.answers)
+  } finally {
+    provideHost(realHost)
+  }
+  ok(mails.length === 1 && mails[0].to === 'team@example.test' && mails[0].text.includes('Your name: Ana'), `notification: ${JSON.stringify(mails[0])}`)
+
+  // Closed forms, then the per-visitor limit (10 per 10 minutes, across forms).
+  await forms.updateForm(id, { isOpen: false })
+  ok(/not accepting/.test(await userError(forms.submitResponse(id, good, { client: '10.77.0.5' }))), 'a closed form refuses responses')
+  for (let i = 0; i < 10; i++) await forms.submitResponse(other.id, { n: `v${i}` }, { client: '10.77.0.9' })
+  ok(/Too many attempts/.test(await userError(forms.submitResponse(other.id, { n: 'one more' }, { client: '10.77.0.9' }))), 'the 11th response from one address is refused')
+  ok((await forms.submitResponse(other.id, { n: 'someone else' }, { client: '10.77.0.10' })).stored, 'another address is not affected')
+
+  // Deleting a form deletes its responses.
+  await forms.deleteForm(other.id)
+  const { db: fdb, t: ft } = await openFormsDatabase()
+  ok((await fdb.select().from(ft.responses).where(eq(ft.responses.formId, other.id))).length === 0, 'responses go with their form')
+  ok(/no longer exists/.test(await userError(forms.deleteForm(other.id))), 'deleting twice says it is gone')
+  await forms.deleteForm(id)
+  await db.delete(t.rateLimits).where(sql`${t.rateLimits.key} like 'plugin:form-builder:%'`)
+})
+
+await check('form builder: a "Which pet?" question offers listed pets that are not adopted, checks the pick when sent, and stores the name with a reference', async () => {
+  ok((await fieldErrors(forms.createForm({ name: 'Bad list', fields: [{ type: 'source', label: 'Pick', source: 'cars' }] })))['fields.0.source'], 'an unknown list is refused')
+
+  // Its own photo: earlier checks delete the shared one. Say which field broke if a pet cannot be made.
+  const photo = await saveUpload({ data: png, alt: 'Pet question' })
+  const pet = (input: Record<string, unknown>) =>
+    savePet(null, { species: 'dog', photoIds: [photo.id], ...input }).catch((e) => {
+      throw new Error(`savePet ${input.name}: ${JSON.stringify((e as ValidationError).fieldErrors ?? e.message)}`)
+    })
+  const listed = await pet({ name: 'Zuri Pickme' })
+  const pending = await pet({ name: 'Ayla Pending', species: 'cat', status: 'pending' })
+  const adopted = await pet({ name: 'Bo Adopted', status: 'adopted' })
+  const hidden = await pet({ name: 'Cy Hidden', unlisted: true })
+  const { id } = await forms.createForm({ name: 'Pet question', fields: [{ id: 'pet', type: 'source', source: 'pets', label: 'Which pet?', required: true }] })
+  try {
+    const choices = (await forms.getPublicForm(id))!.fields[0].choices ?? []
+    const labels = choices.map((c) => c.label)
+    ok(labels.includes('Zuri Pickme') && labels.includes('Ayla Pending (adoption pending)'), `listed pets are offered, pending ones marked: ${labels.join(', ')}`)
+    ok(!labels.some((l) => /Bo Adopted|Cy Hidden/.test(l)), 'adopted and unlisted pets are not offered')
+    ok(choices.find((c) => c.label === 'Zuri Pickme')?.value === String(listed.id), "a choice's value is the pet's id")
+
+    const client = { client: '10.78.0.1' }
+    ok(/no longer available/.test((await fieldErrors(forms.submitResponse(id, { pet: String(adopted.id) }, client))).pet ?? ''), 'an adopted pet cannot be picked')
+    ok(/no longer available/.test((await fieldErrors(forms.submitResponse(id, { pet: String(hidden.id) }, client))).pet ?? ''), 'an unlisted pet cannot be picked')
+    ok(/required/.test((await fieldErrors(forms.submitResponse(id, { pet: '' }, client))).pet ?? ''), 'a required pick cannot be blank')
+
+    await forms.submitResponse(id, { pet: String(listed.id) }, client)
+    const [answer] = (await forms.listResponses(id)).items[0].answers
+    ok(answer.value === 'Zuri Pickme' && answer.ref === `pets:${listed.id}` && answer.type === 'source', `stored as the name with a reference: ${JSON.stringify(answer)}`)
+    ok((await forms.exportResponsesCsv(id)).csv.includes('Zuri Pickme'), 'the CSV shows the name')
+  } finally {
+    await forms.deleteForm(id)
+    for (const made of [listed, pending, adopted, hidden]) await deletePet(made.id)
+    await removeUpload(photo.id)
+    await db.delete(t.rateLimits).where(sql`${t.rateLimits.key} like 'plugin:form-builder:%'`)
+  }
 })
 
 // FK enforcement is on (SQLite needs a pragma)

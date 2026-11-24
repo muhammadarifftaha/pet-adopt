@@ -7,13 +7,13 @@ import {
   CardFooter,
   CardHeader,
   CardTitle,
-} from "@/components/ui/card";
+} from "@pet-adopt/ui/components/card";
 import Image from "next/image";
 import { StatusBadge } from "../StatusBadge";
 import { capitalize } from "es-toolkit";
 import Link from "next/link";
 import { FiEdit, FiMapPin, FiTrash } from "react-icons/fi";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { Button, buttonVariants } from "@pet-adopt/ui/components/button";
 import { PetSummary } from "@/server/types";
 
 export default function PetCard({ pet }: { pet: PetSummary }) {

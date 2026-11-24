@@ -12,8 +12,8 @@ import { StatusBadge } from "@/components/admin/StatusBadge";
 import { useUnsavedChanges } from "@/components/admin/useUnsavedChanges";
 import { ErrorSummary, type SummaryItem } from "@/components/admin/pets/form/ErrorSummary";
 import { MediaPickerDialog } from "@/components/admin/pets/form/MediaPickerDialog";
-import { Button, buttonVariants } from "@/components/ui/button";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Button, buttonVariants } from "@pet-adopt/ui/components/button";
+import { Card, CardContent, CardHeader } from "@pet-adopt/ui/components/card";
 import {
   Field,
   FieldDescription,
@@ -22,9 +22,9 @@ import {
   FieldLabel,
   FieldLegend,
   FieldSet,
-} from "@/components/ui/field";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
+} from "@pet-adopt/ui/components/field";
+import { Input } from "@pet-adopt/ui/components/input";
+import { Textarea } from "@pet-adopt/ui/components/textarea";
 import { slugify } from "@/lib/slugify";
 import { isSystemPageSlug } from "@/puck/data";
 import { cn } from "@/lib/utils";

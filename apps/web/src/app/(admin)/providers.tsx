@@ -3,7 +3,7 @@
 import React from "react";
 import { NuqsAdapter } from "nuqs/adapters/next/app";
 import { SWRConfig } from "swr";
-import { TooltipProvider } from "@/components/ui/tooltip";
+import { TooltipProvider } from "@pet-adopt/ui/components/tooltip";
 
 export default function Providers({
   children,

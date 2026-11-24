@@ -1,6 +1,7 @@
 import { getPetSpotlight, getSettings, queryCatalog, queryPetCards, queryPetProfiles, type CatalogParams } from '@/lib/queries'
 import type { SiteSetting } from '@/server/types'
 
+import { fetchPublicForm } from './forms'
 import type { PuckSiteMetadata } from './types'
 
 export function toSiteMeta(settings: SiteSetting): PuckSiteMetadata['site'] {
@@ -23,6 +24,7 @@ export async function buildSiteMetadata(searchParams?: CatalogParams): Promise<P
     fetchPet: (id) => getPetSpotlight(id),
     fetchPetProfiles: (filters) => queryPetProfiles(filters),
     fetchCatalog: (params) => queryCatalog(params),
+    fetchForm: (id) => fetchPublicForm(id),
     searchParams,
   }
 }

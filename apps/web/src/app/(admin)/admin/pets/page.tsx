@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { PageHeader } from "@/components/admin/PageHeader";
-import { buttonVariants } from "@/components/ui/button";
+import { buttonVariants } from "@pet-adopt/ui/components/button";
 import { unwrap } from "@/lib/admin/unwrap";
 import {
   listPetsAction,

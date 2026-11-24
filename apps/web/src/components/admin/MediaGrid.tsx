@@ -12,11 +12,11 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-} from '@/components/ui/alert-dialog'
-import { Button } from '@/components/ui/button'
-import { Checkbox } from '@/components/ui/checkbox'
-import { Separator } from '@/components/ui/separator'
-import { Toggle } from '@/components/ui/toggle'
+} from '@pet-adopt/ui/components/alert-dialog'
+import { Button } from '@pet-adopt/ui/components/button'
+import { Checkbox } from '@pet-adopt/ui/components/checkbox'
+import { Separator } from '@pet-adopt/ui/components/separator'
+import { Toggle } from '@pet-adopt/ui/components/toggle'
 import { useInvalidateMedia } from '@/lib/admin/media-cache'
 import { cn } from '@/lib/utils'
 import { deleteManyMediaAction } from '@/server/actions/media'

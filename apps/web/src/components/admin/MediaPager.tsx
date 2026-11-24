@@ -6,7 +6,7 @@ import React from 'react'
 
 import { mediaSearchParsers } from '@/app/(admin)/admin/media/search-params'
 import PetPagination from '@/components/admin/pets/PetPagination'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@pet-adopt/ui/components/select'
 import { MEDIA_PAGE_SIZES } from '@/lib/admin/media-page'
 
 // The media library's footer: "Showing 25–48 of 130", how many per page, and the pager. Both write

@@ -9,9 +9,9 @@ import { EmptyState } from '@/components/admin/EmptyState'
 import { MediaGrid } from '@/components/admin/MediaGrid'
 import { MediaPager } from '@/components/admin/MediaPager'
 import { UploadPhotosDialog } from '@/components/admin/UploadPhotosDialog'
-import { Button } from '@/components/ui/button'
-import { InputGroup, InputGroupButton, InputGroupInput } from '@/components/ui/input-group'
-import { Skeleton } from '@/components/ui/skeleton'
+import { Button } from '@pet-adopt/ui/components/button'
+import { InputGroup, InputGroupButton, InputGroupInput } from '@pet-adopt/ui/components/input-group'
+import { Skeleton } from '@pet-adopt/ui/components/skeleton'
 import { useMediaList, type MediaListSeed } from '@/lib/admin/use-media-list'
 
 // The media library screen, built like the pets list: the view lives in the URL (?search=&page=

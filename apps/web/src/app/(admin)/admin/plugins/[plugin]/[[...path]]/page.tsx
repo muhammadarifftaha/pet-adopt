@@ -2,8 +2,10 @@ import type { Metadata } from 'next'
 import { notFound, redirect } from 'next/navigation'
 
 import { PageHeader } from '@/components/admin/PageHeader'
+import { PluginNotReady } from '@/components/admin/plugins/PluginNotReady'
 import { PluginOverview } from '@/components/admin/plugins/PluginOverview'
 import { findPluginScreen, getPluginInfo } from '@/plugins/registry'
+import { getPluginStorageStatusFor } from '@/plugins/storage'
 import { getSessionUser } from '@/server/session'
 
 type Props = {
@@ -38,11 +40,17 @@ export default async function PluginScreenPage({ params, searchParams }: Props) 
   const user = await getSessionUser()
   if (!user) redirect('/admin/login')
 
+  // A plugin with tables of its own that `pnpm migrate` has not set up yet: say so instead of
+  // rendering a screen that would fail on a missing table.
+  const storage = await getPluginStorageStatusFor(plugin)
+  const notReady = storage && !storage.ready ? <PluginNotReady status={storage} user={user} /> : null
+
   if (overview) {
     if (user.role !== 'admin') redirect('/admin')
     return (
       <>
         <PageHeader title={overview.title} />
+        {notReady ? <div className="mb-6">{notReady}</div> : null}
         <PluginOverview info={overview} user={user} />
       </>
     )
@@ -54,7 +62,7 @@ export default async function PluginScreenPage({ params, searchParams }: Props) 
   return (
     <>
       <PageHeader title={match!.screen.title} />
-      <Screen user={user} params={match!.params} searchParams={await searchParams} />
+      {notReady ?? <Screen user={user} params={match!.params} searchParams={await searchParams} />}
     </>
   )
 }

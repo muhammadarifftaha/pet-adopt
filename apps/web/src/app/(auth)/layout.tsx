@@ -9,7 +9,7 @@ import { getSessionUser } from "@/server/session";
 // Same styling setup as the (admin) layout: Tailwind and the shadcn tokens bridged to the site
 // theme, plus the self-hosted fonts. Do NOT import ../(frontend)/styles.css here (see the note in
 // the (admin) layout).
-import "../globals.css";
+import "@pet-adopt/ui/globals.css";
 import "../(frontend)/fonts";
 import AuthNav from "@/components/auth/AuthNav";
 

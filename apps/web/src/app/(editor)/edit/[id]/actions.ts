@@ -13,6 +13,7 @@ import {
   type PetFilters,
   type PetSpotlightData,
 } from '@/lib/queries'
+import { fetchPublicForm, type PublicForm } from '@/puck/forms'
 import { publishPage, saveDraft } from '@/server/pages'
 import { assertId, toFailure } from '@/server/result'
 import { requireUser } from '@/server/session'
@@ -74,4 +75,9 @@ export async function fetchPetsAction(filters: PetFilters): Promise<PetCardData[
     featuredOnly: Boolean(f.featuredOnly),
     limit: Math.min(Math.max(Number(f.limit) || 8, 1), 24),
   })
+}
+
+/** One form for the editor's Form block preview. Public data: the same form visitors see. */
+export async function fetchFormAction(id: number): Promise<PublicForm | null> {
+  return fetchPublicForm(id)
 }

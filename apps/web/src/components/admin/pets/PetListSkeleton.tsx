@@ -5,8 +5,8 @@ import {
   CardFooter,
   CardHeader,
   CardTitle,
-} from "@/components/ui/card";
-import { Skeleton } from "@/components/ui/skeleton";
+} from "@pet-adopt/ui/components/card";
+import { Skeleton } from "@pet-adopt/ui/components/skeleton";
 
 /** The grid PetList lays its cards out in. Shared so the skeleton and the real list line up. */
 export const PET_GRID =

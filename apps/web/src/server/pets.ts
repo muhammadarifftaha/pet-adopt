@@ -1,7 +1,7 @@
 // Pets: reading, searching and saving. The rules that used to be Payload hooks live in `savePet`.
 import { randomBytes } from 'node:crypto'
 
-import { and, count, desc, eq, gt, inArray, isNotNull, isNull, lte, or, sql, type SQL } from 'drizzle-orm'
+import { and, asc, count, desc, eq, gt, inArray, isNotNull, isNull, lte, ne, or, sql, type SQL } from 'drizzle-orm'
 
 import { getDatabase, type Db, type Schema } from '@/db/client'
 import type * as S from '@/db/schema/sqlite'
@@ -183,6 +183,20 @@ export async function queryPetList(filters: PetFilters = {}): Promise<PetSummary
     .orderBy(desc(t.pets.createdAt), desc(t.pets.id))
     .limit(limit)
   return summaries(db, t, rows)
+}
+
+/**
+ * The pets a visitor can pick in a form ("Which pet are you applying for?"): listed (the same
+ * public rule as every listing) and not adopted, by name. Pending ones are marked.
+ */
+export async function listPetChoices(): Promise<Array<{ id: number; name: string; status: PetStatus }>> {
+  const { db, t } = await getDatabase()
+  return db
+    .select({ id: t.pets.id, name: t.pets.name, status: t.pets.status })
+    .from(t.pets)
+    .where(and(...conditions(t, {}), ne(t.pets.status, PetStatus.Adopted)))
+    .orderBy(sql`lower(${t.pets.name})`, asc(t.pets.id))
+    .limit(500)
 }
 
 /** Distinct states and cities of the pets visitors can see, for filter dropdowns. */

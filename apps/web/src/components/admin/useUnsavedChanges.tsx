@@ -11,8 +11,8 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import { Button } from "@/components/ui/button";
+} from "@pet-adopt/ui/components/alert-dialog";
+import { Button } from "@pet-adopt/ui/components/button";
 
 /**
  * Warns before leaving a form with unsaved changes.

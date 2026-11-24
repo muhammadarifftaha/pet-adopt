@@ -3,30 +3,12 @@
 import { isRichTextEmpty, plainTextToDoc, validateRichText } from '@/lib/rich-text'
 import { SLUG_PATTERN } from '@/lib/slugify'
 
-export type FieldErrors = Record<string, string>
+// The error classes and result type live in the plugin SDK, so errors a plugin throws are the same
+// classes `toFailure` checks for. Re-exported here for the app.
+import { UserError, ValidationError, type ActionResult, type FieldErrors } from '@pet-adopt/plugin-sdk'
 
-export type ActionResult<T = void> =
-  | { ok: true; data: T }
-  | { ok: false; error: string; fieldErrors?: FieldErrors }
-
-/** One or more fields are invalid. Safe to show to the user. */
-export class ValidationError extends Error {
-  constructor(
-    public fieldErrors: FieldErrors,
-    message = 'Please fix the highlighted fields.',
-  ) {
-    super(message)
-    this.name = 'ValidationError'
-  }
-}
-
-/** A rule was broken (not found, still in use, not allowed). The message is safe to show. */
-export class UserError extends Error {
-  constructor(message: string) {
-    super(message)
-    this.name = 'UserError'
-  }
-}
+export { UserError, ValidationError }
+export type { ActionResult, FieldErrors }
 
 type WithCode = { code?: unknown; cause?: unknown }
 

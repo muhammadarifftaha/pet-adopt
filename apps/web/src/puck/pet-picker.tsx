@@ -1,5 +1,6 @@
 'use client'
 
+import { FieldLabel } from '@puckeditor/core'
 import React from 'react'
 import useSWR from 'swr'
 
@@ -10,7 +11,8 @@ import { listPetChoicesAction } from './actions'
 export function PetPicker({ id, value, onChange }: { id?: string; value: number | null; onChange: (value: number | null) => void }) {
   const { data, error } = useSWR('puck-pet-choices', () => listPetChoicesAction())
   return (
-    <div className="pet-picker">
+    // Puck draws no label for a custom field: FieldLabel adds a real <label> around the select.
+    <FieldLabel label="Pet" el="label" className="pet-picker">
       <select
         id={id}
         value={value ?? ''}
@@ -25,6 +27,6 @@ export function PetPicker({ id, value, onChange }: { id?: string; value: number 
           </option>
         ))}
       </select>
-    </div>
+    </FieldLabel>
   )
 }

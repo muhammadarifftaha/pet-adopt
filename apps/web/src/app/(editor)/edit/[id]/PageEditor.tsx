@@ -4,11 +4,11 @@ import { Puck, useGetPuck, type Data } from '@puckeditor/core'
 import React, { createContext, useContext, useMemo, useState, useTransition } from 'react'
 import { FiMoon, FiSun } from 'react-icons/fi'
 
-import { Switch } from '@/components/ui/switch'
+import { Switch } from '@pet-adopt/ui/components/switch'
 import { config } from '@/puck/config'
 import type { PuckSiteMetadata } from '@/puck/types'
 
-import { fetchCatalogAction, fetchPetProfilesAction, fetchPetsAction, fetchPetSpotlightAction, publishAction, saveDraftAction } from './actions'
+import { fetchCatalogAction, fetchFormAction, fetchPetProfilesAction, fetchPetsAction, fetchPetSpotlightAction, publishAction, saveDraftAction } from './actions'
 
 type Props = {
   pageId: number
@@ -110,7 +110,7 @@ export function PageEditor({ pageId, title, slug, status, version: initialVersio
     [pageId, slug, status, version, darkCss, dark],
   )
   // Blocks read site settings and fetch live pets through Puck's metadata.
-  const metadata: PuckSiteMetadata = { site, fetchPets: fetchPetsAction, fetchPet: fetchPetSpotlightAction, fetchPetProfiles: fetchPetProfilesAction, fetchCatalog: () => fetchCatalogAction() }
+  const metadata: PuckSiteMetadata = { site, fetchPets: fetchPetsAction, fetchPet: fetchPetSpotlightAction, fetchPetProfiles: fetchPetProfilesAction, fetchCatalog: () => fetchCatalogAction(), fetchForm: fetchFormAction }
 
   return (
     <EditorContext.Provider value={editor}>

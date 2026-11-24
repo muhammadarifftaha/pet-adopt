@@ -2,46 +2,53 @@ import { FiClipboard } from 'react-icons/fi'
 
 import { definePlugin } from '@pet-adopt/plugin-sdk'
 
-// Form builder (scaffold). Lets owners build forms (adoption applications, volunteer sign-ups,
-// contact) and read what visitors send. Only the admin screens exist so far.
+import { EditForm } from './screens/EditForm'
+import { FormsList } from './screens/FormsList'
+import { FormsWidget } from './screens/FormsWidget'
+import { Responses } from './screens/Responses'
+import { FORM_BUILDER, formBuilderStorage } from './storage'
+
+export { FORM_BUILDER, formBuilderStorage, openFormsDatabase } from './storage'
+export * from './fields'
+
+// Form builder. Lets owners build forms (adoption applications, volunteer sign-ups, contact) and
+// read what visitors send. A plugin with its own tables (schema/, migrations.ts, src/storage.ts): adding it to
+// a running site needs `pnpm migrate` (PostgreSQL) before its screens work; until then they show a
+// notice. The field model and its validation are in src/fields.ts.
 //
-// TODO, in order:
-// 1. Storage: tables `forms` (id, name, slug, fields JSON, created/updated) and `form_responses`
-//    (id, form_id ON DELETE CASCADE, answers JSON, created_at) in BOTH schema files, then
-//    `pnpm db:generate`, `pnpm check:schemas`, and a repository in src/server/forms.ts that
-//    validates the fields JSON (types: text, long text, email, phone via src/lib/phone.ts,
-//    choice, checkbox; label, required, options) like `isPuckData` does for layouts.
-// 2. Actions (src/server/actions/forms.ts): list/get/save/delete for signed-in users, and a public
-//    submit action with the throttle in src/server/throttle.ts (per client address) and a honeypot.
-// 3. Screens below: the list, an editor (add, reorder with buttons, remove fields; React Hook Form
-//    + zod like the settings form) and a responses table (TanStack Table, CSV export).
-// 4. A Puck block "Form" in src/puck/config.tsx that picks a form and renders it on a page
-//    (server-rendered, no hooks in the block; the submit button is a small client component).
-// 5. Optional: email new responses through getEmailSender() when the email plugin is ready.
+// Storage: src/storage.ts. Rules: src/server.ts (forms, responses, CSV, public submit with a honeypot
+// and per-visitor and per-form limits). Server actions: src/actions.ts. Field model: src/fields.ts.
+// Admin screens: src/screens (built on @pet-adopt/ui). On the site, forms are shown by the page
+// builder's Form block (apps/web/src/puck/config.tsx, drawn by apps/web/src/components/site/PublicForm.tsx).
 
 export const formBuilder = definePlugin<{ title?: string } | void>((options) => ({
-  name: 'form-builder',
+  name: FORM_BUILDER,
   title: options?.title ?? 'Forms',
   description: 'Build forms for the site, such as adoption applications or volunteer sign-ups, and read the responses.',
+  storage: formBuilderStorage,
   screens: [
     {
       path: '',
       title: options?.title ?? 'Forms',
-      nav: { label: 'Forms', Icon: FiClipboard },
-      // TODO: list forms (name, responses count, last response) with "New form".
-      component: () => <p className="text-sm text-muted-foreground">No forms yet. The form builder is being set up.</p>,
+      nav: { label: options?.title ?? 'Forms', Icon: FiClipboard },
+      component: () => <FormsList />,
     },
     {
       path: 'forms/:id',
       title: 'Edit form',
-      // TODO: the field editor for form `params.id`.
-      component: ({ params }) => <p className="text-sm">Editor for form {params.id} goes here.</p>,
+      component: ({ params }) => <EditForm id={params.id} />,
     },
     {
       path: 'forms/:id/responses',
       title: 'Responses',
-      // TODO: responses table and CSV export.
-      component: ({ params }) => <p className="text-sm">Responses to form {params.id} go here.</p>,
+      component: ({ params, searchParams }) => <Responses id={params.id} page={searchParams.page} />,
+    },
+  ],
+  dashboardWidgets: [
+    {
+      id: 'responses',
+      title: options?.title ?? 'Forms',
+      component: () => <FormsWidget />,
     },
   ],
 }))

@@ -36,8 +36,8 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
   AlertDialogTrigger,
-} from "@/components/ui/alert-dialog";
-import { Button, buttonVariants } from "@/components/ui/button";
+} from "@pet-adopt/ui/components/alert-dialog";
+import { Button, buttonVariants } from "@pet-adopt/ui/components/button";
 import {
   Table,
   TableBody,
@@ -45,7 +45,7 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from "@/components/ui/table";
+} from "@pet-adopt/ui/components/table";
 import { cn } from "@/lib/utils";
 import { isSystemPageSlug } from "@/puck/data";
 import {

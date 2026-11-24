@@ -24,10 +24,10 @@ import { RichTextField } from "@/components/admin/pets/form/RichTextField";
 import { SeoPreview } from "@/components/admin/pets/form/SeoPreview";
 import { DESCRIPTION_MAX_CHARS } from "@/lib/rich-text";
 import { SeoImageField } from "@/components/admin/pets/form/SeoImageField";
-import { Button, buttonVariants } from "@/components/ui/button";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import { FieldGroup, FieldLegend, FieldSet } from "@/components/ui/field";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Button, buttonVariants } from "@pet-adopt/ui/components/button";
+import { Card, CardContent, CardHeader } from "@pet-adopt/ui/components/card";
+import { FieldGroup, FieldLegend, FieldSet } from "@pet-adopt/ui/components/field";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@pet-adopt/ui/components/tabs";
 import {
   FIELD_LABELS,
   FIELD_ORDER,
