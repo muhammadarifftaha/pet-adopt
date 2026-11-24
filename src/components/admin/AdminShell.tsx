@@ -1,16 +1,43 @@
-import Link from 'next/link'
-import React from 'react'
+import { cookies } from "next/headers";
+import Image from "next/image";
+import Link from "next/link";
+import React from "react";
 
-import type { SessionUser } from '@/server/types'
+import {
+  Sidebar,
+  SidebarContent,
+  SidebarFooter,
+  SidebarHeader,
+  SidebarProvider,
+  SidebarTrigger,
+} from "@/components/ui/sidebar";
+import { getSettings } from "@/lib/queries";
+import { getPluginNav } from "@/plugins/registry";
+import type { SessionUser } from "@/server/types";
 
-import { AdminNav } from './AdminNav'
-import { UserMenu } from './UserMenu'
+import { AdminNav } from "./AdminNav";
+import { ADMIN_NAV } from "./nav-items";
+import { UserMenu } from "./UserMenu";
+import { ViewSiteLink } from "./ViewSiteLink";
 
-// The frame around every admin screen: skip link, header, navigation and <main>.
-// TODO(ui): toaster (shadcn `sonner`) goes here once it is added; sidebar collapse on mobile.
-export function AdminShell({ user, children }: { user: SessionUser; children: React.ReactNode }) {
+// The frame around every admin screen: skip link, shadcn sidebar (a sheet on phones), header and <main>.
+// TODO(ui): toaster (shadcn `sonner`) goes here once it is added.
+export async function AdminShell({
+  user,
+  children,
+}: {
+  user: SessionUser;
+  children: React.ReactNode;
+}) {
+  // The sidebar remembers open/closed in a cookie. Reading it here means the first paint already
+  // has the right state, so the page does not jump after hydration.
+  const [cookieStore, settings] = await Promise.all([cookies(), getSettings()]);
+  const defaultOpen = cookieStore.get("sidebar_state")?.value !== "false";
+  // The site's own name and logo (Settings > Brand), so owners see whose admin this is.
+  const logo = settings.logo?.thumbnailUrl ? settings.logo : null;
+
   return (
-    <div className="min-h-screen md:grid md:grid-cols-[14rem_1fr]">
+    <SidebarProvider defaultOpen={defaultOpen}>
       {/* First focusable element: lets keyboard users skip the navigation (WCAG 2.4.1). */}
       <a
         href="#main-content"
@@ -19,24 +46,53 @@ export function AdminShell({ user, children }: { user: SessionUser; children: Re
         Skip to main content
       </a>
 
-      <aside className="border-b p-3 md:border-r md:border-b-0">
-        <Link href="/admin" className="mb-3 block px-3 py-2 font-semibold">
-          Pet Adopt admin
-        </Link>
-        <AdminNav isAdmin={user.role === 'admin'} />
-        <Link href="/" className="mt-3 block px-3 py-2 text-sm text-muted-foreground hover:underline">
-          View site
-        </Link>
-      </aside>
+      <Sidebar>
+        <SidebarHeader>
+          <Link
+            href="/admin"
+            className="flex min-w-0 items-center gap-2.5 rounded-md p-2 hover:bg-sidebar-accent"
+          >
+            {/* Decorative: the site name beside it is the link's text. */}
+            {logo ? (
+              <Image
+                src={logo.thumbnailUrl}
+                alt=""
+                width={32}
+                height={32}
+                className="size-8 shrink-0 rounded-md object-contain"
+              />
+            ) : null}
+            <span className="flex min-w-0 flex-col leading-tight">
+              <span className="truncate font-semibold">{settings.siteName}</span>
+              <span className="text-xs text-muted-foreground">Admin</span>
+            </span>
+          </Link>
+        </SidebarHeader>
+        <SidebarContent>
+          {/* Plugin screens from pet-adopt.config.ts get their own group. Only plain data crosses to the client nav. */}
+          <AdminNav
+            items={ADMIN_NAV}
+            pluginItems={[...getPluginNav(), { href: "/admin/plugins", label: "All plugins", adminOnly: true }]}
+            isAdmin={user.role === "admin"}
+          />
+        </SidebarContent>
+        <SidebarFooter>
+          <ViewSiteLink />
+        </SidebarFooter>
+      </Sidebar>
 
-      <div className="flex min-w-0 flex-col">
-        <header className="flex justify-end border-b p-3">
-          <UserMenu user={user} />
+      {/* Not <SidebarInset>: it renders its own <main>, and this page already has one for the skip link. */}
+      <div className="flex min-w-0 flex-1 flex-col">
+        <header className="sticky top-0 z-50 flex h-14 items-center gap-2 border-b bg-background px-3">
+          <SidebarTrigger />
+          <div className="ml-auto">
+            <UserMenu user={user} />
+          </div>
         </header>
         <main id="main-content" tabIndex={-1} className="flex-1 p-4 md:p-6">
           {children}
         </main>
       </div>
-    </div>
-  )
+    </SidebarProvider>
+  );
 }

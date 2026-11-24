@@ -20,4 +20,13 @@ export async function register() {
     const { logError } = await import('@/server/result')
     logError(error, 'Could not create the owner account from SEED_ADMIN_EMAIL')
   }
+
+  // The homepage and the Pets page are pages like any other; create them from their built-in layouts if missing.
+  try {
+    const { ensureSystemPages } = await import('@/server/pages')
+    await ensureSystemPages()
+  } catch (error) {
+    const { logError } = await import('@/server/result')
+    logError(error, 'Could not create the system pages')
+  }
 }

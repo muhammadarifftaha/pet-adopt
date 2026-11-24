@@ -1,0 +1,1 @@
+ALTER TABLE `pets` ADD `birth_date_estimated` integer DEFAULT false NOT NULL;

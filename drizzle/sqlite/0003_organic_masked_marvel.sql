@@ -1,0 +1,1 @@
+ALTER TABLE `pets` ADD `description_doc` text;

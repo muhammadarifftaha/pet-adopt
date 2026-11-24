@@ -1,4 +1,4 @@
-import { getSettings, queryPetCards } from '@/lib/queries'
+import { getPetSpotlight, getSettings, queryCatalog, queryPetCards, queryPetProfiles, type CatalogParams } from '@/lib/queries'
 import type { SiteSetting } from '@/server/types'
 
 import type { PuckSiteMetadata } from './types'
@@ -14,11 +14,15 @@ export function toSiteMeta(settings: SiteSetting): PuckSiteMetadata['site'] {
   }
 }
 
-/** Server-side metadata for Puck: site settings plus a direct (no network) pet query. */
-export async function buildSiteMetadata(): Promise<PuckSiteMetadata> {
+/** Server-side metadata for Puck: site settings plus direct (no network) pet queries. */
+export async function buildSiteMetadata(searchParams?: CatalogParams): Promise<PuckSiteMetadata> {
   const settings = await getSettings()
   return {
     site: toSiteMeta(settings),
     fetchPets: (filters) => queryPetCards(filters),
+    fetchPet: (id) => getPetSpotlight(id),
+    fetchPetProfiles: (filters) => queryPetProfiles(filters),
+    fetchCatalog: (params) => queryCatalog(params),
+    searchParams,
   }
 }

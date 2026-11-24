@@ -1,0 +1,1 @@
+ALTER TABLE `site_settings` ADD `favicon_id` integer REFERENCES media(id) ON DELETE SET NULL;

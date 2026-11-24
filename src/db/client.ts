@@ -155,12 +155,41 @@ async function openPostgres(url: string): Promise<Database> {
   }
 }
 
-type Holder = { promise?: Promise<Database> }
+type Holder = { promise?: Promise<Database>; reboundTo?: Schema }
 // Kept on globalThis so hot reloads in development reuse the connection.
 const holder = ((globalThis as { __petAdoptDb?: Holder }).__petAdoptDb ??= {})
 
-/** Opens the database once per process. SQLite also applies pending migrations on first use. */
-export function getDatabase(): Promise<Database> {
+const tablesFor = (dialect: Dialect): Schema => (dialect === 'pg' ? (pgSchema as unknown as Schema) : sqliteSchema)
+
+/**
+ * Opens the database once per process. SQLite also applies pending migrations on first use.
+ *
+ * In development the connection outlives hot reloads, but a reload can bring a changed schema
+ * module (a new column). The cached tables would then be stale and Drizzle fails on the new column
+ * ("Cannot convert undefined or null to object"). So the tables are re-bound to the current module
+ * when it changes, and SQLite applies any new migrations then too. In production the module never
+ * changes, so this is one identity check.
+ */
+export async function getDatabase(): Promise<Database> {
+  const database = await openOnce()
+  const t = tablesFor(database.dialect)
+  if (database.t === t) return database
+  // Synchronous after the await, so concurrent callers start one re-bind, not several.
+  if (holder.reboundTo !== t) {
+    holder.reboundTo = t
+    const rebound: Database = { ...database, t }
+    holder.promise = (async () => {
+      if (rebound.dialect === 'sqlite' && !isBuildPhase()) {
+        const { runMigrations } = await import('./migrate')
+        await runMigrations(rebound)
+      }
+      return rebound
+    })()
+  }
+  return holder.promise!
+}
+
+function openOnce(): Promise<Database> {
   holder.promise ??= (async () => {
     const { dialect, url } = resolveDatabaseUrl()
     const database = dialect === 'pg' ? await openPostgres(url) : await openSqlite(url)

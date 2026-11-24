@@ -35,6 +35,9 @@ export const EMAIL_RULE: Throttle = { max: 100, windowMs: 60 * 60 * 1000 }
 export const CLIENT_RULE: Throttle = { max: 30, windowMs: 10 * 60 * 1000 }
 /** Guessing the current password through "change password" with a stolen session. */
 export const PASSWORD_CHANGE_RULE: Throttle = { max: 5, windowMs: 10 * 60 * 1000 }
+/** "Email me a reset link": per client, and per email overall so nobody can flood an inbox. */
+export const RESET_CLIENT_RULE: Throttle = { max: 10, windowMs: 15 * 60 * 1000 }
+export const RESET_EMAIL_RULE: Throttle = { max: 3, windowMs: 60 * 60 * 1000 }
 
 /**
  * The header your reverse proxy sets to the real client address (default `x-forwarded-for`, or for
@@ -128,7 +131,7 @@ async function purgeExpired(): Promise<void> {
     .delete(t.rateLimits)
     .where(
       and(
-        or(like(t.rateLimits.key, 'login:%'), like(t.rateLimits.key, 'chpw:%')),
+        or(like(t.rateLimits.key, 'login:%'), like(t.rateLimits.key, 'chpw:%'), like(t.rateLimits.key, 'pwreset:%')),
         lt(t.rateLimits.lastRequest, Date.now() - 2 * 60 * 60 * 1000),
       ),
     )
@@ -188,4 +191,14 @@ export async function guardPasswordChange(userId: string): Promise<{ keys: strin
   const key = `chpw:${userId}`
   await consumeAttempt(key, PASSWORD_CHANGE_RULE)
   return { keys: [key] }
+}
+
+/**
+ * Call before sending a reset email. Throws a UserError when this client, or this email from anyone,
+ * asked too often. Counted whether or not the account exists, so the limit says nothing about that.
+ */
+export async function guardResetRequest(email: unknown, headers: Headers): Promise<void> {
+  const address = clientAddress(headers)
+  if (address) await consumeAttempt(`pwreset:ip:${address}`, RESET_CLIENT_RULE)
+  await consumeAttempt(`pwreset:email:${emailDigest(email)}`, RESET_EMAIL_RULE)
 }

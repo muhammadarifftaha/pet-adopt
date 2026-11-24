@@ -1,5 +1,6 @@
 // What every server action returns, the errors the data layer throws, and a small parser that
 // collects one message per field so a form can show each problem next to its input.
+import { isRichTextEmpty, plainTextToDoc, validateRichText } from '@/lib/rich-text'
 import { SLUG_PATTERN } from '@/lib/slugify'
 
 export type FieldErrors = Record<string, string>
@@ -172,12 +173,13 @@ export class Fields {
     return text
   }
 
-  oneOf(key: string, options: readonly Option[], opts: { required?: boolean } = {}) {
+  // Generic so the result is typed as the allowed values (`PetStatus` for STATUSES), not just `string`.
+  oneOf<T extends string>(key: string, options: readonly { value: T }[], opts: { required?: boolean } = {}) {
     const value = this.raw[key]
     if (value === undefined) return opts.required ? this.missing(key) : undefined
     if (value === null || value === '') return opts.required ? this.fail(key, 'This field is required.') : null
     if (typeof value !== 'string' || !options.some((o) => o.value === value)) return this.fail(key, 'Pick one of the listed options.')
-    return value
+    return value as T
   }
 
   /** A true/false switch. Only real booleans, or the words "true" and "false", are accepted: "false" must not become true. */
@@ -198,6 +200,22 @@ export class Fields {
     const allowed = new Set(options.map((o) => o.value))
     if (!value.every((v) => typeof v === 'string' && allowed.has(v))) return this.fail(key, 'Pick from the listed options.')
     return [...new Set(value as string[])]
+  }
+
+  /**
+   * The health notes: a rich-text document (see src/lib/rich-text.ts) or plain text (one paragraph
+   * per line). Blank or with nothing visible clears it. Returns a clean copy built from the allowed
+   * parts only; a node, mark or link outside them is a field error.
+   */
+  richText(key: string, opts: { maxChars?: number } = {}) {
+    const value = this.raw[key]
+    if (value === undefined) return undefined
+    if (value === null || value === '') return null
+    const candidate = typeof value === 'string' ? plainTextToDoc(value) : value
+    if (candidate === null) return null
+    const result = validateRichText(candidate, opts)
+    if (!result.ok) return this.fail(key, result.error)
+    return isRichTextEmpty(result.doc) ? null : result.doc
   }
 
   /** A plain decimal number. Blank clears it. Hex, exponents, arrays and booleans are not numbers. */

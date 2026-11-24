@@ -5,7 +5,8 @@ import React from 'react'
 import type { PetCardData } from '@/lib/queries'
 import { SEXES, SPECIES, STATUSES, labelFor } from '@/lib/options'
 
-export function PetCard({ pet }: { pet: PetCardData }) {
+/** `headingLevel`: the pet's name is one level below the section it sits in (h3 under an h2). */
+export function PetCard({ pet, headingLevel: Name = 'h3' }: { pet: PetCardData; headingLevel?: 'h2' | 'h3' | 'h4' }) {
   const details = [labelFor(SPECIES, pet.species), pet.ageDescription, pet.sex && pet.sex !== 'unknown' ? labelFor(SEXES, pet.sex) : null]
     .filter(Boolean)
     .join(' · ')
@@ -21,7 +22,7 @@ export function PetCard({ pet }: { pet: PetCardData }) {
         {pet.status !== 'available' && <span className={`badge badge-${pet.status}`}>{labelFor(STATUSES, pet.status)}</span>}
       </div>
       <div className="pet-card-body">
-        <h3>{pet.name}</h3>
+        <Name className="item-heading">{pet.name}</Name>
         <p>{details}</p>
         {pet.location && <p className="muted">{pet.location}</p>}
       </div>

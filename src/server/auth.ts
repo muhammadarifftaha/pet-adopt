@@ -47,8 +47,11 @@ if (enforce && !siteURL) {
 
 export const MIN_PASSWORD_LENGTH = production ? 12 : 8
 
+/** The site's own address, for links that leave the site (reset emails). Never taken from a request. */
+export const SITE_URL = siteURL || 'http://localhost:3000'
+
 function createAuth({ db, t, dialect }: Database) {
-  const baseURL = siteURL || 'http://localhost:3000'
+  const baseURL = SITE_URL
   return betterAuth({
     appName: 'Pet Adopt',
     baseURL,

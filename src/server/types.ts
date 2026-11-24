@@ -1,5 +1,7 @@
 // Domain types: what the rest of the app sees. Repositories map database rows into these, so
 // nothing outside `src/server` and `src/db` depends on Drizzle.
+import type { PetStatus } from '@/lib/options'
+import type { RichTextDoc } from '@/lib/rich-text'
 import type { ThemeSettings } from '@/lib/theme'
 
 export type MediaItem = {
@@ -10,6 +12,8 @@ export type MediaItem = {
   width: number | null
   height: number | null
   alt: string
+  /** Display name chosen at upload (null for older images); the file itself keeps a random name. */
+  name: string | null
   /** Public URL of the original, for example /media/3f2a....webp */
   url: string
   /** Small preview for lists. */
@@ -24,8 +28,12 @@ export type PetSummary = {
   slug: string
   name: string
   species: string
-  status: string
+  status: PetStatus
   sex: string | null
+  /**
+   * The pet's age as text. Worked out from the birth date when there is one ("3 months", "About 8
+   * months", so it keeps up with time), else the text an owner typed.
+   */
   ageDescription: string | null
   location: string | null
   featured: boolean
@@ -41,7 +49,9 @@ export type Pet = Omit<PetSummary, 'photos'> & {
   breed: string | null
   ageGroup: string | null
   size: string | null
+  /** `YYYY-MM-DD`. Estimated when `birthDateEstimated` is set ("about 8 months old" turned into a date). */
   birthDate: string | null
+  birthDateEstimated: boolean
   color: string | null
   city: string | null
   state: string | null
@@ -50,11 +60,13 @@ export type Pet = Omit<PetSummary, 'photos'> & {
   microchipped: boolean
   houseTrained: boolean
   specialNeeds: boolean
-  healthNotes: string | null
+  /** A rich-text document (paragraphs, lists, bold/italic/underline, links). Old plain-text notes arrive converted. */
+  healthNotes: RichTextDoc | null
   temperament: string[]
   goodWith: string[]
   /** Plain text. Blank lines separate paragraphs. */
-  description: string | null
+  /** A rich-text document, like `healthNotes`. An old plain-text description arrives converted. */
+  description: RichTextDoc | null
   videoUrl: string | null
   adoptionFee: number | null
   rescuedAt: string | null
@@ -75,6 +87,25 @@ export type PetPage = {
 }
 
 export type PageStatus = 'draft' | 'published'
+/** What the admin shows: the stored status, or 'archived' while `archivedAt` is set. */
+export type PageState = PageStatus | 'archived'
+
+/** 'draft': the open version, collecting saves until the next publish. 'published': closed. */
+export type PageVersionKind = 'draft' | 'published'
+
+/** One saved snapshot of a page's layout (without the layout itself). */
+export type PageVersionSummary = {
+  number: number
+  kind: PageVersionKind
+  title: string
+  createdAt: Date
+  /** Last saved (an open version is saved many times; a published one, when it was published). */
+  updatedAt: Date
+  /** The version copied in with "Use as draft", if any. */
+  restoredFrom: number | null
+  /** Name of the person who saved it last, or null when that account was deleted. */
+  createdBy: string | null
+}
 
 export type Page = {
   id: number
@@ -87,6 +118,8 @@ export type Page = {
   puckPublished: unknown | null
   seo: { description: string | null; image: MediaItem | null }
   publishedAt: Date | null
+  /** Set while the page is archived (off the site, read-only). */
+  archivedAt: Date | null
   createdAt: Date
   updatedAt: Date
 }
@@ -96,11 +129,18 @@ export type SiteSetting = {
   siteName: string
   tagline: string | null
   logo: MediaItem | null
+  /** The browser tab icon (square image). */
+  favicon: MediaItem | null
   primaryColor: string | null
   theme: string
   allowModeToggle: boolean
   customize: boolean
   customTheme: ThemeSettings['customTheme']
+  /**
+   * The owner's saved theme in use, or null for the built-in preset in `theme`. When set,
+   * getSettings has already laid it over `theme`, `customize`, `customTheme` and `primaryColor`.
+   */
+  activeThemeId: number | null
   whatsappNumber: string | null
   whatsappMessage: string | null
   address: string | null
@@ -109,6 +149,16 @@ export type SiteSetting = {
   nav: Array<{ label: string; href: string }>
   footerText: string | null
   updatedAt: Date | null
+}
+
+/** An owner's saved theme: a preset (`base`) plus their customisations. */
+export type ThemeRecord = {
+  id: number
+  name: string
+  base: string
+  settings: NonNullable<ThemeSettings['customTheme']>
+  createdAt: Date
+  updatedAt: Date
 }
 
 export type Role = 'admin' | 'editor'

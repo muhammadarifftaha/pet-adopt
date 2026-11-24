@@ -25,7 +25,9 @@ const contentSecurityPolicy = [
   "img-src 'self' data: blob:",
   "font-src 'self' data:",
   `connect-src 'self'${isDev ? ' ws: wss:' : ''}`,
-  'frame-src https://www.google.com/maps/',
+  // 'self': the admin pages table previews pages in an iframe (/edit/<id>/preview).
+  // YouTube (no-cookie) and Vimeo: the Video block, which only frames URLs built by safeVideoEmbed.
+  "frame-src 'self' https://www.google.com/maps/ https://www.youtube-nocookie.com https://player.vimeo.com",
   "object-src 'none'",
   "base-uri 'self'",
   "form-action 'self'",

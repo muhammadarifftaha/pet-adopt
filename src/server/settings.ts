@@ -19,11 +19,11 @@ import {
   type Mode,
   type ThemeSettings,
 } from '@/lib/theme'
-import { normalizePhone } from '@/lib/whatsapp'
+import { toE164, validatePhone } from '@/lib/phone'
 
 import { getMediaByIds } from './media'
 import { asRecord, Fields, ValidationError, type FieldErrors } from './result'
-import type { SiteSetting } from './types'
+import type { MediaItem, SiteSetting } from './types'
 
 type SettingsRow = typeof S.siteSettings.$inferSelect
 type CustomTheme = NonNullable<ThemeSettings['customTheme']>
@@ -37,11 +37,13 @@ export const DEFAULT_SETTINGS: SiteSetting = {
   siteName: 'Pet Adopt',
   tagline: 'Find your new best friend',
   logo: null,
+  favicon: null,
   primaryColor: null,
   theme: 'sunrise',
   allowModeToggle: true,
   customize: false,
   customTheme: null,
+  activeThemeId: null,
   whatsappNumber: null,
   whatsappMessage: "Hi! I'm interested in adopting {pet}.",
   address: null,
@@ -52,17 +54,35 @@ export const DEFAULT_SETTINGS: SiteSetting = {
   updatedAt: null,
 }
 
-function toSettings(row: SettingsRow, logo: SiteSetting['logo']): SiteSetting {
+/** The smallest favicon accepted. Browsers show 16 to 32 px, phones' home screens up to 180. */
+export const FAVICON_MIN_SIZE = 32
+
+/**
+ * Why an image cannot be the favicon, or null when it can. Browsers squash a non-square icon, so it
+ * must be square (within 5%, for crops that are a pixel or two off) and at least 32 px.
+ */
+export function faviconProblem(image: Pick<MediaItem, 'width' | 'height'> | undefined | null): string | null {
+  if (!image) return 'That image no longer exists.'
+  const { width, height } = image
+  if (!width || !height) return null
+  if (Math.abs(width - height) > Math.max(width, height) * 0.05) return `Use a square image (this one is ${width} × ${height} px).`
+  if (Math.min(width, height) < FAVICON_MIN_SIZE) return `Use an image at least ${FAVICON_MIN_SIZE} × ${FAVICON_MIN_SIZE} px (this one is ${width} × ${height} px).`
+  return null
+}
+
+function toSettings(row: SettingsRow, logo: SiteSetting['logo'], favicon: SiteSetting['favicon']): SiteSetting {
   return {
     id: row.id,
     siteName: row.siteName,
     tagline: row.tagline,
     logo,
+    favicon,
     primaryColor: row.primaryColor,
     theme: row.theme,
     allowModeToggle: row.allowModeToggle,
     customize: row.customize,
     customTheme: (row.customTheme as SiteSetting['customTheme']) ?? null,
+    activeThemeId: row.activeThemeId ?? null,
     whatsappNumber: row.whatsappNumber,
     whatsappMessage: row.whatsappMessage,
     address: row.address,
@@ -74,16 +94,36 @@ function toSettings(row: SettingsRow, logo: SiteSetting['logo']): SiteSetting {
   }
 }
 
+/**
+ * The site settings. When the owner uses one of their saved themes, it is laid over the theme
+ * fields here (its base preset, its customisations, no separate brand colour), so everything that
+ * reads the theme (public pages, admin, page builder) needs nothing else.
+ */
 export async function getSettings(): Promise<SiteSetting> {
   const { db, t } = await getDatabase()
   const [row] = await db.select().from(t.siteSettings).where(eq(t.siteSettings.id, SETTINGS_ID)).limit(1)
   if (!row) return DEFAULT_SETTINGS
-  const logo = row.logoId ? ((await getMediaByIds([row.logoId])).get(row.logoId) ?? null) : null
-  return toSettings(row, logo)
+  const ids = [row.logoId, row.faviconId].filter((id): id is number => Boolean(id))
+  const images = ids.length ? await getMediaByIds(ids) : new Map<number, MediaItem>()
+  const image = (id: number | null) => (id ? (images.get(id) ?? null) : null)
+  const settings = toSettings(row, image(row.logoId), image(row.faviconId))
+  if (row.activeThemeId) {
+    const [theme] = await db.select().from(t.themes).where(eq(t.themes.id, row.activeThemeId)).limit(1)
+    if (theme) {
+      return {
+        ...settings,
+        theme: theme.base,
+        customize: true,
+        customTheme: (theme.settings as SiteSetting['customTheme']) ?? {},
+        primaryColor: null,
+      }
+    }
+  }
+  return settings
 }
 
 const COLOR_KEYS = ['primary', 'background', 'surface', 'text', 'tint'] as const
-const MODES: Mode[] = ['light', 'dark']
+export const MODES: Mode[] = ['light', 'dark']
 
 const isPlainObject = (value: unknown): value is Record<string, unknown> =>
   Boolean(value) && typeof value === 'object' && !Array.isArray(value)
@@ -106,7 +146,7 @@ function parseColors(raw: unknown, path: string, errors: FieldErrors): Record<st
 }
 
 /** Only the keys that were sent come back, so they can be merged into what is stored. */
-function parseCustomTheme(raw: unknown, errors: FieldErrors): Record<string, unknown> {
+export function parseCustomTheme(raw: unknown, errors: FieldErrors): Record<string, unknown> {
   if (!isPlainObject(raw)) {
     errors.customTheme = 'Must be an object.'
     return {}
@@ -165,14 +205,15 @@ export async function updateSettings(raw: unknown): Promise<SiteSetting> {
   put('siteName', f.requiredText('siteName', 80))
   put('tagline', f.text('tagline', 160))
   put('logoId', f.id('logoId'))
+  put('faviconId', f.id('faviconId'))
   put('primaryColor', f.text('primaryColor', 9, { validate: (s) => validateHexColor(s) }))
   put('theme', f.oneOf('theme', PRESET_OPTIONS) ?? undefined)
   put('allowModeToggle', f.flag('allowModeToggle'))
   put('customize', f.flag('customize'))
-  put(
-    'whatsappNumber',
-    f.text('whatsappNumber', 40, { validate: (s) => normalizePhone(s) !== '' || 'Enter a valid number, for example +60 12-345 6789.' }),
-  )
+  // Checked with libphonenumber and stored in E.164 ("+60123456789"); a number typed without a
+  // "+code" is read as the default country (NEXT_PUBLIC_DEFAULT_COUNTRY_CODE).
+  const whatsapp = f.text('whatsappNumber', 40, { validate: (s) => validatePhone(s) })
+  put('whatsappNumber', whatsapp ? toE164(whatsapp) : whatsapp)
   put('whatsappMessage', f.text('whatsappMessage', 300))
   put('address', f.text('address', 500))
   put('openingHours', f.text('openingHours', 500))
@@ -239,7 +280,14 @@ export async function updateSettings(raw: unknown): Promise<SiteSetting> {
   }
 
   if (Object.keys(errors).length) throw new ValidationError(errors)
-  if (v.logoId && !(await getMediaByIds([v.logoId])).has(v.logoId)) throw new ValidationError({ logoId: 'That image no longer exists.' })
+  const chosen = [v.logoId, v.faviconId].filter((id): id is number => Boolean(id))
+  const images = chosen.length ? await getMediaByIds(chosen) : new Map<number, MediaItem>()
+  if (v.logoId && !images.has(v.logoId)) errors.logoId = 'That image no longer exists.'
+  if (v.faviconId) {
+    const problem = faviconProblem(images.get(v.faviconId))
+    if (problem) errors.faviconId = problem
+  }
+  if (Object.keys(errors).length) throw new ValidationError(errors)
 
   await db.insert(t.siteSettings).values({ id: SETTINGS_ID }).onConflictDoNothing()
   await db.update(t.siteSettings).set({ ...v, updatedAt: new Date() }).where(eq(t.siteSettings.id, SETTINGS_ID))

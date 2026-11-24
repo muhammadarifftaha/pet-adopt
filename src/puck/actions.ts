@@ -1,0 +1,27 @@
+'use server'
+
+import { desc } from 'drizzle-orm'
+
+import { getDatabase } from '@/db/client'
+import { requireUser } from '@/server/session'
+
+// Server actions used by block fields in the page builder (signed in only).
+
+export type PetChoice = { id: number; name: string; note: string | null }
+
+/** Every pet, newest first, for the Pet spotlight's picker. Adopted and link-only pets are marked:
+ *  the block hides itself for them on the live page. */
+export async function listPetChoicesAction(): Promise<PetChoice[]> {
+  await requireUser()
+  const { db, t } = await getDatabase()
+  const rows = await db
+    .select({ id: t.pets.id, name: t.pets.name, status: t.pets.status, unlisted: t.pets.unlisted })
+    .from(t.pets)
+    .orderBy(desc(t.pets.createdAt))
+    .limit(500)
+  return rows.map((row) => ({
+    id: row.id,
+    name: row.name,
+    note: row.status === 'adopted' ? 'adopted, hidden' : row.unlisted ? 'link only, hidden' : null,
+  }))
+}

@@ -1,6 +1,8 @@
 'use server'
 
-import { deletePet, getPetById, queryPets, savePet, type PetFilters } from '../pets'
+import type { Option } from '@/lib/options'
+
+import { deletePet, getPetById, getSpeciesOptions, queryPets, savePet, type PetFilters } from '../pets'
 import { assertId, run, type ActionResult } from '../result'
 import { requireUser } from '../session'
 import type { Pet, PetPage } from '../types'
@@ -10,6 +12,17 @@ export async function listPetsAction(filters: PetFilters = {}): Promise<ActionRe
   return run(async () => {
     await requireUser()
     return queryPets({ ...filters, includeUnlisted: true })
+  })
+}
+
+/**
+ * Species in use, as `{ label, value }` options for the admin's species filter and form suggestions
+ * (built-in ones first, then custom). Includes unlisted pets. The form should still accept any text.
+ */
+export async function listSpeciesOptionsAction(): Promise<ActionResult<Option[]>> {
+  return run(async () => {
+    await requireUser()
+    return getSpeciesOptions({ includeUnlisted: true })
   })
 }
 

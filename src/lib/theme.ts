@@ -257,23 +257,38 @@ const darken = (shadow: string) =>
   shadow.replace(/rgba\(0, 0, 0, ([\d.]+)\)/g, (_, alpha) => `rgba(0, 0, 0, ${Math.min(0.6, Number(alpha) * 2.5).toFixed(2)})`)
 
 /** Turn a palette into every colour variable the stylesheet uses. */
+/**
+ * `ensureContrast` against several backgrounds at once: the colour is nudged until it reaches `min`
+ * on every one of them (they are all light, or all dark, in one mode, so the nudges agree).
+ */
+function ensureContrastOnAll(fg: string, backgrounds: string[], min: number): string {
+  let color = fg
+  for (let pass = 0; pass < 2; pass++) for (const background of backgrounds) color = ensureContrast(color, background, min)
+  return color
+}
+
 function colorTokens(p: Palette, mode: Mode, shadow: ShadowKey): Record<string, string> {
   const { primary, bg, surface, ink } = p
   const bandBg = mode === 'light' ? mix(ink, '#000000', 0.2) : mix(bg, '#000000', 0.45)
+  const surfaceAlt = mix(ink, bg, 0.97)
+  const tint = p.tint ?? mix(primary, bg, 0.92)
+  // Muted text and links appear on the page, on cards, on tinted sections and on muted panels, so
+  // they must reach 4.5:1 (WCAG 1.4.3) on all of them, not only on the page background.
+  const textBackgrounds = [bg, surface, surfaceAlt, tint]
   return {
     '--bg': bg,
     '--surface': surface,
-    '--surface-alt': mix(ink, bg, 0.97),
+    '--surface-alt': surfaceAlt,
     '--placeholder': mix(ink, bg, 0.94),
     '--ink': ink,
-    '--muted': ensureContrast(mix(ink, bg, 0.42), bg, 4.5),
+    '--muted': ensureContrastOnAll(mix(ink, bg, 0.42), textBackgrounds, 4.5),
     '--line': mix(ink, bg, 0.9),
     '--line-strong': mix(ink, bg, 0.8),
-    '--tint': p.tint ?? mix(primary, bg, 0.92),
+    '--tint': tint,
     '--primary': primary,
     '--on-primary': readableOn(primary),
     // Brand colours are often too light to read as text, so links and outlined buttons use this.
-    '--primary-text': ensureContrast(primary, bg, 4.5),
+    '--primary-text': ensureContrastOnAll(primary, textBackgrounds, 4.5),
     '--band-bg': bandBg,
     '--band-ink': '#f9fafb',
     '--band-link': ensureContrast(mix(primary, '#ffffff', 0.5), bandBg, 4.5),
@@ -361,6 +376,57 @@ export function themeCss(theme: ResolvedTheme, options: { lightOnly?: boolean } 
     light,
     `@media (prefers-color-scheme: dark){html:root:not([data-mode="light"]){${dark}}}`,
     `html:root[data-mode="dark"]{${dark}}`,
+  ].join('\n')
+}
+
+/**
+ * One mode, whatever the visitor's system or toggle says: for the admin's page preview, which has no
+ * script to set data-mode (`html:root:root` outranks the light rule from themeCss), and for the page
+ * builder's canvas (a selector for its wrapper, so the editor's own panels stay light). `selector`
+ * is always a constant from our code, never from settings.
+ */
+export function forcedModeCss(theme: ResolvedTheme, mode: 'light' | 'dark', selector = 'html:root:root'): string {
+  return `${selector}{${declarations({ ...theme.shared, ...theme[mode] })};color-scheme:${mode}}`
+}
+
+/**
+ * The page builder's (Puck's) own colours in dark mode, made from the site theme's dark colours so
+ * the builder matches the rest of the admin: Puck's grey scale is a blend from the dark text colour
+ * to the dark background (on the same light-to-dark steps as Puck's own greys), its "white" is the
+ * dark surface and its "black" the dark text, and its blue accent is rebuilt from the primary
+ * colour. Only theme values (all validated hex) go into it. Applied when the editor is dark, like
+ * the admin: the owner's choice on <html data-mode>, else the system setting.
+ */
+export function puckDarkCss(theme: ResolvedTheme): string {
+  const t = theme.dark
+  const ink = t['--ink']
+  const bg = t['--bg']
+  const primary = t['--primary']
+  // How far each of Puck's greys (01 darkest .. 12 lightest in light mode) sits from its text colour.
+  const steps = [0.06, 0.14, 0.24, 0.34, 0.45, 0.56, 0.66, 0.75, 0.84, 0.91, 0.95, 0.98]
+  const vars: Record<string, string> = {
+    '--puck-color-white': t['--surface'],
+    '--puck-color-black': ink,
+  }
+  steps.forEach((step, i) => {
+    vars[`--puck-color-grey-${String(i + 1).padStart(2, '0')}`] = mix(ink, bg, step)
+  })
+  // Puck's azure: 06-12 are ever darker tints (hover and selection backgrounds), 05 the accent
+  // itself, 01-04 the accent as text. Text steps start as blends toward the text colour and are then
+  // nudged until they reach 4.5:1 on every background they can sit on, whatever the brand colour.
+  const towardBg = [0.25, 0.45, 0.6, 0.72, 0.8, 0.87, 0.92]
+  const tints = towardBg.map((step) => mix(primary, bg, step))
+  tints.forEach((tint, i) => (vars[`--puck-color-azure-${String(i + 6).padStart(2, '0')}`] = tint))
+  vars['--puck-color-azure-05'] = primary
+  const textBackgrounds = [t['--surface'], bg, vars['--puck-color-grey-12'], ...tints.slice(3)]
+  const towardInk = [0.8, 0.6, 0.42, 0.25]
+  towardInk.forEach((step, i) => {
+    vars[`--puck-color-azure-0${i + 1}`] = ensureContrastOnAll(mix(primary, ink, step), textBackgrounds, 4.5)
+  })
+  const body = `${declarations(vars)};color-scheme:dark`
+  return [
+    `@media (prefers-color-scheme: dark){html[data-follow-mode]:not([data-mode="light"]){${body}}}`,
+    `html[data-follow-mode][data-mode="dark"]{${body}}`,
   ].join('\n')
 }
 

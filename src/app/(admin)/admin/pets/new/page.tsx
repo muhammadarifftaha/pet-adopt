@@ -1,14 +1,22 @@
+import { headers } from 'next/headers'
+
 import { PageHeader } from '@/components/admin/PageHeader'
+import { getSettings } from '@/server/settings'
 
 import { PetForm } from '../PetForm'
 
 export const metadata = { title: 'Add pet' }
 
-export default function NewPetPage() {
+export default async function NewPetPage() {
+  // Reading the request first keeps this page from being prerendered at build time, when the
+  // database may not exist (see "Build without a DB" in CLAUDE.md).
+  await headers()
+  const { siteName } = await getSettings()
+
   return (
     <>
       <PageHeader title="Add pet" />
-      <PetForm pet={null} />
+      <PetForm pet={null} siteName={siteName} />
     </>
   )
 }

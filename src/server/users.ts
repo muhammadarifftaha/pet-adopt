@@ -24,7 +24,8 @@ const asRole = (value: string | null): Role => (value === 'admin' ? 'admin' : 'e
 /** Every change that could remove an admin takes this lock first. */
 const ADMIN_LOCK = 'users:admins'
 
-function password(f: Fields, key: string, raw: Record<string, unknown>) {
+/** The new-password rule, shared by every place that sets one. */
+export function newPassword(f: Fields, key: string, raw: Record<string, unknown>) {
   const value = raw[key]
   if (typeof value !== 'string' || !value) return f.fail_(key, 'Enter a password.')
   if (value.length < MIN_PASSWORD_LENGTH) return f.fail_(key, `Use at least ${MIN_PASSWORD_LENGTH} characters.`)
@@ -51,7 +52,7 @@ async function countAdmins(tx: Db, t: Schema) {
 }
 
 /** Sets the password of an account, creating the credential record if the account has none. */
-async function writeCredential(tx: Db, t: Schema, userId: string, hash: string) {
+export async function writeCredential(tx: Db, t: Schema, userId: string, hash: string) {
   const now = new Date()
   const updated = await tx
     .update(t.accounts)
@@ -92,7 +93,7 @@ export async function createUser(raw: unknown): Promise<{ id: string }> {
   const f = new Fields(input, true)
   const email = f.requiredText('email', 200, { validate: (s) => EMAIL.test(s) || 'Enter a valid email address.' })
   const name = f.requiredText('name', 80)
-  const pass = password(f, 'password', input)
+  const pass = newPassword(f, 'password', input)
   const role = f.oneOf('role', ROLES) ?? 'editor'
   f.done()
 
@@ -148,7 +149,7 @@ export async function updateUser(id: string, raw: unknown, opts: { canChangeRole
 export async function resetPassword(id: string, raw: unknown): Promise<void> {
   const input = asRecord(raw)
   const f = new Fields(input)
-  const pass = password(f, 'password', input)
+  const pass = newPassword(f, 'password', input)
   f.done()
 
   const ctx = await (await getAuth()).$context

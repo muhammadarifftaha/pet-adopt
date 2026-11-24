@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import React from "react";
 
 import { ThemeStyle } from "@/components/site/ThemeStyle";
-import { getSettings } from "@/lib/queries";
+import { getSettings, siteIcons } from "@/lib/queries";
 import { getSessionUser } from "@/server/session";
 
 // Same styling setup as the (admin) layout: Tailwind and the shadcn tokens bridged to the site
@@ -13,10 +13,13 @@ import "../globals.css";
 import "../(frontend)/fonts";
 import AuthNav from "@/components/auth/AuthNav";
 
-export const metadata: Metadata = {
-  title: { default: "Sign in", template: "%s | Admin" },
-  robots: { index: false, follow: false },
-};
+export async function generateMetadata(): Promise<Metadata> {
+  return {
+    title: { default: "Sign in", template: "%s | Admin" },
+    robots: { index: false, follow: false },
+    icons: siteIcons(await getSettings()),
+  };
+}
 
 // Layout for the signed-out screens (sign in, and later anything like it). This is a separate root
 // layout from (admin), so it renders its own <html> and <body>; going from here to /admin is a full
