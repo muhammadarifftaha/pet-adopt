@@ -1,9 +1,25 @@
 import type { NextConfig } from 'next'
+import { readFileSync } from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
 
 const __filename = fileURLToPath(import.meta.url)
 const dirname = path.dirname(__filename)
+
+/**
+ * Every package this app uses that is installed from local source (`workspace:`, `link:` or
+ * `file:`), following those packages' own local dependencies too (a plugin's shared helpers).
+ * pnpm links each package's dependencies into its own node_modules, which is where they are read.
+ */
+export function localSourcePackages(packageDir = dirname, found = new Set<string>()): string[] {
+  const pkg = JSON.parse(readFileSync(path.join(packageDir, 'package.json'), 'utf8')) as Record<string, Record<string, unknown> | undefined>
+  for (const [name, version] of Object.entries({ ...pkg.dependencies, ...pkg.devDependencies, ...pkg.peerDependencies })) {
+    if (typeof version !== 'string' || !/^(workspace|link|file):/.test(version) || found.has(name)) continue
+    found.add(name)
+    localSourcePackages(path.join(packageDir, 'node_modules', name), found)
+  }
+  return [...found].sort()
+}
 
 const isDev = process.env.NODE_ENV !== 'production'
 const siteURL = (process.env.NEXT_PUBLIC_SERVER_URL ?? '').trim()
@@ -39,14 +55,10 @@ const contentSecurityPolicy = [
 const nextConfig: NextConfig = {
   // Native database drivers and sharp must be loaded from node_modules at runtime, not bundled.
   serverExternalPackages: ['better-sqlite3', 'pg', 'sharp'],
-  // Workspace packages ship TypeScript source (no build step), so Next compiles them. A plugin
-  // installed from npm as compiled JavaScript does not need to be listed.
-  transpilePackages: [
-    '@pet-adopt/plugin-sdk',
-    '@pet-adopt/plugin-adoption-tips',
-    '@pet-adopt/plugin-form-builder',
-    '@pet-adopt/plugin-resend-email',
-  ],
+  // Packages installed from local source (the workspace plugins and SDK, or a plugin in a local
+  // folder) ship TypeScript, so Next compiles them. Worked out from package.json, so adding a plugin
+  // never needs an edit here. A plugin from npm ships compiled JavaScript and is left out.
+  transpilePackages: localSourcePackages(),
   experimental: {
     // Uploads go through server actions; the app allows images up to 10 MB.
     serverActions: { bodySizeLimit: '11mb' },
