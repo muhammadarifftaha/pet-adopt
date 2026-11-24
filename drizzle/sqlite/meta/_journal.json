@@ -64,6 +64,13 @@
       "when": 1795507671593,
       "tag": "0008_chief_toxin",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1795509641556,
+      "tag": "0009_vengeful_tag",
+      "breakpoints": true
     }
   ]
 }

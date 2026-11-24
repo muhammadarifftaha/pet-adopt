@@ -3,10 +3,11 @@ import { count, desc, eq, inArray, sql } from 'drizzle-orm'
 
 import { getDatabase } from '@/db/client'
 import type * as S from '@/db/schema/sqlite'
+import { cleanMediaName } from '@/lib/media-name'
 import { safeRevalidate } from '@/lib/revalidate'
 
 import { mediaUrl, thumbnailFilename } from './media-url'
-import { isForeignKeyViolation, UserError } from './result'
+import { isForeignKeyViolation, UserError, ValidationError } from './result'
 import type { MediaItem } from './types'
 
 export type MediaRow = typeof S.media.$inferSelect
@@ -20,6 +21,7 @@ export function toMedia(row: MediaRow): MediaItem {
     width: row.width,
     height: row.height,
     alt: row.alt,
+    name: row.name ?? null,
     url: mediaUrl(row.filename),
     thumbnailUrl: mediaUrl(thumbnailFilename(row.filename)),
     createdAt: row.createdAt,
@@ -35,8 +37,11 @@ export async function listMedia(opts: { page?: number; limit?: number; search?: 
   const limit = Math.min(Math.max(Math.floor(Number(opts.limit)) || 24, 1), 100)
   const page = pageNumber(opts.page)
   const term = opts.search?.replace(/[%_\\]/g, '').trim().toLowerCase()
-  // lower() on both sides: LIKE ignores case on SQLite but not on PostgreSQL.
-  const where = term ? sql`lower(${t.media.alt}) like ${`%${term}%`}` : undefined
+  // lower() on both sides: LIKE ignores case on SQLite but not on PostgreSQL. Matches the alt text
+  // or the display name.
+  const where = term
+    ? sql`(lower(${t.media.alt}) like ${`%${term}%`} or lower(coalesce(${t.media.name}, '')) like ${`%${term}%`})`
+    : undefined
   const [rows, [{ total }]] = await Promise.all([
     db.select().from(t.media).where(where).orderBy(desc(t.media.createdAt), desc(t.media.id)).limit(limit).offset((page - 1) * limit),
     db.select({ total: count() }).from(t.media).where(where),
@@ -70,9 +75,31 @@ export async function createMediaRow(input: {
   width: number | null
   height: number | null
   alt: string
+  name?: string | null
 }): Promise<MediaItem> {
   const { db, t } = await getDatabase()
   const [row] = await db.insert(t.media).values(input).returning()
+  return toMedia(row)
+}
+
+/**
+ * The image page's form: display name and alt text together, one error per field. The name is
+ * only a label (cleaned by `cleanMediaName`); the stored file keeps its random name, so links and
+ * pages that show the image are unaffected.
+ */
+export async function updateMediaDetails(id: number, input: { name: string; alt: string }): Promise<MediaItem> {
+  const errors: Record<string, string> = {}
+  const name = cleanMediaName(typeof input.name === 'string' ? input.name : '')
+  if (!name) errors.name = 'Give the image a name.'
+  const alt = typeof input.alt === 'string' ? input.alt.trim() : ''
+  if (!alt) errors.alt = 'Describe the image in a few words (the alt text).'
+  else if (alt.length > 200) errors.alt = 'Keep the alt text under 200 characters.'
+  if (Object.keys(errors).length) throw new ValidationError(errors)
+  const { db, t } = await getDatabase()
+  const [row] = await db.update(t.media).set({ name, alt, updatedAt: new Date() }).where(eq(t.media.id, id)).returning()
+  if (!row) throw new UserError('Image not found.')
+  // The alt text is printed on every page that shows the image.
+  safeRevalidate([['/', 'layout']])
   return toMedia(row)
 }
 

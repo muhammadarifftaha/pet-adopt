@@ -21,7 +21,8 @@ import { safeHref, validateHttpsUrl } from '../src/lib/links'
 import { richTextExtensions } from '../src/components/admin/pets/form/rich-text-extensions'
 import { richTextToPlain } from '../src/lib/rich-text'
 import { getAuth } from '../src/server/auth'
-import { listMedia } from '../src/server/media'
+import { listMedia, updateMediaDetails } from '../src/server/media'
+import { cleanMediaName } from '../src/lib/media-name'
 import {
   archivePage,
   deletePage,
@@ -911,6 +912,23 @@ await check('links: a path cannot hide a host behind control characters; video l
   }
   ok(validateHttpsUrl('https://youtu.be/x') === true && validateHttpsUrl('') === true, 'https and blank are fine')
   ok(validateHttpsUrl('http://youtu.be/x') !== true, 'http is refused')
+})
+
+await check('uploads: the display name is cleaned and searchable; the stored file keeps a random name', async () => {
+  const named = await saveUpload({ data: png, alt: 'A cat', name: '  ../Barn\u0000 cats  final.JPG ' })
+  ok(named.name === '.. Barn cats final', `cleaned name: ${JSON.stringify(named.name)}`)
+  ok(/^[0-9a-f]{32}\.png$/.test(named.filename), `the file keeps a random name: ${named.filename}`)
+  ok((await listMedia({ search: 'barn cats' })).docs.some((x) => x.id === named.id), 'search finds the name')
+  const blank = await saveUpload({ data: png, alt: 'No name' })
+  ok(blank.name === null, 'no name stays null')
+  ok(cleanMediaName('x'.repeat(500))?.length === 120 && cleanMediaName(' .png ') === null, 'long names are cut, empty ones are null')
+  // Renaming on the image page: cleaned, both fields required, the stored file is untouched.
+  const renamed = await updateMediaDetails(named.id, { name: ' Kittens / spring.png ', alt: ' Two kittens ' })
+  ok(renamed.name === 'Kittens spring' && renamed.alt === 'Two kittens' && renamed.filename === named.filename, `renamed: ${JSON.stringify(renamed.name)}`)
+  const bad = await fieldErrors(updateMediaDetails(named.id, { name: ' ', alt: '' }))
+  ok(bad.name && bad.alt, `both fields are required: ${JSON.stringify(bad)}`)
+  await removeUpload(named.id)
+  await removeUpload(blank.id)
 })
 
 await check('search is case-insensitive and Unicode-aware; hostile page numbers are clamped', async () => {

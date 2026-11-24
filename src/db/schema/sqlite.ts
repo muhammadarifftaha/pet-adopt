@@ -122,6 +122,8 @@ export const media = sqliteTable(
     width: integer('width'),
     height: integer('height'),
     alt: text('alt').notNull(),
+    /** A display name chosen at upload (null for older images). The stored file keeps its random name. */
+    name: text('name'),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },

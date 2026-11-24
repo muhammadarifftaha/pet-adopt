@@ -12,6 +12,8 @@ export type MediaItem = {
   width: number | null
   height: number | null
   alt: string
+  /** Display name chosen at upload (null for older images); the file itself keeps a random name. */
+  name: string | null
   /** Public URL of the original, for example /media/3f2a....webp */
   url: string
   /** Small preview for lists. */

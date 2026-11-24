@@ -5,6 +5,8 @@ import { randomBytes } from 'node:crypto'
 
 import sharp, { type Metadata } from 'sharp'
 
+import { cleanMediaName } from '@/lib/media-name'
+
 import { createMediaRow, deleteMediaRow } from './media'
 import { thumbnailFilename } from './media-url'
 import { describeError, ValidationError } from './result'
@@ -53,7 +55,8 @@ async function removeFiles(storage: Storage, keys: string[]) {
   })
 }
 
-export async function saveUpload(input: { data: Buffer; alt: string }): Promise<MediaItem> {
+/** `name` is the display name (already cleaned or not: it is cleaned here); the file gets a random one. */
+export async function saveUpload(input: { data: Buffer; alt: string; name?: string | null }): Promise<MediaItem> {
   const alt = input.alt.trim()
   if (!alt) throw new ValidationError({ alt: 'Describe the image in a few words. It is used for accessibility and search.' })
   if (alt.length > 200) throw new ValidationError({ alt: 'Keep the description under 200 characters.' })
@@ -116,7 +119,7 @@ export async function saveUpload(input: { data: Buffer; alt: string }): Promise<
     written.push(filename)
     await storage.put(thumbnail, preview, 'image/webp')
     written.push(thumbnail)
-    return await createMediaRow({ filename, mimeType: kind.mime, size: clean.length, width, height, alt })
+    return await createMediaRow({ filename, mimeType: kind.mime, size: clean.length, width, height, alt, name: cleanMediaName(input.name) })
   } catch (error) {
     // A failure at any step (the second file, the database) must not leave the first one behind.
     await removeFiles(storage, written)
