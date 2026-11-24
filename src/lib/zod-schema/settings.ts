@@ -2,7 +2,7 @@ import z from "zod";
 
 import { validateLink, validateWebUrl } from "@/lib/links";
 import { SOCIAL_PLATFORMS } from "@/lib/options";
-import { normalizePhone } from "@/lib/whatsapp";
+import { validatePhone } from "@/lib/phone";
 import type { SiteSetting } from "@/server/types";
 
 // The site settings form's rules, checked in the browser before anything is sent. They reuse the
@@ -24,7 +24,11 @@ export const settingsFormSchema = z.object({
   whatsappNumber: z
     .string()
     .max(40, "Use at most 40 characters.")
-    .refine((value) => !value.trim() || normalizePhone(value) !== "", "Enter a valid number, for example +60 12-345 6789."),
+    // The same libphonenumber check as the server. The phone input sends E.164 ("+60123456789").
+    .superRefine((value, ctx) => {
+      const result = value.trim() ? validatePhone(value) : true;
+      if (result !== true) ctx.addIssue({ code: "custom", message: result });
+    }),
   whatsappMessage: z.string().max(300, "Use at most 300 characters."),
   address: z.string().max(500, "Use at most 500 characters."),
   openingHours: z.string().max(500, "Use at most 500 characters."),

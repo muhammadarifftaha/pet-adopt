@@ -773,6 +773,10 @@ await check('settings: invalid values give nested field errors; valid update is 
     customTheme: { radius: 'lg', light: { primary: '#0a7d3c' } },
   })
   ok(saved.siteName === 'Happy Tails' && saved.theme === 'meadow' && saved.nav.length === 1, 'saved')
+  ok(saved.whatsappNumber === '+60123456789', `a local number is stored in E.164: ${saved.whatsappNumber}`)
+  ok(/too short/.test((await fieldErrors(updateSettings({ whatsappNumber: '+60 12' }))).whatsappNumber ?? ''), 'a short number says why')
+  ok((await updateSettings({ whatsappNumber: '+65 9123 4567' })).whatsappNumber === '+6591234567', 'another country keeps its code')
+  await updateSettings({ whatsappNumber: '012-345 6789' })
   const again = await getSettings()
   ok(again.customTheme?.radius === 'lg' && again.customTheme?.light?.primary === '#0a7d3c', `customTheme ${JSON.stringify(again.customTheme)}`)
   ok(again.whatsappMessage?.includes('{pet}'), 'default message kept')

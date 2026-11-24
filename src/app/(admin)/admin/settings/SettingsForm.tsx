@@ -10,6 +10,7 @@ import { FiArrowDown, FiArrowUp, FiPlus, FiTrash2 } from 'react-icons/fi'
 
 import { ErrorSummary, type SummaryItem } from '@/components/admin/pets/form/ErrorSummary'
 import { MediaPickerDialog } from '@/components/admin/pets/form/MediaPickerDialog'
+import { PhoneInput } from '@/components/admin/PhoneInput'
 import { useUnsavedChanges } from '@/components/admin/useUnsavedChanges'
 import { Button, buttonVariants } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -392,14 +393,30 @@ export function SettingsForm({ settings }: { settings: SiteSetting }) {
 
         <TabsContent value="contact" className="pt-4">
           <FieldGroup className="max-w-2xl">
-            <TextField
-              control={control}
+            <Controller
               name="whatsappNumber"
-              label="WhatsApp number"
-              type="tel"
-              inputMode="tel"
-              autoComplete="tel"
-              description="Where the WhatsApp buttons send messages. With the country code, for example +60 12-345 6789."
+              control={control}
+              render={({ field, fieldState }) => {
+                const id = fieldId('whatsappNumber')
+                return (
+                  <Field data-invalid={fieldState.invalid || undefined}>
+                    <FieldLabel htmlFor={id}>WhatsApp number</FieldLabel>
+                    <FieldDescription id={`${id}-description`}>
+                      Where the WhatsApp buttons send messages. Pick the country, then type the number; you can also paste one starting with +.
+                    </FieldDescription>
+                    <PhoneInput
+                      id={id}
+                      value={field.value}
+                      onChange={field.onChange}
+                      onBlur={field.onBlur}
+                      inputRef={field.ref}
+                      invalid={fieldState.invalid}
+                      describedBy={describedBy('whatsappNumber', true, Boolean(fieldState.error))}
+                    />
+                    <FieldError id={`${id}-error`} errors={[fieldState.error]} />
+                  </Field>
+                )
+              }}
             />
             <TextField control={control} name="whatsappMessage" label="WhatsApp message" multiline description="The message visitors start with. {pet} is replaced by the pet's name." />
             <TextField control={control} name="address" label="Address" multiline description="Shown in Contact & map blocks. Line breaks are kept." />

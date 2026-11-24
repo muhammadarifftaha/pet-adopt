@@ -19,7 +19,7 @@ import {
   type Mode,
   type ThemeSettings,
 } from '@/lib/theme'
-import { normalizePhone } from '@/lib/whatsapp'
+import { toE164, validatePhone } from '@/lib/phone'
 
 import { getMediaByIds } from './media'
 import { asRecord, Fields, ValidationError, type FieldErrors } from './result'
@@ -210,10 +210,10 @@ export async function updateSettings(raw: unknown): Promise<SiteSetting> {
   put('theme', f.oneOf('theme', PRESET_OPTIONS) ?? undefined)
   put('allowModeToggle', f.flag('allowModeToggle'))
   put('customize', f.flag('customize'))
-  put(
-    'whatsappNumber',
-    f.text('whatsappNumber', 40, { validate: (s) => normalizePhone(s) !== '' || 'Enter a valid number, for example +60 12-345 6789.' }),
-  )
+  // Checked with libphonenumber and stored in E.164 ("+60123456789"); a number typed without a
+  // "+code" is read as the default country (NEXT_PUBLIC_DEFAULT_COUNTRY_CODE).
+  const whatsapp = f.text('whatsappNumber', 40, { validate: (s) => validatePhone(s) })
+  put('whatsappNumber', whatsapp ? toE164(whatsapp) : whatsapp)
   put('whatsappMessage', f.text('whatsappMessage', 300))
   put('address', f.text('address', 500))
   put('openingHours', f.text('openingHours', 500))
