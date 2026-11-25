@@ -126,6 +126,8 @@ export const media = pgTable(
     alt: text('alt').notNull(),
     /** A display name chosen at upload (null for older images). The stored file keeps its random name. */
     name: text('name'),
+    /** Name and description folded for search (foldText); filled on save, backfilled on start. */
+    searchText: text('search_text'),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
@@ -157,6 +159,10 @@ export const pets = pgTable(
     city: text('city'),
     state: text('state'),
     location: text('location'),
+    /** Name, breed and location folded for the admin search (foldText); filled on save, backfilled on start. */
+    searchText: text('search_text'),
+    /** Location folded for the catalog's location filter. */
+    locationSearch: text('location_search'),
     vaccinated: flag('vaccinated'),
     neutered: flag('neutered'),
     microchipped: flag('microchipped'),

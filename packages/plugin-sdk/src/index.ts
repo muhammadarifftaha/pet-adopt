@@ -325,3 +325,15 @@ export function provideHost(services: PluginHost): void {
   hostSlot[HOST] = services
 }
 
+// --- Search ----------------------------------------------------------------------------------
+
+/**
+ * Text as searches compare it: Unicode-normalised, accents removed and lower-cased ("Île" -> "ile",
+ * "Café" -> "cafe"). Done in JavaScript, not with SQL lower(), because SQLite and libSQL (Turso)
+ * only fold A-Z there; searchable text is stored folded and the search term is folded the same way,
+ * so every database gives the same results.
+ */
+export function foldText(value: string | null | undefined): string {
+  return (value ?? '').normalize('NFKD').replace(/\p{M}+/gu, '').toLowerCase()
+}
+

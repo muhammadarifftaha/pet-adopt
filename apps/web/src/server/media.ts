@@ -1,5 +1,6 @@
 // Media rows. The files themselves are handled by src/server/uploads.ts.
-import { count, desc, eq, inArray, sql } from 'drizzle-orm'
+import { foldText } from '@pet-adopt/plugin-sdk'
+import { count, desc, eq, inArray, like } from 'drizzle-orm'
 
 import { getDatabase } from '@/db/client'
 import type * as S from '@/db/schema/sqlite'
@@ -36,12 +37,9 @@ export async function listMedia(opts: { page?: number; limit?: number; search?: 
   const { db, t } = await getDatabase()
   const limit = Math.min(Math.max(Math.floor(Number(opts.limit)) || 24, 1), 100)
   const page = pageNumber(opts.page)
-  const term = opts.search?.replace(/[%_\\]/g, '').trim().toLowerCase()
-  // lower() on both sides: LIKE ignores case on SQLite but not on PostgreSQL. Matches the alt text
-  // or the display name.
-  const where = term
-    ? sql`(lower(${t.media.alt}) like ${`%${term}%`} or lower(coalesce(${t.media.name}, '')) like ${`%${term}%`})`
-    : undefined
+  // Folded term against the folded name and alt text: the same on every database (see foldText).
+  const term = foldText(opts.search).replace(/[%_\\]/g, '').trim()
+  const where = term ? like(t.media.searchText, `%${term}%`) : undefined
   const [rows, [{ total }]] = await Promise.all([
     db.select().from(t.media).where(where).orderBy(desc(t.media.createdAt), desc(t.media.id)).limit(limit).offset((page - 1) * limit),
     db.select({ total: count() }).from(t.media).where(where),
@@ -78,7 +76,7 @@ export async function createMediaRow(input: {
   name?: string | null
 }): Promise<MediaItem> {
   const { db, t } = await getDatabase()
-  const [row] = await db.insert(t.media).values(input).returning()
+  const [row] = await db.insert(t.media).values({ ...input, searchText: mediaSearchText(input) }).returning()
   return toMedia(row)
 }
 
@@ -96,7 +94,7 @@ export async function updateMediaDetails(id: number, input: { name: string; alt:
   else if (alt.length > 200) errors.alt = 'Keep the alt text under 200 characters.'
   if (Object.keys(errors).length) throw new ValidationError(errors)
   const { db, t } = await getDatabase()
-  const [row] = await db.update(t.media).set({ name, alt, updatedAt: new Date() }).where(eq(t.media.id, id)).returning()
+  const [row] = await db.update(t.media).set({ name, alt, searchText: mediaSearchText({ name, alt }), updatedAt: new Date() }).where(eq(t.media.id, id)).returning()
   if (!row) throw new UserError('Image not found.')
   // The alt text is printed on every page that shows the image.
   safeRevalidate([['/', 'layout']])
@@ -108,7 +106,12 @@ export async function updateMediaAlt(id: number, alt: string): Promise<MediaItem
   if (!text) throw new UserError('Describe the image in a few words (the alt text).')
   if (text.length > 200) throw new UserError('Keep the alt text under 200 characters.')
   const { db, t } = await getDatabase()
-  const [row] = await db.update(t.media).set({ alt: text, updatedAt: new Date() }).where(eq(t.media.id, id)).returning()
+  const [current] = await db.select({ name: t.media.name }).from(t.media).where(eq(t.media.id, id)).limit(1)
+  const [row] = await db
+    .update(t.media)
+    .set({ alt: text, searchText: mediaSearchText({ name: current?.name, alt: text }), updatedAt: new Date() })
+    .where(eq(t.media.id, id))
+    .returning()
   if (!row) throw new UserError('Image not found.')
   // The alt text is printed on every page that shows the image.
   safeRevalidate([['/', 'layout']])
@@ -165,3 +168,9 @@ export async function deleteMediaRow(id: number): Promise<string> {
   }
   return row.filename
 }
+
+/** The image's folded search text: display name and alt text (see foldText). */
+export function mediaSearchText(media: { name?: string | null; alt?: string | null }): string {
+  return [media.name, media.alt].map(foldText).filter(Boolean).join('\n')
+}
+

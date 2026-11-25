@@ -16,6 +16,10 @@ const { migratePlugins } = await import('../src/plugins/storage')
 try {
   const database = await getDatabase()
   await runMigrations(database)
+  // Rows saved before the folded search columns existed (migration 0011): folding is JavaScript.
+  const { backfillSearchText } = await import('../src/server/search-text')
+  const filled = await backfillSearchText()
+  if (filled.pets || filled.media) console.log(`Filled the search text of ${filled.pets} pets and ${filled.media} images.`)
   // After the site's own, which create plugin_migrations. A plugin's failure stops here with the reason.
   for (const { plugin, ran } of await migratePlugins(database, { throwOnError: true })) {
     if (ran.length) console.log(`Plugin "${plugin}": ran ${ran.join(', ')}.`)

@@ -21,6 +21,15 @@ export async function register() {
     logError(error, 'Could not create the owner account from SEED_ADMIN_EMAIL')
   }
 
+  // Search text is folded in JavaScript, so rows saved before migration 0011 are filled here.
+  try {
+    const { backfillSearchText } = await import('@/server/search-text')
+    await backfillSearchText()
+  } catch (error) {
+    const { logError } = await import('@/server/result')
+    logError(error, 'Could not fill the search text of older pets and images')
+  }
+
   // The homepage and the Pets page are pages like any other; create them from their built-in layouts if missing.
   try {
     const { ensureSystemPages } = await import('@/server/pages')

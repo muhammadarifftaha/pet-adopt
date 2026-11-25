@@ -942,19 +942,20 @@ await check('search is case-insensitive and Unicode-aware; hostile page numbers 
   const m = await saveUpload({ data: png, alt: 'Orange Square on Sofa' })
   ok((await listMedia({ search: 'orange square' })).docs.some((x) => x.id === m.id), 'a lower-case term finds mixed-case alt text')
   ok((await listMedia({ search: 'SOFA' })).docs.some((x) => x.id === m.id), 'an upper-case term does too')
-  const paris = await savePet(null, { name: 'Parisienne', photoIds: [m.id], location: 'Île-de-France' })
-  // PostgreSQL folds accents according to the database's locale; SQLite is made to fold them.
-  let folds = true
-  if (dialect === 'pg') {
-    const rows = await (db as unknown as { execute: (q: unknown) => Promise<{ rows: Array<{ v: string }> }> }).execute(sql`select lower('Î') as v`)
-    folds = rows.rows[0].v === 'î'
-  }
-  if (folds) {
-    ok((await queryPets({ location: 'île' })).docs.some((p) => p.id === paris.id), 'accented lower-case search')
-    ok((await queryPets({ location: 'ÎLE-DE' })).docs.some((p) => p.id === paris.id), 'accented upper-case search')
-  } else {
-    console.log('      (this PostgreSQL database uses a locale that does not fold accents; skipped)')
-  }
+  const paris = await savePet(null, { name: 'Café Parisienne', breed: 'Bâtard', photoIds: [m.id], location: 'Île-de-France' })
+  // Folding is done by the app (foldText into stored search columns), so it is the same on every
+  // database and every locale: case and accents both fold, in both directions.
+  ok((await queryPets({ location: 'île' })).docs.some((p) => p.id === paris.id), 'accented lower-case search')
+  ok((await queryPets({ location: 'ÎLE-DE' })).docs.some((p) => p.id === paris.id), 'accented upper-case search')
+  ok((await queryPets({ location: 'ile-de' })).docs.some((p) => p.id === paris.id), 'unaccented search finds the accented location')
+  ok((await queryPets({ search: 'cafe', includeUnlisted: true })).docs.some((p) => p.id === paris.id), '"cafe" finds "Café"')
+  ok((await queryPets({ search: 'BATARD', includeUnlisted: true })).docs.some((p) => p.id === paris.id), 'breed is searched, folded')
+  ok(!(await queryPets({ search: 'cafx', includeUnlisted: true })).docs.some((p) => p.id === paris.id), 'a different word does not match')
+  const accented = await saveUpload({ data: png, alt: 'Chat sur le canapé' })
+  ok((await listMedia({ search: 'CANAPE' })).docs.some((x) => x.id === accented.id), 'media search folds accents too')
+  await savePet(paris.id, { name: 'Zoë' })
+  ok((await queryPets({ search: 'zoe', includeUnlisted: true })).docs.some((p) => p.id === paris.id), 'a renamed pet is found by its new name')
+  ok(!(await queryPets({ search: 'cafe', includeUnlisted: true })).docs.some((p) => p.id === paris.id), 'and no longer by its old one')
   for (const page of [1e20, NaN, -5, Infinity, '9'.repeat(30) as unknown as number]) {
     const result = await queryPets({ page })
     ok(result.page >= 1 && result.page <= 10_000, `page ${String(page)} must be clamped, got ${result.page}`)
@@ -962,6 +963,7 @@ await check('search is case-insensitive and Unicode-aware; hostile page numbers 
   ok((await listMedia({ page: NaN })).page === 1, 'a NaN media page becomes 1')
   await deletePet(paris.id)
   await removeUpload(m.id)
+  await removeUpload(accented.id)
 })
 
 await check('pets: clearing city and state clears the derived location; http videos refused; same-name creates race safely', async () => {
