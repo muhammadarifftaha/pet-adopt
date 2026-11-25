@@ -1,0 +1,25 @@
+// Everything `pnpm migrate` does, as one function, so the migrate script and the build-time step
+// (migrate-on-build.ts) can never drift apart. Imported by scripts only.
+import { closeDatabase, getDatabase } from '../src/db/client'
+import { runMigrations } from '../src/db/migrate'
+
+export async function migrateAll(): Promise<void> {
+  // Slow DDL (building an index on a big table) must not be cut off by the app's query timeout.
+  process.env.DB_STATEMENT_TIMEOUT_MS ??= '0'
+  const { migratePlugins } = await import('../src/plugins/storage')
+  const database = await getDatabase()
+  try {
+    await runMigrations(database)
+    // Rows saved before the folded search columns existed (migration 0011): folding is JavaScript.
+    const { backfillSearchText } = await import('../src/server/search-text')
+    const filled = await backfillSearchText()
+    if (filled.pets || filled.media) console.log(`Filled the search text of ${filled.pets} pets and ${filled.media} images.`)
+    // After the site's own, which create plugin_migrations. A plugin's failure stops here with the reason.
+    for (const { plugin, ran } of await migratePlugins(database, { throwOnError: true })) {
+      if (ran.length) console.log(`Plugin "${plugin}": ran ${ran.join(', ')}.`)
+    }
+    console.log(`Migrations are up to date (${database.dialect}).`)
+  } finally {
+    await closeDatabase()
+  }
+}

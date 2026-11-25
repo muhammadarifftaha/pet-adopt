@@ -81,7 +81,7 @@ export function resolveDatabaseUrl(): { dialect: Dialect; url: string } {
 }
 
 /** A libSQL server (Turso, or `turso dev` locally) rather than a file. */
-const isRemoteSqlite = (url: string) => /^(libsql|https?|wss?):\/\//.test(url)
+export const isRemoteSqlite = (url: string) => /^(libsql|https?|wss?):\/\//.test(url)
 
 const isBuildPhase = () => process.env.NEXT_PHASE === 'phase-production-build'
 
