@@ -30,6 +30,7 @@
     "@fontsource-variable/nunito": "^5.3.0",
     "@fontsource-variable/playfair-display": "^5.3.0",
     "@hookform/resolvers": "^7.0.6",
+    "@libsql/client": "0.18.0",
     "@pet-adopt/plugin-adoption-tips": "workspace:*",
     "@pet-adopt/plugin-form-builder": "workspace:*",
     "@pet-adopt/plugin-resend-email": "workspace:*",
@@ -51,7 +52,6 @@
     "@tiptap/pm": "^3.35.0",
     "@tiptap/react": "^3.35.0",
     "better-auth": "^1.7.21",
-    "better-sqlite3": "^13.1.1",
     "class-variance-authority": "^0.7.1",
     "cn": "^0.5.2",
     "cross-env": "^7.0.3",
@@ -77,7 +77,6 @@
     "zod": "^4.6.7"
   },
   "devDependencies": {
-    "@types/better-sqlite3": "^9.6.0",
     "@types/node": "22.19.9",
     "@types/pg": "^8.23.1",
     "@types/react": "19.2.14",

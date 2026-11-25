@@ -1,7 +1,7 @@
 // Pets: reading, searching and saving. The rules that used to be Payload hooks live in `savePet`.
 import { randomBytes } from 'node:crypto'
 
-import { and, asc, count, desc, eq, gt, inArray, isNotNull, isNull, lte, ne, or, sql, type SQL } from 'drizzle-orm'
+import { and, asc, count, desc, eq, gt, inArray, isNotNull, isNull, like, lte, ne, or, type SQL } from 'drizzle-orm'
 
 import { getDatabase, type Db, type Schema } from '@/db/client'
 import type * as S from '@/db/schema/sqlite'
@@ -22,6 +22,8 @@ import {
   STATUSES,
   TEMPERAMENTS,
 } from '@/lib/options'
+import { foldText } from '@pet-adopt/plugin-sdk'
+
 import { safeRevalidate } from '@/lib/revalidate'
 import { slugify } from '@/lib/slugify'
 import { normalizePhone } from '@/lib/whatsapp'
@@ -82,16 +84,15 @@ function conditions(t: Schema, f: PetFilters): SQL[] {
   }
   if (f.size) c.push(eq(t.pets.size, f.size))
   // A plain substring match. Strip the LIKE wildcards so visitors cannot turn the search into a pattern.
-  const location = f.location?.replace(/[%_\\]/g, '').trim().toLowerCase()
-  if (location) c.push(sql`lower(${t.pets.location}) like ${`%${location}%`}`)
+  // Folded text against a folded column: the same on SQLite, libSQL and PostgreSQL ("ile" finds
+  // "Île-de-France"). Wildcards are stripped so visitors cannot turn the search into a pattern.
+  const location = foldText(f.location).replace(/[%_\\]/g, '').trim()
+  if (location) c.push(like(t.pets.locationSearch, `%${location}%`))
   if (f.city) c.push(eq(t.pets.city, f.city))
   if (f.state) c.push(eq(t.pets.state, f.state))
   if (f.featuredOnly) c.push(eq(t.pets.featured, true))
-  const search = f.search?.replace(/[%_\\]/g, '').trim().toLowerCase()
-  if (search) {
-    const like = `%${search}%`
-    c.push(or(sql`lower(${t.pets.name}) like ${like}`, sql`lower(${t.pets.breed}) like ${like}`, sql`lower(${t.pets.location}) like ${like}`)!)
-  }
+  const search = foldText(f.search).replace(/[%_\\]/g, '').trim()
+  if (search) c.push(like(t.pets.searchText, `%${search}%`))
   return c
 }
 
@@ -191,12 +192,15 @@ export async function queryPetList(filters: PetFilters = {}): Promise<PetSummary
  */
 export async function listPetChoices(): Promise<Array<{ id: number; name: string; status: PetStatus }>> {
   const { db, t } = await getDatabase()
-  return db
+  const rows = await db
     .select({ id: t.pets.id, name: t.pets.name, status: t.pets.status })
     .from(t.pets)
     .where(and(...conditions(t, {}), ne(t.pets.status, PetStatus.Adopted)))
-    .orderBy(sql`lower(${t.pets.name})`, asc(t.pets.id))
+    // searchText starts with the folded name, so the 500 kept are the first by name on every database.
+    .orderBy(asc(t.pets.searchText), asc(t.pets.id))
     .limit(500)
+  // Sorted again here: databases collate the folded text slightly differently (PostgreSQL locales).
+  return rows.sort((a, b) => foldText(a.name).localeCompare(foldText(b.name)) || a.id - b.id)
 }
 
 /** Distinct states and cities of the pets visitors can see, for filter dropdowns. */
@@ -444,6 +448,12 @@ export async function savePet(id: number | null, raw: unknown): Promise<{ id: nu
 
   // The slug stays put on partial updates so public URLs never change by accident.
   const name = v.name ?? existing?.name ?? ''
+
+  // Folded copies for search, from the values the pet will have after this save.
+  const breed = v.breed !== undefined ? v.breed : existing?.breed
+  const location = v.location !== undefined ? v.location : existing?.location
+  v.searchText = petSearchText({ name, breed, location })
+  v.locationSearch = foldText(location) || null
   const generated = !slugInput && !existing?.slug
   let slug = slugInput ?? existing?.slug ?? ''
   if (!slug) slug = await uniqueSlug(db, t, name, id)
@@ -494,3 +504,9 @@ export async function deletePet(id: number): Promise<void> {
   if (!deleted.length) throw new UserError('Pet not found.')
   safeRevalidate([['/', 'layout']])
 }
+
+/** The pet's folded search text: name, breed and location (see foldText). */
+export function petSearchText(pet: { name?: string | null; breed?: string | null; location?: string | null }): string {
+  return [pet.name, pet.breed, pet.location].map(foldText).filter(Boolean).join('\n')
+}
+

@@ -2,6 +2,7 @@
 // same shape as the settings' customTheme, and validated by the same rules (settings.ts). One of
 // them, or a built-in preset, is in use: site_settings.active_theme_id, laid over the theme fields
 // by getSettings. Text must stay readable (contrastProblem), as for the settings.
+import { foldText } from '@pet-adopt/plugin-sdk'
 import { asc, eq, sql } from 'drizzle-orm'
 
 import { getDatabase } from '@/db/client'
@@ -54,11 +55,9 @@ function checkContrast(base: string, customTheme: CustomTheme, errors: FieldErro
 
 async function assertNameFree(name: string, exceptId?: number) {
   const { db, t } = await getDatabase()
-  const rows = await db
-    .select({ id: t.themes.id })
-    .from(t.themes)
-    .where(sql`lower(${t.themes.name}) = ${name.toLowerCase()}`)
-  if (rows.some((row) => row.id !== exceptId)) throw new ValidationError({ name: 'Another theme already has this name.' })
+  // At most MAX_THEMES rows: compared here, folded, so case and accents match on every database.
+  const rows = await db.select({ id: t.themes.id, name: t.themes.name }).from(t.themes)
+  if (rows.some((row) => row.id !== exceptId && foldText(row.name) === foldText(name))) throw new ValidationError({ name: 'Another theme already has this name.' })
 }
 
 export async function listThemes(): Promise<{ themes: ThemeRecord[]; activeThemeId: number | null; preset: string }> {

@@ -1,5 +1,5 @@
 import type React from 'react'
-import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
+import type { BaseSQLiteDatabase } from 'drizzle-orm/sqlite-core'
 import type { IconType } from 'react-icons'
 
 
@@ -134,16 +134,19 @@ export type PluginStorage = {
 /** "form-builder" -> "plugin_form_builder_": what every table and index of that plugin starts with. */
 export const pluginTablePrefix = (pluginName: string) => `plugin_${pluginName.replace(/-/g, '_')}_`
 
+/** The query builder plugins get: Drizzle's async SQLite API, whichever SQLite driver the site uses. */
+export type PluginDb = BaseSQLiteDatabase<'async', unknown, Record<string, unknown>>
+
 /**
  * A plugin's tables, opened on the site's database. Write queries once against `t` (typed as the
  * SQLite tables); on PostgreSQL `t` holds the Postgres twins, so the same code runs on both.
  */
 export type PluginDatabase<Tables> = {
   dialect: 'sqlite' | 'pg'
-  db: BetterSQLite3Database<Record<string, unknown>>
+  db: PluginDb
   t: Tables
   /** Runs `fn` atomically. `lock` serialises transactions that use the same name (PostgreSQL). */
-  withTransaction<T>(fn: (tx: BetterSQLite3Database<Record<string, unknown>>) => Promise<T>, options?: { lock?: string }): Promise<T>
+  withTransaction<T>(fn: (tx: PluginDb) => Promise<T>, options?: { lock?: string }): Promise<T>
 }
 
 /** What `definePluginStorage` returns: pass it as the plugin's `storage`, and `open()` it in server code. */
@@ -323,5 +326,17 @@ export function host(): PluginHost {
 /** For the app only. Plugins never call this. */
 export function provideHost(services: PluginHost): void {
   hostSlot[HOST] = services
+}
+
+// --- Search ----------------------------------------------------------------------------------
+
+/**
+ * Text as searches compare it: Unicode-normalised, accents removed and lower-cased ("Île" -> "ile",
+ * "Café" -> "cafe"). Done in JavaScript, not with SQL lower(), because SQLite and libSQL (Turso)
+ * only fold A-Z there; searchable text is stored folded and the search term is folded the same way,
+ * so every database gives the same results.
+ */
+export function foldText(value: string | null | undefined): string {
+  return (value ?? '').normalize('NFKD').replace(/\p{M}+/gu, '').toLowerCase()
 }
 

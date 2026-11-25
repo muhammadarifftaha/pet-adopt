@@ -1,8 +1,8 @@
 // Plugins' own tables at runtime: are they set up, set them up, and open them.
 //
 //   pnpm migrate           applies every plugin's pending migrations (after the site's own).
-//   SQLite                 also applies them when the app opens the database, like the site's own.
-//   PostgreSQL             never on its own: until `pnpm migrate` runs, the server warns at start and
+//   a local SQLite file    also applies them when the app opens the database, like the site's own.
+//   PostgreSQL, Turso      never on their own: until `pnpm migrate` runs, the server warns at start and
 //                          the plugin's admin screens show a notice in place of the screen.
 //
 // Server-only. The registry is imported lazily (it imports the plugins). Loading this module
@@ -26,12 +26,12 @@ export type PluginStorageStatus = {
 
 const registry = () => import('./registry')
 
-/** The last error per plugin from applying its migrations on start (SQLite), so the status can say why. */
+/** The last error per plugin from applying its migrations on start (local SQLite file), so the status can say why. */
 const applyErrors = new Map<string, string>()
 
 /**
  * Applies pending plugin migrations. `pnpm migrate` passes `throwOnError` so a failure stops it with
- * the reason; on SQLite's automatic run a failing plugin is logged and left not ready, and the rest
+ * the reason; on a local SQLite file's automatic run a failing plugin is logged and left not ready, and the rest
  * of the site keeps working.
  */
 export async function migratePlugins(

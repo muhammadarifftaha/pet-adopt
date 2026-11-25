@@ -1,7 +1,7 @@
 // The form builder's data rules. Server-only: everything opens the plugin's own tables through
 // `openFormsDatabase()` and reaches the app only through `host()` from the SDK. The screens call
 // these through ./actions.ts; check:backend calls them directly.
-import { host, UserError, ValidationError } from '@pet-adopt/plugin-sdk'
+import { foldText, host, UserError, ValidationError } from '@pet-adopt/plugin-sdk'
 import { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm'
 
 import {
@@ -119,7 +119,8 @@ export async function listForms(): Promise<FormSummary[]> {
     .from(t.forms)
     .leftJoin(r, eq(r.formId, t.forms.id))
     .groupBy(t.forms.id)
-    .orderBy(sql`lower(${t.forms.name})`)
+  // At most MAX_FORMS: sorted here, folded, so case and accents order the same on every database.
+  rows.sort((a, b) => foldText(a.name).localeCompare(foldText(b.name)) || a.id - b.id)
   return rows.map((row) => ({
     id: row.id,
     name: row.name,
@@ -246,11 +247,9 @@ export async function deleteForm(id: number): Promise<void> {
 
 type Opened = Awaited<ReturnType<typeof openFormsDatabase>>
 async function assertNameFree(db: Opened['db'], t: Opened['t'], name: string, exceptId?: number) {
-  const rows = await db
-    .select({ id: t.forms.id })
-    .from(t.forms)
-    .where(sql`lower(${t.forms.name}) = ${name.toLowerCase()}`)
-  if (rows.some((row) => row.id !== exceptId)) throw new ValidationError({ name: 'Another form already has this name.' })
+  // At most MAX_FORMS rows: compared here, folded (case and accents), the same on every database.
+  const rows = await db.select({ id: t.forms.id, name: t.forms.name }).from(t.forms)
+  if (rows.some((row) => row.id !== exceptId && foldText(row.name) === foldText(name))) throw new ValidationError({ name: 'Another form already has this name.' })
 }
 
 // --- Responses -------------------------------------------------------------------------------

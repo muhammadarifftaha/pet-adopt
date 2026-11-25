@@ -125,7 +125,7 @@ export async function applyPluginMigrations(database: Database, set: PluginMigra
         if (row) return // another server ran it while we waited for the lock
         for (const statement of splitStatements(sqlText)) {
           if (database.dialect === 'pg') await (tx as unknown as { execute(q: unknown): Promise<unknown> }).execute(sql.raw(statement))
-          else tx.run(sql.raw(statement))
+          else await tx.run(sql.raw(statement))
         }
         await tx.insert(t.pluginMigrations).values({ plugin: set.plugin, migration: migration.id, checksum: sum })
         ran.push(migration.id)
