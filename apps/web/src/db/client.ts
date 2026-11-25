@@ -85,7 +85,7 @@ const isRemoteSqlite = (url: string) => /^(libsql|https?|wss?):\/\//.test(url)
 
 const isBuildPhase = () => process.env.NEXT_PHASE === 'phase-production-build'
 
-/** How long a statement on a local file waits for another process's write lock (ms). */
+/** How long a statement waits for another process's write lock, or for this process's open transaction (ms). */
 const BUSY_TIMEOUT_MS = 5000
 
 /**
@@ -101,8 +101,28 @@ class Gate {
   private exclusiveWaiting = 0
   private waiters: Array<() => void> = []
 
-  private wait() {
-    return new Promise<void>((resolve) => this.waiters.push(resolve))
+  constructor(private readonly timeoutMs: number) {}
+
+  /**
+   * Waits for a wake-up, but never past `deadline`. Without a limit, code inside a transaction that
+   * awaits a promise another request started (a shared cache, say) would wait for that request,
+   * which waits for the transaction: forever. Giving up turns that into an error, as SQLite's own
+   * busy timeout does.
+   */
+  private wait(deadline: number) {
+    return new Promise<void>((resolve, reject) => {
+      const ms = deadline - Date.now()
+      if (ms <= 0) return reject(busyError(this.timeoutMs))
+      const wake = () => {
+        clearTimeout(timer)
+        resolve()
+      }
+      const timer = setTimeout(() => {
+        this.waiters = this.waiters.filter((w) => w !== wake)
+        reject(busyError(this.timeoutMs))
+      }, ms)
+      this.waiters.push(wake)
+    })
   }
 
   private wake() {
@@ -112,7 +132,8 @@ class Gate {
   }
 
   async share<T>(fn: () => Promise<T>): Promise<T> {
-    while (this.exclusive || this.exclusiveWaiting > 0) await this.wait()
+    const deadline = Date.now() + this.timeoutMs
+    while (this.exclusive || this.exclusiveWaiting > 0) await this.wait(deadline)
     this.shared++
     try {
       return await fn()
@@ -122,12 +143,17 @@ class Gate {
   }
 
   async alone<T>(fn: () => Promise<T>): Promise<T> {
+    const deadline = Date.now() + this.timeoutMs
     this.exclusiveWaiting++
     try {
-      while (this.exclusive || this.shared > 0) await this.wait()
-    } finally {
+      while (this.exclusive || this.shared > 0) await this.wait(deadline)
+    } catch (error) {
+      // Gave up: statements held back for this transaction may go now.
       this.exclusiveWaiting--
+      this.wake()
+      throw error
     }
+    this.exclusiveWaiting--
     this.exclusive = true
     try {
       return await fn()
@@ -137,6 +163,10 @@ class Gate {
     }
   }
 }
+
+/** Same code SQLite gives a statement that waited too long for a lock. */
+const busyError = (ms: number) =>
+  Object.assign(new Error(`The database is busy: waited ${ms / 1000} s for another transaction to finish.`), { code: 'SQLITE_BUSY' })
 
 async function openSqlite(url: string): Promise<Database> {
   const [{ createClient }, { drizzle }] = await Promise.all([import('@libsql/client'), import('drizzle-orm/libsql')])
@@ -181,7 +211,7 @@ async function openSqlite(url: string): Promise<Database> {
     const tx = current.getStore()
     return tx && !tx.closed ? tx : undefined
   }
-  const gate = new Gate()
+  const gate = new Gate(BUSY_TIMEOUT_MS)
   // Statements made while a transaction is open in this async context join it, as nested
   // withTransaction calls do. Anything else waits its turn on a local file (see Gate); a hosted
   // database queues writers itself, so there they run straight away.
@@ -201,7 +231,14 @@ async function openSqlite(url: string): Promise<Database> {
           return tx ? tx.batch(stmts) : outside(() => target.batch(stmts, mode))
         }
       }
-      if (prop === 'migrate') return (stmts: InStatement[]) => outside(() => target.migrate(stmts))
+      if (prop === 'migrate') {
+        return (stmts: InStatement[]) => {
+          // Migrations need their own transaction (with foreign keys off), so they cannot join one,
+          // and waiting for the open one would wait for ourselves.
+          if (openTransaction()) return Promise.reject(new Error('Migrations cannot run inside a transaction.'))
+          return outside(() => target.migrate(stmts))
+        }
+      }
       if (prop === 'transaction') {
         return () => {
           throw new Error('Use withTransaction() from src/db/client.ts, not db.transaction(), on SQLite.')
@@ -214,7 +251,7 @@ async function openSqlite(url: string): Promise<Database> {
   const db = drizzle(client, { schema: sqliteSchema })
 
   // Transactions take turns in this process, on a local file and on a hosted database alike.
-  const queue = new Gate()
+  const queue = new Gate(BUSY_TIMEOUT_MS)
   const withTransaction = <T>(fn: (tx: Db) => Promise<T>): Promise<T> => {
     // Already inside a transaction (this call is part of its work): join it. Queueing behind
     // ourselves would wait for a transaction that is waiting for us.
