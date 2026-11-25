@@ -14,12 +14,13 @@ Built with Next.js, Drizzle ORM, Better Auth, shadcn/ui and Puck. All MIT-licens
 
 ## Quick start
 
-Requires Node.js 22.23.4 or newer (or 24.22.1+) and [pnpm](https://pnpm.io). The project is installed and run with pnpm only; there is no npm lockfile.
+Requires Node.js 22.23.4 or newer (or 24.22.1+), [pnpm](https://pnpm.io), and Docker for the local S3-compatible server that holds uploads. The project is installed and run with pnpm only; there is no npm lockfile.
 
 ```bash
 git clone <your-fork-url> pet-adopt
 cd pet-adopt
-cp .env.example .env
+cp apps/web/.env.example apps/web/.env
+docker compose up -d garage   # upload storage; its settings are already in .env.example
 pnpm install
 pnpm seed      # optional: sample pets and an About page
 pnpm dev
@@ -27,7 +28,7 @@ pnpm dev
 
 Open <http://localhost:3000>.
 
-Local development uses a SQLite file (`data/pet-adopt.db` at the repo root, git-ignored, with uploads in `data/media`), so there is nothing else to install. SQLite creates and migrates its own schema on first start. Set `BETTER_AUTH_SECRET` in `.env` to a long random string (`openssl rand -hex 32`). It is required in production and optional in development.
+Local development uses a SQLite file (`data/pet-adopt.db` at the repo root, git-ignored), which creates and migrates its own schema on first start. Uploads always go to S3-compatible storage, never to the server's disk; in development that is the Garage server in `docker-compose.yml` (a small single-node S3 server on port 9000), and `pnpm --filter @pet-adopt/web storage:check` confirms it works. Set `BETTER_AUTH_SECRET` in `.env` to a long random string (`openssl rand -hex 32`). It is required in production and optional in development.
 
 ### The first owner account
 
@@ -183,7 +184,7 @@ Keep `render` functions free of hooks and browser-only code: the same components
    - `BETTER_AUTH_SECRET`: at least 32 random characters (`openssl rand -hex 32`).
    - `NEXT_PUBLIC_SERVER_URL`: your public URL, such as `https://adopt.example.com`. It is also the only origin allowed to make signed-in requests, so use the exact address visitors and owners use.
    - `SEED_ADMIN_EMAIL` and `SEED_ADMIN_PASSWORD`: so the first owner exists before anyone can reach `/admin` (see above).
-4. **Store uploads somewhere durable.** Without configuration, uploads are written to `data/media` at the repo root (change it with `UPLOAD_DIR`, relative to `apps/web`), which suits a VPS or a Docker volume. Visitors always load images through this site's `/media` route, never from the bucket. On serverless platforms (Vercel and similar) set the `S3_*` variables for S3, Cloudflare R2 or MinIO. If `S3_BUCKET` is set, the access key and secret are required too, and `S3_REGION` must be a real region for AWS S3 (`auto` is for R2).
+4. **Set up upload storage.** Uploads live only in S3-compatible object storage: AWS S3, another provider with an S3 API (through `S3_ENDPOINT`), or an S3-compatible server you run yourself. Set the `S3_*` variables (`apps/web/.env.example` explains each one); production refuses to start without them. The bucket can stay private, because visitors load images through this site's `/media` route. Then run `pnpm --filter @pet-adopt/web storage:check`, which writes, reads and deletes a test file and says which permission or setting is wrong if a step fails. A site from before this change kept uploads on disk (`data/media` by default): `pnpm --filter @pet-adopt/web storage:copy-local` copies them into the bucket (`--from <folder>` for another folder, `--dry-run` to list first; files already there are skipped, local files are left alone).
 5. `pnpm build && pnpm start`
 
 Pages are cached and refresh immediately when you publish; they also revalidate every 60 seconds.
