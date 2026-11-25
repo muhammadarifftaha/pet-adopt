@@ -1,7 +1,7 @@
 // Pets: reading, searching and saving. The rules that used to be Payload hooks live in `savePet`.
 import { randomBytes } from 'node:crypto'
 
-import { and, count, desc, eq, gt, inArray, isNotNull, isNull, like, lte, ne, or, type SQL } from 'drizzle-orm'
+import { and, asc, count, desc, eq, gt, inArray, isNotNull, isNull, like, lte, ne, or, type SQL } from 'drizzle-orm'
 
 import { getDatabase, type Db, type Schema } from '@/db/client'
 import type * as S from '@/db/schema/sqlite'
@@ -196,8 +196,10 @@ export async function listPetChoices(): Promise<Array<{ id: number; name: string
     .select({ id: t.pets.id, name: t.pets.name, status: t.pets.status })
     .from(t.pets)
     .where(and(...conditions(t, {}), ne(t.pets.status, PetStatus.Adopted)))
+    // searchText starts with the folded name, so the 500 kept are the first by name on every database.
+    .orderBy(asc(t.pets.searchText), asc(t.pets.id))
     .limit(500)
-  // Sorted here, folded, so accents and case order the same on every database.
+  // Sorted again here: databases collate the folded text slightly differently (PostgreSQL locales).
   return rows.sort((a, b) => foldText(a.name).localeCompare(foldText(b.name)) || a.id - b.id)
 }
 
