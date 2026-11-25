@@ -9,6 +9,19 @@ export async function register() {
   const { assertAuthConfig } = await import('@/server/auth')
   assertAuthConfig()
 
+  // Uploads live only in S3-compatible storage. Production refuses to start with missing or
+  // malformed S3_* settings; development says so once and keeps going (pages work, images 502).
+  {
+    const { s3Settings } = await import('@/server/storage')
+    try {
+      s3Settings()
+    } catch (error) {
+      // `next build` never touches uploads, so it must not need the bucket settings.
+      if (process.env.NODE_ENV === 'production' && process.env.NEXT_PHASE !== 'phase-production-build') throw error
+      console.warn(`Upload storage is not set up: ${error instanceof Error ? error.message : String(error)}`)
+    }
+  }
+
   // Creates the first owner from SEED_ADMIN_EMAIL and SEED_ADMIN_PASSWORD (if no user exists yet),
   // so nobody else can claim a brand-new site first.
   try {

@@ -18,9 +18,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
-      # A throwaway SQLite database and upload folder, never a real site (relative to apps/web).
+      # A throwaway SQLite database and bucket, never a real site (relative to apps/web).
       DATABASE_URL: file:./ci-check.db
-      UPLOAD_DIR: ./ci-uploads
+      # Uploads only go to S3-compatible storage: the compose `garage` server, as in development.
+      S3_BUCKET: pet-adopt-media
+      S3_ENDPOINT: http://127.0.0.1:9000
+      S3_ACCESS_KEY_ID: GK0123456789abcdef01234567
+      S3_SECRET_ACCESS_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
       SEED_ADMIN_EMAIL: owner@example.test
       SEED_ADMIN_PASSWORD: owner-password-123
     steps:
@@ -41,5 +45,10 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm lint
       - run: pnpm check:schemas
+
+      # The same S3-compatible server docker-compose.yml runs for development; it creates its key
+      # and bucket on start, and --wait returns once it is healthy.
+      - run: docker compose up -d --wait garage
+      - run: pnpm --filter @pet-adopt/web storage:check
       - run: pnpm check:backend
       - run: pnpm build

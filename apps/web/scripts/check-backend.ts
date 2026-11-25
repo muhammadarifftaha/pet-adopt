@@ -2,10 +2,12 @@
 // database you can throw away. Run it on SQLite and on Postgres: the repositories are written once
 // and must behave the same on both.
 //
-//   SQLite:   DATABASE_URL=file:/tmp/check.db UPLOAD_DIR=/tmp/check-uploads \
+//   SQLite:   DATABASE_URL=file:/tmp/check.db \
 //             SEED_ADMIN_EMAIL=owner@example.test SEED_ADMIN_PASSWORD=owner-password-123 pnpm check:backend
 //   Postgres: run `pnpm migrate` against an empty database first, with the same variables and a
 //             postgres:// DATABASE_URL.
+//   Uploads go to the S3 storage in the S3_* variables (`docker compose up -d garage`
+//   and the settings at the top of docker-compose.yml); use S3_PREFIX=check to keep them apart.
 //
 // It creates accounts, pets and pages, so never point it at a real site.
 import { APIError } from 'better-auth/api'
@@ -43,7 +45,7 @@ import {
 import { ageGroupOf, ageGroupRange, estimateBirthDate, formatAge, subtractDays, subtractMonths, todayISO } from '../src/lib/age'
 import { deletePet, getLocationOptions, getPetById, getPetBySlug, getSpeciesOptions, queryPets, savePet } from '../src/server/pets'
 import { Fields, ValidationError, UserError, assertId, describeError } from '../src/server/result'
-import { getStorage } from '../src/server/storage'
+import { getStorage, s3Settings } from '../src/server/storage'
 import { StripError, stripMetadata } from '../src/server/strip-metadata'
 import { getSettings, updateSettings } from '../src/server/settings'
 import {
@@ -104,6 +106,14 @@ async function userError(p: Promise<unknown>): Promise<string> {
 
 const png = await sharp({ create: { width: 40, height: 30, channels: 3, background: '#f60' } }).png().toBuffer()
 const ip = (n: number) => new Headers({ 'x-forwarded-for': `10.0.0.${n}` })
+
+// Uploads have nowhere to go without the bucket settings: say so once instead of failing a dozen checks.
+try {
+  s3Settings()
+} catch (error) {
+  console.error(error instanceof Error ? error.message : error)
+  process.exit(1)
+}
 
 const { dialect, db, t } = await getDatabase()
 console.log(`Database dialect: ${dialect}`)
