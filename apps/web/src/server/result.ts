@@ -10,13 +10,16 @@ import { UserError, ValidationError, type ActionResult, type FieldErrors } from 
 export { UserError, ValidationError }
 export type { ActionResult, FieldErrors }
 
-type WithCode = { code?: unknown; cause?: unknown }
+// libSQL puts the general code in `code` (SQLITE_CONSTRAINT) and the kind in `extendedCode`
+// (SQLITE_CONSTRAINT_UNIQUE); PostgreSQL uses `code` alone.
+type WithCode = { code?: unknown; extendedCode?: unknown; cause?: unknown }
 
 function hasCode(error: unknown, test: (code: string) => boolean): boolean {
   let current: unknown = error
   for (let depth = 0; depth < 4 && current && typeof current === 'object'; depth++) {
-    const { code, cause } = current as WithCode
+    const { code, extendedCode, cause } = current as WithCode
     if (typeof code === 'string' && test(code)) return true
+    if (typeof extendedCode === 'string' && test(extendedCode)) return true
     current = cause
   }
   return false

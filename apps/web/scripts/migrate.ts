@@ -2,9 +2,10 @@
  * Applies pending database migrations.
  *   pnpm migrate
  *
- * SQLite also migrates itself the first time the app opens it. PostgreSQL never does: run this
- * before starting the server, again after every `pnpm db:generate`, and after adding or updating a
- * plugin that has tables of its own (the server warns at start while one is waiting).
+ * A local SQLite file also migrates itself the first time the app opens it. PostgreSQL and hosted
+ * libSQL (Turso) never do, because several servers can share them: run this before starting the
+ * server, again after every `pnpm db:generate`, and after adding or updating a plugin that has
+ * tables of its own (the server warns at start while one is waiting).
  */
 // Slow DDL (building an index on a big table) must not be cut off by the app's query timeout.
 process.env.DB_STATEMENT_TIMEOUT_MS ??= '0'
