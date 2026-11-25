@@ -9,7 +9,7 @@
 //
 // It creates accounts, pets and pages, so never point it at a real site.
 import { APIError } from 'better-auth/api'
-import { eq, sql } from 'drizzle-orm'
+import { eq, sql, type SQL } from 'drizzle-orm'
 import zlib from 'node:zlib'
 
 import { isEqual } from 'es-toolkit'
@@ -226,6 +226,108 @@ await check('a transaction started inside another one joins it instead of deadlo
     })
     await tx.select().from(t.users).limit(1)
   })
+})
+
+// The transaction guarantees the repositories rely on, on a scratch table. The gate checks are for a
+// local SQLite file, where client.ts makes other requests wait for an open transaction.
+await check('transactions: nested work rolls back together, locked read-modify-writes lose nothing, local SQLite waits safely', async () => {
+  const { withTransaction, migratesOnOpen } = await getDatabase()
+  // Postgres query builders run raw SQL with execute() (rows in .rows); SQLite's with run() and all().
+  type Raw = { execute?(q: unknown): Promise<{ rows: unknown[] }>; run?(q: unknown): Promise<unknown>; all?(q: unknown): Promise<unknown[]> }
+  const run = (target: unknown, q: SQL) => (dialect === 'pg' ? (target as Raw).execute!(q) : (target as Raw).run!(q))
+  const all = async (target: unknown, q: SQL) => (dialect === 'pg' ? (await (target as Raw).execute!(q)).rows : await (target as Raw).all!(q)) as Array<{ n: number | string }>
+  const exec = (q: string) => run(db, sql.raw(q))
+  const count = async () => (await all(db, sql.raw('select n from check_tx order by n'))).map((r) => Number(r.n))
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+  const codeOf = (e: unknown) => {
+    for (let c = e as { code?: unknown; cause?: unknown } | undefined, i = 0; c && i < 4; c = c.cause as typeof c, i++) if (typeof c.code === 'string') return c.code
+  }
+  await exec('drop table if exists check_tx')
+  await exec('create table check_tx (n integer not null)')
+  try {
+    // A failure undoes the outer and the nested call's writes.
+    const failed = await withTransaction(async (tx) => {
+      await run(tx, sql`insert into check_tx values (1)`)
+      await withTransaction(async (inner) => run(inner, sql`insert into check_tx values (2)`))
+      throw new Error('boom')
+    }).catch((e: Error) => e.message)
+    ok(failed === 'boom', 'the error comes back')
+    ok((await count()).length === 0, `nested work must roll back with the outer: ${JSON.stringify(await count())}`)
+
+    // A nested call taking the lock its outer call holds joins instead of waiting for itself.
+    await withTransaction(async (tx) => {
+      await run(tx, sql`insert into check_tx values (9)`)
+      await withTransaction(async (inner) => run(inner, sql`delete from check_tx where n = 9`), { lock: 'check:tx' })
+    }, { lock: 'check:tx' })
+    ok((await count()).length === 0, 'a nested call under the same lock joins the outer transaction')
+
+    // Same lock: one after the other, so neither reads a value the other is about to change.
+    await exec('insert into check_tx values (0)')
+    const bump = () =>
+      withTransaction(
+        async (tx) => {
+          const [row] = await all(tx, sql`select n from check_tx`)
+          await sleep(30)
+          await run(tx, sql`update check_tx set n = ${Number(row.n) + 1}`)
+        },
+        { lock: 'check:tx' },
+      )
+    await Promise.all([bump(), bump(), bump()])
+    ok((await count())[0] === 3, `three locked increments must give 3, got ${JSON.stringify(await count())}`)
+    await exec('delete from check_tx')
+
+    if (dialect !== 'sqlite' || !migratesOnOpen) {
+      console.log('      (gate checks are for a local SQLite file; skipped)')
+      return
+    }
+
+    // The outer db used inside a transaction joins it, so it rolls back too.
+    await withTransaction(async () => {
+      await run(db, sql`insert into check_tx values (3)`)
+      throw new Error('boom')
+    }).catch(() => undefined)
+    ok((await count()).length === 0, 'a statement through the outer db inside a transaction must roll back with it')
+
+    // Another request's statements wait for the open transaction instead of running inside it (and
+    // being rolled back with it) or reading its uncommitted rows.
+    const order: string[] = []
+    const open = withTransaction(async (tx) => {
+      await run(tx, sql`insert into check_tx values (4)`)
+      await sleep(150)
+      order.push('commit')
+    })
+    await sleep(30) // a different async context: like another request
+    const reader = all(db, sql`select n from check_tx`).then((rows) => order.push(`read ${rows.length}`))
+    const writer = run(db, sql`insert into check_tx values (5)`).then(() => order.push('write'))
+    await Promise.all([open, reader, writer])
+    ok(order[0] === 'commit', `other requests must wait for the commit: ${order.join(', ')}`)
+    // Both waited for the commit (above); which of the two then runs first is up to the gate.
+    ok(order.some((o) => o === 'read 1' || o === 'read 2'), `the read must see the committed row: ${order.join(', ')}`)
+    ok(JSON.stringify(await count()) === '[4,5]', `both rows kept: ${JSON.stringify(await count())}`)
+
+    // A transaction that awaits a promise another request started (a shared cache) cannot wait for
+    // it forever: the gate gives up with SQLITE_BUSY, and the database keeps working.
+    let shared: Promise<unknown> | undefined
+    const cached = () => (shared ??= db.all(sql`select 1 as v`).then((rows) => rows))
+    const started = Date.now()
+    const stuck = withTransaction(async () => {
+      await sleep(20)
+      return cached()
+    })
+    setTimeout(() => void cached().catch(() => undefined), 5)
+    const outcome = await stuck.then(() => 'finished', (e: unknown) => codeOf(e))
+    const waited = Date.now() - started
+    ok(outcome === 'SQLITE_BUSY', `expected SQLITE_BUSY, got ${String(outcome)}`)
+    ok(waited >= 4500 && waited < 8000, `gave up after ${waited} ms, expected about 5000`)
+    ok((await count()).length === 2, 'the database still answers afterwards')
+
+    // Migrations need a transaction of their own.
+    const { runMigrations } = await import('../src/db/migrate')
+    const refused = await withTransaction(async () => runMigrations(await getDatabase())).then(() => 'ran', (e: Error) => e.message)
+    ok(/cannot run inside a transaction/.test(refused), `migrate inside a transaction: ${refused}`)
+  } finally {
+    await exec('drop table if exists check_tx')
+  }
 })
 
 await check('create an editor; duplicate email refused; sign in as editor', async () => {
