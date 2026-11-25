@@ -1,7 +1,18 @@
-# Local PostgreSQL for trying the production database setup. Development only.
-#   docker compose up -d
-#   DATABASE_URL=postgres://postgres:postgres@localhost:5432/pet_adopt
-# Set POSTGRES_PASSWORD (and use it in DATABASE_URL) on any machine other people can reach.
+# Local services for trying the production setup. Development only.
+#   docker compose up -d            everything, or name one: docker compose up -d garage
+#
+# postgres: DATABASE_URL=postgres://postgres:postgres@localhost:5432/pet_adopt
+#   Set POSTGRES_PASSWORD (and use it in DATABASE_URL) on any machine other people can reach.
+#
+# garage: an S3-compatible server for uploads, a single node that creates its key and the bucket
+# pet-adopt-media on start (the values in apps/web/.env.example):
+#   S3_BUCKET=pet-adopt-media
+#   S3_ENDPOINT=http://localhost:9000
+#   S3_ACCESS_KEY_ID=GK0123456789abcdef01234567
+#   S3_SECRET_ACCESS_KEY=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+#   Then `pnpm --filter @pet-adopt/web storage:check`. Look inside with
+#   `docker compose exec garage /garage bucket info pet-adopt-media`. Set GARAGE_ACCESS_KEY (GK and
+#   24 hex characters) and GARAGE_SECRET_KEY (64 hex characters) to change the keys.
 services:
   postgres:
     image: postgres:17
@@ -20,5 +31,46 @@ services:
       interval: 5s
       retries: 10
 
+  garage:
+    image: dxflrs/garage:v2.5.0
+    restart: unless-stopped
+    # Lays out a one-node cluster and creates the key and bucket below on first start; later starts
+    # find them in place.
+    command: ['/garage', 'server', '--single-node', '--default-bucket']
+    environment:
+      GARAGE_DEFAULT_ACCESS_KEY: ${GARAGE_ACCESS_KEY:-GK0123456789abcdef01234567}
+      GARAGE_DEFAULT_SECRET_KEY: ${GARAGE_SECRET_KEY:-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef}
+      GARAGE_DEFAULT_BUCKET: pet-adopt-media
+    configs:
+      - source: garage
+        target: /etc/garage.toml
+    ports:
+      # Loopback only: the S3 API. The internal RPC port (3901) is not published.
+      - '127.0.0.1:9000:3900'
+    volumes:
+      - pet_adopt_garage:/var/lib/garage
+    healthcheck:
+      test: ['CMD', '/garage', 'status']
+      interval: 5s
+      retries: 20
+
 volumes:
   pet_adopt_pgdata:
+  pet_adopt_garage:
+
+configs:
+  garage:
+    # One node, one copy of each file: fine for development, never for keeping real data.
+    # The region matches the app's default (us-east-1), so S3_REGION can stay unset.
+    content: |
+      metadata_dir = "/var/lib/garage/meta"
+      data_dir = "/var/lib/garage/data"
+      db_engine = "sqlite"
+      replication_factor = 1
+      rpc_bind_addr = "[::]:3901"
+      rpc_public_addr = "127.0.0.1:3901"
+      rpc_secret = "0000000000000000000000000000000000000000000000000000000000000000"
+
+      [s3_api]
+      api_bind_addr = "[::]:3900"
+      s3_region = "us-east-1"
