@@ -174,11 +174,14 @@ Keep `render` functions free of hooks and browser-only code: the same components
 ## Production
 
 1. **Use PostgreSQL.** Set `DATABASE_URL=postgres://...` (Neon, Supabase, your own server). `docker compose up -d` starts a local one for testing; it only listens on `127.0.0.1`, and you can change its password with `POSTGRES_PASSWORD`. SQLite needs a persistent disk, so it only suits a single VPS. On a pooled connection (Neon, Supabase), use the pooler URL and set `DB_POOL_MAX` low (1 to 3) on serverless hosts.
-2. **Run migrations.** With PostgreSQL the schema is never changed automatically; SQLite applies pending migrations itself when the app opens it.
+2. **Migrations run as part of `pnpm build`.** For PostgreSQL and hosted libSQL, the build migrates the database first and fails if it cannot, so new code never ships against an older schema; a local SQLite file migrates itself when the app opens it instead. The migration step is part of the app's own build script (not cached), so it runs however your host starts the build, including one that builds `apps/web` directly.
    ```bash
    pnpm db:generate      # after changing the schema; commit the new files in drizzle/
-   pnpm migrate          # on every deploy, before starting the app (PostgreSQL)
+   pnpm build            # migrates (PostgreSQL, hosted libSQL), then builds
+   pnpm migrate          # the same migrations on their own, any time
    ```
+   - **Preview builds** on Vercel (`VERCEL_ENV` other than `production`) skip migrations, because a preview usually shares the production database and a branch must not change it before it is merged. Set `MIGRATE_ON_PREVIEW=1` when previews have their own database.
+   - **Builds that cannot reach the database** (a Docker image built without it): set `SKIP_BUILD_MIGRATE=1` and run `pnpm migrate` before starting the server.
    There are two schema files, [`src/db/schema/sqlite.ts`](src/db/schema/sqlite.ts) and [`src/db/schema/pg.ts`](src/db/schema/pg.ts), because Drizzle's SQLite and Postgres table types differ. Change both, run `pnpm db:generate` (it writes `drizzle/sqlite` and `drizzle/pg`), and `pnpm check:schemas` fails if they drift apart. The data code in `src/server` is written once and runs on both databases; `pnpm check:backend` runs it end to end against a throwaway database, on SQLite or Postgres (instructions in the script header). A new database only needs `pnpm migrate`.
 3. **Set the required variables.** In production the server refuses to start without them:
    - `BETTER_AUTH_SECRET`: at least 32 random characters (`openssl rand -hex 32`).
@@ -204,10 +207,10 @@ Pages are cached and refresh immediately when you publish; they also revalidate 
 | Command | Does |
 | --- | --- |
 | `pnpm dev` | Development server |
-| `pnpm build` / `pnpm start` | Production build and server |
+| `pnpm build` / `pnpm start` | Production build (migrates PostgreSQL or hosted libSQL first) and server |
 | `pnpm seed` | Sample content. Safe to re-run, leaves a real site alone, and refuses to run in production without `SEED_FORCE=1`. The owner account comes from `SEED_ADMIN_*` on startup |
 | `pnpm db:generate` | Generate SQL migrations for both databases after changing the schema |
-| `pnpm migrate` | Apply pending migrations (needed for PostgreSQL; SQLite does it itself) |
+| `pnpm migrate` | Apply pending migrations on their own (`pnpm build` runs them for PostgreSQL and hosted libSQL; a local SQLite file does it itself) |
 | `pnpm check:schemas` | Fail if the SQLite and Postgres schemas have drifted apart |
 | `pnpm check:backend` | End-to-end backend check against a throwaway database (see the script header) |
 | `pnpm admin:reset-password <email>` | Set a new password (from `NEW_PASSWORD`) for an account, sign it out everywhere and lift its lockout |
