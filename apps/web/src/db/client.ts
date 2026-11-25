@@ -310,16 +310,28 @@ async function openPostgres(url: string): Promise<Database> {
   // uncaught exception and the whole server exits. The pool discards the dead connection itself.
   pool.on('error', (error) => logError(error, 'postgres pool'))
   const db = drizzle(pool, { schema: pgSchema })
+  // The open transaction of the current async context: a nested withTransaction call joins it, so
+  // its work commits or rolls back with the outer one. (Otherwise it would run on another pooled
+  // connection: committed on its own, and stuck behind any row or lock the outer one holds.)
+  const current = new AsyncLocalStorage<typeof db>()
   return {
     dialect: 'pg',
     migratesOnOpen: false,
     db: db as unknown as Db,
     t: pgSchema as unknown as Schema,
-    withTransaction: (fn, options) =>
-      db.transaction(async (tx) => {
-        if (options?.lock) await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${options.lock}))`)
-        return fn(tx as unknown as Db)
-      }),
+    withTransaction: async (fn, options) => {
+      const lock = (tx: typeof db) => tx.execute(sql`select pg_advisory_xact_lock(hashtext(${options!.lock!}))`)
+      const outer = current.getStore()
+      if (outer) {
+        // A session may take an advisory lock it already holds, so a nested lock never waits on itself.
+        if (options?.lock) await lock(outer)
+        return fn(outer as unknown as Db)
+      }
+      return db.transaction(async (tx) => {
+        if (options?.lock) await lock(tx as unknown as typeof db)
+        return current.run(tx as unknown as typeof db, () => fn(tx as unknown as Db))
+      })
+    },
     close: () => pool.end(),
   }
 }
