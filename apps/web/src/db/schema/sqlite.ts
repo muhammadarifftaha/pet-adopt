@@ -341,6 +341,24 @@ export const emailSettings = sqliteTable('email_settings', {
   updatedAt: updatedAt(),
 })
 
+// Email templates people build (src/server/email-templates.ts, the email builder at /edit/email/<id>).
+// `purpose` decides which placeholders a template may use and which email it can be used for; at
+// most one template per purpose is the default (checked in the app, under a lock). `data` is the
+// builder's layout, rebuilt from allowed blocks on save (src/lib/email-template.ts).
+export const emailTemplates = sqliteTable('email_templates', {
+  id: id(),
+  name: text('name').notNull(),
+  purpose: text('purpose').notNull(),
+  data: text('data', { mode: 'json' }).notNull(),
+  isDefault: flag('is_default'),
+  // A template a plugin ships (`<plugin>:<key>`, e.g. form-builder:notification): seeded at start,
+  // editable, never deleted, and what that plugin's emails use when nothing else is picked.
+  seedKey: text('seed_key').unique(),
+  createdBy: text('created_by').references(() => users.id, { onDelete: 'set null' }),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+})
+
 // --- Activity log ------------------------------------------------------------------------
 
 // Who did what, and when (src/server/activity.ts). Append-only: nothing in the app edits a row, and

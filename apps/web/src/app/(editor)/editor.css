@@ -98,3 +98,20 @@ html[data-follow-mode][data-mode='dark'] {
   width: 100%; padding: 8px; border: 1px solid var(--puck-color-grey-08); border-radius: 6px;
   background: var(--puck-color-white); color: var(--puck-color-text); font: inherit; font-size: 14px;
 }
+
+/* The email builder (/edit/email/<id>): the placeholder list in the root's sidebar, the "send test"
+   field in the header, and the list of problems a save found. */
+.email-placeholder-help { font-size: 13px; line-height: 1.5; color: var(--puck-color-text); }
+.email-placeholder-help p { margin: 0 0 8px; }
+.email-placeholder-help dl { margin: 0; display: grid; gap: 6px; }
+.email-placeholder-help dt code { font-size: 12px; background: var(--puck-color-grey-11); padding: 1px 4px; border-radius: 4px; }
+.email-placeholder-help dd { margin: 0; color: var(--puck-color-text-muted); }
+.editor-actions .email-test-to { width: 200px; padding: 6px 8px; border: 1px solid var(--puck-color-grey-08); border-radius: 6px; font: inherit; background: var(--puck-color-white); color: var(--puck-color-text); }
+.email-problems {
+  position: fixed; top: 64px; right: 16px; z-index: 10; max-width: 420px; padding: 12px 16px; border-radius: 8px;
+  border: 1px solid var(--puck-color-red-06); background: var(--puck-color-white); color: var(--puck-color-text);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15); font-size: 14px;
+}
+.email-problems p { margin: 0 0 6px; font-weight: 600; }
+.email-problems ul { margin: 0 0 8px; padding-left: 18px; }
+.email-problems button { font: inherit; padding: 4px 10px; border: 1px solid var(--puck-color-grey-08); border-radius: 6px; background: var(--puck-color-white); color: var(--puck-color-text); cursor: pointer; }

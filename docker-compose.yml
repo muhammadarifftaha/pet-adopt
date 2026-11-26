@@ -15,7 +15,8 @@
 #   24 hex characters) and GARAGE_SECRET_KEY (64 hex characters) to change the keys.
 #
 # mailpit: a mail server that delivers nothing; every email the site sends lands in its inbox at
-# http://localhost:8025 (messages are kept in memory until it restarts). Point the site at it in
+# http://localhost:8025. Messages survive restarts and `down`/`up` (volume pet_adopt_mailpit; the
+# oldest go past 500); `down -v` wipes them, or delete them in the inbox. Point the site at it in
 # Settings > Email (server localhost, port 1025, encryption None) or with:
 #   SMTP_HOST=localhost
 #   SMTP_PORT=1025
@@ -71,10 +72,14 @@ services:
       # name and password can be tried as well.
       MP_SMTP_AUTH_ACCEPT_ANY: 1
       MP_SMTP_AUTH_ALLOW_INSECURE: 1
+      # Kept on disk (the volume below), so a restart does not empty the inbox.
+      MP_DATABASE: /data/mailpit.db
     ports:
       # Loopback only: SMTP, and the web inbox.
       - '127.0.0.1:1025:1025'
       - '127.0.0.1:8025:8025'
+    volumes:
+      - pet_adopt_mailpit:/data
     healthcheck:
       test: ['CMD', '/mailpit', 'readyz']
       interval: 5s
@@ -83,6 +88,7 @@ services:
 volumes:
   pet_adopt_pgdata:
   pet_adopt_garage:
+  pet_adopt_mailpit:
 
 configs:
   garage:

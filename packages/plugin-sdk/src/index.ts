@@ -287,9 +287,34 @@ export type Plugin = {
   email?: EmailSender
   /** Its own tables and the migrations that create them. */
   storage?: PluginStorage
+  /**
+   * Which of the site's email templates it uses, for the "Used by" column of Settings > Email
+   * templates and the warning before one is deleted. Server-only; a failure leaves the column empty.
+   */
+  emailTemplateUsage?: () => Promise<EmailTemplateUse[]>
+  /**
+   * Default templates this plugin ships. Each is created in Settings > Email templates at server
+   * start if missing (as `<plugin name>:<key>`), can be edited and restored but not deleted, and is
+   * what `sendTemplatedEmail({ fallback })` uses when no other template is picked, so the plugin's
+   * emails always have a template.
+   */
+  emailTemplates?: PluginEmailTemplate[]
   /** Other plugins this one is built from (flattened, in order, before this one). */
   plugins?: Plugin[]
 }
+
+/**
+ * One place an email template is used: `Form “Adopt” (notification)`, with a link to it. Either the
+ * template picked (`templateId`) or, when none is, the plugin's default (`seedKey`, `<plugin>:<key>`).
+ */
+export type EmailTemplateUse = { templateId?: number; seedKey?: string; label: string; href?: string }
+
+/**
+ * A default template a plugin ships. `key`: lowercase letters, digits and dashes, unique in the
+ * plugin. `data`: a layout in the site's template format (Puck data of the email builder's blocks);
+ * left out, or not valid, the site's built-in email of that purpose is used.
+ */
+export type PluginEmailTemplate = { key: string; name: string; purpose: PluginEmailPurpose; data?: unknown }
 
 export type Config = {
   plugins?: Plugin[]
@@ -399,10 +424,38 @@ export type PluginHost = {
   /** Logs an error without the values a failed database query carries. Never log error objects yourself. */
   logError(error: unknown, context?: string): void
   /**
+   * Sends an email through the site's templates (Settings > Email templates): a team notification
+   * or a message to a visitor. Uses the template `templateId` when it exists and has that purpose,
+   * else the built-in one. `details` are only used for team notifications (a message to a visitor
+   * never repeats what someone typed). Resolves false when the site cannot send email; rejects when
+   * sending fails.
+   */
+  sendTemplatedEmail(message: PluginEmail): Promise<boolean>
+  /**
+   * The templates for a purpose, for a "which template" choice. `seedKey` marks plugin defaults
+   * (`<plugin>:<key>`); pre-select yours when nothing is chosen.
+   */
+  emailTemplates(purpose: PluginEmailPurpose): Promise<Array<{ id: number; name: string; seedKey: string | null }>>
+  /**
    * Adds an entry to the site's activity log, as the signed-in person, after a change succeeded.
    * Never throws (a failure is logged). See PluginActivity.
    */
   recordActivity(entry: PluginActivity): Promise<void>
+}
+
+/** Kinds of email a plugin may send through the site's templates (see `sendTemplatedEmail`). */
+export type PluginEmailPurpose = 'team-notification' | 'visitor-message'
+
+export type PluginEmail = {
+  purpose: PluginEmailPurpose
+  templateId?: number | null
+  /** Your default template (`<plugin name>:<key>` from `emailTemplates`), used when `templateId` is missing or deleted. */
+  fallback?: string
+  to: string
+  /** Placeholders: `{ title }` (what it is about, such as a form's name). The site's name and address are added. */
+  values?: Record<string, string>
+  /** Label and value pairs for the Details block (team notifications only), such as a form's answers. */
+  details?: Array<{ label: string; value: string }>
 }
 
 /**

@@ -20,7 +20,7 @@ import { getDatabase } from '@/db/client'
 
 import { getAuth, SITE_URL } from './auth'
 import { asRecord, Fields, logError, UserError } from './result'
-import { getSettings } from './settings'
+import { renderPurposeEmail } from './email-templates'
 import { clearLockoutsFor, guardResetRequest } from './throttle'
 import { newPassword, writeCredential } from './users'
 
@@ -130,34 +130,13 @@ export async function prepareResetEmail(
         .limit(1)
       if (!user || user.banned) return
       const { url } = await createResetLink(user.id)
-      const { siteName } = await getSettings()
-      await sender.send(resetEmail({ to: address, name: user.name, siteName, url }))
+      // Settings > Templates: the default "Password reset" template, or the built-in one.
+      const email = await renderPurposeEmail({ purpose: 'password-reset', values: { name: user.name, resetLink: url, minutes: String(Math.round(RESET_TTL_MS / 60_000)) } })
+      await sender.send({ to: address, subject: email.subject, text: email.text, html: email.html })
     } catch (error) {
       logError(error, 'password reset email failed')
     }
   }
-}
-
-const escapeHtml = (value: string) =>
-  value.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c] as string)
-
-export function resetEmail(input: { to: string; name: string; siteName: string; url: string }) {
-  const minutes = Math.round(RESET_TTL_MS / 60_000)
-  const site = input.siteName || 'Pet Adopt'
-  const text = [
-    `Hello ${input.name},`,
-    '',
-    `Someone asked to reset the password of your ${site} account. To choose a new one, open this link within ${minutes} minutes:`,
-    '',
-    input.url,
-    '',
-    'The link works once. If you did not ask for this, ignore this email: your password stays the same.',
-  ].join('\n')
-  const html = `<p>Hello ${escapeHtml(input.name)},</p>
-<p>Someone asked to reset the password of your ${escapeHtml(site)} account. To choose a new one, open this link within ${minutes} minutes:</p>
-<p><a href="${escapeHtml(input.url)}">Choose a new password</a></p>
-<p>The link works once. If you did not ask for this, ignore this email: your password stays the same.</p>`
-  return { to: input.to, subject: `Reset your ${site} password`, text, html }
 }
 
 /** Now and then, remove links that can no longer be used. */

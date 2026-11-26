@@ -1,8 +1,8 @@
 'use server'
 
-import { getSettings } from '@/lib/queries'
 
 import { recordActivity } from '../activity'
+import { renderPurposeEmail } from '../email-templates'
 import { getEmailSender, getEmailSettingsView, saveEmailSettings, type EmailSettingsView } from '../email'
 import { describeError, run, UserError, ValidationError, type ActionResult } from '../result'
 import { requirePermission } from '../session'
@@ -25,13 +25,10 @@ export async function sendTestEmailAction(to: string): Promise<ActionResult<{ to
     if (!sender) throw new UserError('Email is not set up yet, so nothing can be sent. Save the email settings first.')
     await consumeAttempt(`emailtest:${user.id}`, TEST_EMAIL_RULE)
 
-    const { siteName } = await getSettings()
     try {
-      await sender.send({
-        to: address,
-        subject: `Test email from ${siteName}`,
-        text: `This is a test email from ${siteName}, sent by ${user.name} from the admin. If you can read it, the site can send email (for example password reset links).`,
-      })
+      // Settings > Templates: the default "Test email" template, or the built-in one.
+      const email = await renderPurposeEmail({ purpose: 'test', values: { senderName: user.name } })
+      await sender.send({ to: address, subject: email.subject, text: email.text, html: email.html })
     } catch (error) {
       // The provider's own explanation (unverified domain, bad key...) helps the admin fix it.
       throw new UserError(`The email was not sent. ${describeError(error)}`)

@@ -1,7 +1,9 @@
 // The form builder's data rules. Server-only: everything opens the plugin's own tables through
 // `openFormsDatabase()` and reaches the app only through `host()` from the SDK. The screens call
 // these through ./actions.ts; check:backend calls them directly.
-import { csvCell, foldText, host, UserError, ValidationError } from '@pet-adopt/plugin-sdk'
+import { createHash } from 'node:crypto'
+
+import { csvCell, foldText, host, UserError, ValidationError, type EmailTemplateUse } from '@pet-adopt/plugin-sdk'
 import { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm'
 
 import {
@@ -21,7 +23,8 @@ import {
   type PublicField,
   type SourceChoice,
 } from './fields'
-import { openFormsDatabase } from './storage'
+import { CONFIRMATION_KEY, NOTIFICATION_KEY } from './email-templates'
+import { FORM_BUILDER, openFormsDatabase } from './storage'
 
 export const MAX_FORMS = 100
 /** Past this a form stops accepting responses, so a flood cannot fill the disk. */
@@ -183,6 +186,11 @@ function parseFormInput(raw: unknown, creating: boolean): FormInput {
     if (result.ok) out.settings = result.settings
     else Object.assign(errors, result.errors)
   }
+  // A confirmation goes to the address given in one of the form's Email questions.
+  const confirmationField = out.settings?.confirmationFieldId
+  if (confirmationField && out.fields && !out.fields.some((field) => field.id === confirmationField && field.type === 'email')) {
+    errors['settings.confirmationFieldId'] = 'Pick one of the form’s Email questions.'
+  }
   if (input.isOpen !== undefined) {
     if (typeof input.isOpen !== 'boolean') errors.isOpen = 'Must be true or false.'
     else out.isOpen = input.isOpen
@@ -293,16 +301,71 @@ export async function submitResponse(
   return { message, stored: { form, answers: result.answers } }
 }
 
-/** Emails a new response to the form's notify address, when the site can send email. Never throws. */
+/** Emails a new response to the form's notify address, through its template, when the site can send email. Never throws. */
 export async function notifyNewResponse(form: FormRecord, answers: FormAnswer[]): Promise<void> {
   const to = form.settings.notifyEmail
-  const sender = to ? await host().emailSender() : null
-  if (!to || !sender) return
-  const lines = answers.map((answer) => `${answer.label}: ${answerToText(answer) || '(blank)'}`)
+  if (!to) return
   try {
-    await sender.send({ to, subject: `New response: ${form.name}`, text: [`A new response to "${form.name}".`, '', ...lines].join('\n') })
+    await host().sendTemplatedEmail({
+      purpose: 'team-notification',
+      templateId: form.settings.notifyTemplateId ?? null,
+      fallback: `${FORM_BUILDER}:${NOTIFICATION_KEY}`,
+      to,
+      values: { title: form.name },
+      // The form's answers, as the email's Details block.
+      details: answers.map((answer) => ({ label: answer.label, value: answerToText(answer) })),
+    })
   } catch (error) {
     host().logError(error, `form-builder: could not email a response to form ${form.id}`)
+  }
+}
+
+/** Which email templates the forms use (Settings > Email templates shows it as "Used by"). */
+export async function emailTemplateUsage(): Promise<EmailTemplateUse[]> {
+  const { db, t } = await openFormsDatabase()
+  const rows = await db.select({ id: t.forms.id, name: t.forms.name, settings: t.forms.settings }).from(t.forms).orderBy(asc(t.forms.name))
+  const uses: EmailTemplateUse[] = []
+  for (const row of rows) {
+    const settings = (row.settings ?? {}) as FormSettings
+    const href = `/admin/plugins/${FORM_BUILDER}/forms/${row.id}`
+    // A form that picked no template uses this plugin's default one.
+    const pick = (templateId: number | undefined, key: string) => (templateId ? { templateId } : { seedKey: `${FORM_BUILDER}:${key}` })
+    if (settings.notifyEmail) uses.push({ ...pick(settings.notifyTemplateId, NOTIFICATION_KEY), label: `Form “${row.name}” (notification)`, href })
+    if (settings.confirmationFieldId) uses.push({ ...pick(settings.confirmationTemplateId, CONFIRMATION_KEY), label: `Form “${row.name}” (confirmation)`, href })
+  }
+  return uses
+}
+
+// Confirmations go to an address a visitor typed, so they are limited: 3 an hour to one address, 10
+// an hour from one visitor. Past that the response is still stored; only the email is skipped.
+export const CONFIRM_ADDRESS_RULE = { max: 3, windowMs: 60 * 60 * 1000 }
+export const CONFIRM_CLIENT_RULE = { max: 10, windowMs: 60 * 60 * 1000 }
+
+/**
+ * Emails the visitor a confirmation when the form asks for one (`confirmationFieldId`), to the
+ * address they gave in that Email question. It never contains their answers. Returns whether one
+ * was sent. Never throws.
+ */
+export async function confirmToVisitor(form: FormRecord, answers: FormAnswer[], client: string | null): Promise<boolean> {
+  const fieldId = form.settings.confirmationFieldId
+  const field = fieldId ? form.fields.find((item) => item.id === fieldId && item.type === 'email') : undefined
+  const to = field ? answers.find((answer) => answer.id === field.id)?.value : undefined
+  if (typeof to !== 'string' || !to) return false
+  try {
+    // Keyed by a hash, so the counters table never holds visitors' addresses.
+    const hash = createHash('sha256').update(to.toLowerCase()).digest('hex').slice(0, 32)
+    await host().consumeAttempt(`form-builder:confirm:${hash}`, CONFIRM_ADDRESS_RULE)
+    if (client) await host().consumeAttempt(`form-builder:confirm-ip:${client}`, CONFIRM_CLIENT_RULE)
+  } catch (error) {
+    if (error instanceof UserError) return false
+    host().logError(error, `form-builder: could not check the confirmation limits for form ${form.id}`)
+    return false
+  }
+  try {
+    return await host().sendTemplatedEmail({ purpose: 'visitor-message', templateId: form.settings.confirmationTemplateId ?? null, fallback: `${FORM_BUILDER}:${CONFIRMATION_KEY}`, to, values: { title: form.name } })
+  } catch (error) {
+    host().logError(error, `form-builder: could not email a confirmation for form ${form.id}`)
+    return false
   }
 }
 

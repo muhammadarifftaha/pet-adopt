@@ -8,6 +8,7 @@ import { headers } from 'next/headers'
 import { PetStatus } from '@/lib/options'
 import { toE164, validatePhone } from '@/lib/phone'
 import { recordActivity } from '@/server/activity'
+import { listEmailTemplates, sendPurposeEmail } from '@/server/email-templates'
 import { logError, run } from '@/server/result'
 import { listPetChoices } from '@/server/pets'
 import { getSessionUser, requirePermission } from '@/server/session'
@@ -39,6 +40,21 @@ provideHost({
     return []
   },
   emailSender: () => getEmailSender(),
+  sendTemplatedEmail: (message) => {
+    const purpose = message?.purpose
+    if (purpose !== 'team-notification' && purpose !== 'visitor-message') throw new Error(`plugins may send team notifications and visitor messages only, not "${String(purpose)}"`)
+    const values = Object.fromEntries(Object.entries(message.values ?? {}).filter(([, value]) => typeof value === 'string').map(([key, value]) => [key, value.slice(0, 500)]))
+    return sendPurposeEmail({
+      purpose,
+      templateId: typeof message.templateId === 'number' ? message.templateId : null,
+      fallback: typeof message.fallback === 'string' && /^[a-z0-9-]+:[a-z0-9-]+$/.test(message.fallback) ? message.fallback : null,
+      to: message.to,
+      values,
+      // A message to a visitor never carries details, whatever the plugin passes.
+      details: purpose === 'team-notification' ? message.details : undefined,
+    })
+  },
+  emailTemplates: async (purpose) => (await listEmailTemplates(purpose)).map(({ id, name, seedKey }) => ({ id, name, seedKey })),
   logError,
   // Plugins log changes made by the signed-in person, under the area `plugins`. An action must start
   // with the name of a configured plugin, so a plugin cannot pass its entries off as the site's own.

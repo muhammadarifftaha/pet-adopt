@@ -8,7 +8,7 @@ import sharp, { type Metadata } from 'sharp'
 import { cleanMediaName } from '@/lib/media-name'
 
 import { createMediaRow, deleteMediaRow } from './media'
-import { thumbnailFilename } from './media-url'
+import { emailImageFilename, thumbnailFilename } from './media-url'
 import { describeError, ValidationError } from './result'
 import { getStorage, type Storage } from './storage'
 import { StripError, stripMetadata } from './strip-metadata'
@@ -132,5 +132,6 @@ export async function removeUpload(id: number): Promise<void> {
   // Get the storage first: a bad storage setup should fail before the row is gone, not after.
   const storage = await getStorage()
   const filename = await deleteMediaRow(id)
-  await removeFiles(storage, [filename, thumbnailFilename(filename)])
+  // The email copy of a WebP image (/media/email/…), when one was made.
+  await removeFiles(storage, [filename, thumbnailFilename(filename), ...(filename.endsWith('.webp') ? [emailImageFilename(filename)] : [])])
 }

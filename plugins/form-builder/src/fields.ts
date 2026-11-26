@@ -57,6 +57,15 @@ export type FormSettings = {
   successMessage?: string
   /** Where to email each new response, when the site can send email. */
   notifyEmail?: string
+  /** The site's email template for that notification (Settings > Templates); missing: the default. */
+  notifyTemplateId?: number
+  /**
+   * Email the visitor a confirmation, to the address they gave in this Email question (opt-in).
+   * It never repeats their answers: anyone can type any address into a public form.
+   */
+  confirmationFieldId?: string
+  /** The template for the confirmation; missing: the default. */
+  confirmationTemplateId?: number
 }
 
 export const FORM_LIMITS = {
@@ -229,6 +238,21 @@ export function validateFormSettings(raw: unknown): SettingsResult {
   const notifyEmail = cleanLine(raw.notifyEmail).toLowerCase()
   if (notifyEmail && (notifyEmail.length > 254 || !EMAIL_PATTERN.test(notifyEmail))) errors['settings.notifyEmail'] = 'Enter a valid email address.'
   else if (notifyEmail) settings.notifyEmail = notifyEmail
+
+  const templateId = (key: 'notifyTemplateId' | 'confirmationTemplateId') => {
+    const value = raw[key]
+    if (value === undefined || value === null || value === '') return
+    const n = Number(value)
+    if (Number.isSafeInteger(n) && n > 0 && n <= 2147483647) settings[key] = n
+    else errors[`settings.${key}`] = 'Pick one of the listed templates.'
+  }
+  templateId('notifyTemplateId')
+  templateId('confirmationTemplateId')
+  const confirmationFieldId = raw.confirmationFieldId
+  if (confirmationFieldId !== undefined && confirmationFieldId !== null && confirmationFieldId !== '') {
+    if (typeof confirmationFieldId === 'string' && /^[\w-]{1,40}$/.test(confirmationFieldId)) settings.confirmationFieldId = confirmationFieldId
+    else errors['settings.confirmationFieldId'] = 'Pick one of the form’s Email questions.'
+  }
 
   return Object.keys(errors).length ? { ok: false, errors } : { ok: true, settings }
 }

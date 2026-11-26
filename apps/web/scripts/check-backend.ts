@@ -62,12 +62,13 @@ import { removeUpload, saveUpload } from '../src/server/uploads'
 import { siteIcons } from '../src/lib/queries'
 import { activateTheme, createTheme, deleteTheme, getTheme, listThemes, updateTheme } from '../src/server/themes'
 import { createResetLink, isResetTokenValid, prepareResetEmail, resetPasswordWithToken } from '../src/server/password-reset'
-import { accessOf, accessPermission, asRole, can, host, pluginTablePrefix, provideHost, ROLES, type EmailMessage, type Role } from '@pet-adopt/plugin-sdk'
+import { accessOf, accessPermission, asRole, can, host, pluginTablePrefix, provideHost, ROLES, type EmailMessage, type PluginEmail, type Role } from '@pet-adopt/plugin-sdk'
 import { formBuilderStorage, openFormsDatabase } from '@pet-adopt/plugin-form-builder'
 import * as forms from '@pet-adopt/plugin-form-builder/server'
 // The services plugins reach through `host()` (sign-in, limits, phone, email), as the server registers them.
 import '../src/plugins/host'
 import { forgetPluginStorageStatus, getPluginStorageStatus } from '../src/plugins/storage'
+import { getEmailTemplateUsage } from '../src/plugins/registry'
 import { storageProblems } from '../src/plugins/storage-rules'
 import { applyPluginMigrations, pluginMigrationStates } from '../src/db/plugin-migrations'
 import { createUser, deleteUser, ensureOwner, listUsers, resetPassword, updateUser } from '../src/server/users'
@@ -83,6 +84,21 @@ import {
 } from '../src/server/activity'
 import { getEmailSender, getEmailSettingsView, parseFrom, resolveSmtp, saveEmailSettings } from '../src/server/email'
 import { open, seal } from '../src/server/secret-box'
+import { DEFAULT_TEMPLATES, EMAIL_PURPOSES, emailImageSrc, LOGO_DEFAULTS, renderEmail, validateTemplate, type EmailPurpose, type RenderContext, type TemplateData } from '../src/lib/email-template'
+import {
+  createEmailTemplate,
+  deleteEmailTemplate,
+  emailContext,
+  listEmailTemplates,
+  getEmailTemplate,
+  getSystemEmail,
+  pickTemplate,
+  restoreSeededTemplate,
+  renderPurposeEmail,
+  restoreSystemEmail,
+  saveEmailTemplate,
+  saveSystemEmail,
+} from '../src/server/email-templates'
 
 let failures = 0
 async function check(name: string, fn: () => Promise<unknown>) {
@@ -1636,15 +1652,18 @@ await check('form builder: forms are validated and unique; answers are checked p
   ok(summary.responses === 1 && summary.unread === 0, 'counts follow')
 
   // Notification: sent to the form's address through the site's email sender.
-  const mails: EmailMessage[] = []
+  const mails: PluginEmail[] = []
   const realHost = host()
-  provideHost({ ...realHost, emailSender: async () => ({ send: async (m) => void mails.push(m) }) })
+  provideHost({ ...realHost, sendTemplatedEmail: async (message) => (mails.push(message), true) })
   try {
     await forms.notifyNewResponse((await forms.getForm(id))!, stored.answers)
   } finally {
     provideHost(realHost)
   }
-  ok(mails.length === 1 && mails[0].to === 'team@example.test' && mails[0].text.includes('Your name: Ana'), `notification: ${JSON.stringify(mails[0])}`)
+  ok(
+    mails.length === 1 && mails[0].purpose === 'team-notification' && mails[0].to === 'team@example.test' && mails[0].details?.some((detail) => detail.label === 'Your name' && detail.value === 'Ana'),
+    `notification: ${JSON.stringify(mails[0])}`,
+  )
 
   // Closed forms, then the per-visitor limit (10 per 10 minutes, across forms).
   await forms.updateForm(id, { isOpen: false })
@@ -1762,7 +1781,7 @@ await check('roles: the permission table is as agreed, every action checks a per
 
   // Every action that changes something (or downloads) writes to the activity log. Listed: not
   // changes (a test email), or agreed not to be logged (marking responses as read).
-  const unlogged = new Set(['sendTestEmailAction', 'markResponsesReadAction'])
+  const unlogged = new Set(['sendTestEmailAction', 'sendEmailTemplateTestAction', 'markResponsesReadAction'])
   const silent: string[] = []
   for (const file of files) {
     const source = readFileSync(file, 'utf8')
@@ -1941,7 +1960,6 @@ await check('email: SMTP settings are validated, the password is stored only enc
     const mailpit = process.env.MAILPIT_URL || 'http://127.0.0.1:8025'
     const reachable = await fetch(`${mailpit}/api/v1/info`).then((r) => r.ok, () => false)
     ok(reachable, `Mailpit is not running at ${mailpit}: docker compose up -d mailpit`)
-    await fetch(`${mailpit}/api/v1/messages`, { method: 'DELETE' })
     await saveEmailSettings({ host: '127.0.0.1', port: 1025, security: 'none', username: 'mailer', password: 'pa55-word!', fromName: 'Pet Adopt', fromAddress: 'no-reply@pet-adopt.test', replyTo: 'team@pet-adopt.test' })
     const sender = await getEmailSender()
     ok(sender !== null && sender.status?.().provider === 'SMTP', 'the built-in SMTP sender is used when no plugin sends email')
@@ -1960,11 +1978,235 @@ await check('email: SMTP settings are validated, the password is stored only enc
     await saveEmailSettings({ port: 1 })
     const failure = await (await getEmailSender())!.send({ to: 'someone@pet-adopt.test', subject: 'x', text: 'x' }).then(() => '', (error: Error) => error.message)
     ok(/ECONNREFUSED|connect/i.test(failure), `an unreachable server is an error: ${failure}`)
-    await fetch(`${mailpit}/api/v1/messages`, { method: 'DELETE' })
+    // Only this check's own message: the inbox is the developer's too.
+    await fetch(`${mailpit}/api/v1/search?query=${encodeURIComponent(`subject:"${subject}"`)}`, { method: 'DELETE' })
   } finally {
     restoreEnv()
     await db.delete(t.emailSettings)
   }
+})
+
+await check('email templates: only allowed blocks and placeholders, no answers to visitors, a required reset link, escaping, system emails edited in place, a library used where picked, plugin defaults that always exist, and real sends (Mailpit)', async () => {
+  const { db, t } = await getDatabase()
+  await db.delete(t.emailTemplates)
+  const ctx = await emailContext({ name: '<b>Ana</b> & co', resetLink: 'https://example.test/r?token=a&b=1', minutes: '60', title: 'Adopt "Rex"' })
+
+  // Every built-in template passes its own rules.
+  for (const purpose of EMAIL_PURPOSES) ok(validateTemplate(DEFAULT_TEMPLATES[purpose], purpose).ok, `the built-in ${purpose} template is valid`)
+
+  // The layout is rebuilt from allowed parts: unknown props and control characters go.
+  const rebuilt = validateTemplate(
+    { root: { props: { subject: 'Hi {{siteName}}\u0007', footer: '', extra: 'x' } }, content: [{ type: 'Text', props: { id: 'a', text: 'Hello\u0000 {{name}}', align: 'middle', onclick: 'alert(1)' } }] },
+    'password-reset',
+  )
+  ok(!rebuilt.ok && rebuilt.errors.some((e) => /resetLink/.test(e)), 'a reset email must contain {{resetLink}}')
+  const clean = validateTemplate(
+    { root: { props: { subject: 'Hi {{siteName}}\u0007' } }, content: [{ type: 'Text', props: { id: 'a', text: 'Hello\u0000 {{name}}', align: 'middle', onclick: 'alert(1)' } }, { type: 'Button', props: { label: 'Go', url: '{{resetLink}}' } }] },
+    'password-reset',
+  )
+  ok(clean.ok && clean.data.content[0].type === 'Text' && isEqual(clean.data.content[0].props, { id: 'a', text: 'Hello {{name}}', align: 'left', size: 'normal' }) && clean.data.root.props.subject === 'Hi {{siteName}}', `rebuilt: ${JSON.stringify(clean.ok && clean.data)}`)
+
+  const errorsOf = (content: unknown[], purpose: EmailPurpose = 'visitor-message') => {
+    const result = validateTemplate({ root: { props: { subject: 'S' } }, content }, purpose)
+    return result.ok ? [] : result.errors
+  }
+  ok(errorsOf([{ type: 'Script', props: {} }]).some((e) => /cannot be used/.test(e)), 'unknown blocks are refused')
+  ok(errorsOf([{ type: 'Text', props: { text: 'Hi {{resetLink}} {{password}}' } }]).length === 2, 'placeholders of another purpose, or unknown ones, are refused')
+  ok(errorsOf([{ type: 'Details', props: {} }]).some((e) => /details can only go/.test(e)), 'a message to a visitor cannot list details')
+  ok(errorsOf([{ type: 'Details', props: {} }], 'team-notification').length === 0, 'a team notification can')
+  for (const url of ['javascript:alert(1)', '//evil.test', 'https://user:pw@evil.test', '{{resetLink}}', '{{name}}', 'data:text/html,x']) {
+    ok(errorsOf([{ type: 'Button', props: { label: 'x', url } }]).some((e) => /link must be/.test(e)), `button link refused: ${url}`)
+  }
+  for (const url of ['https://example.test/a?b=1', '/pets', '{{siteUrl}}', '{{siteUrl}}/pets']) ok(errorsOf([{ type: 'Button', props: { label: 'x', url } }]).length === 0, `button link allowed: ${url}`)
+  ok(errorsOf([{ type: 'Image', props: { image: { id: 1, url: 'https://evil.test/x.png', alt: '' } } }]).some((e) => /media library/.test(e)), 'images come from the media library only')
+  ok(errorsOf([{ type: 'Columns', props: { left: [{ type: 'Columns', props: {} }] } }]).some((e) => /inside columns/.test(e)), 'no columns in columns')
+  ok(errorsOf(Array.from({ length: 61 }, () => ({ type: 'Divider', props: {} }))).some((e) => /at most 60/.test(e)), 'at most 60 blocks')
+
+  // Rendering escapes what people typed and what placeholders hold, in text and in links.
+  const tricky = validateTemplate(
+    {
+      root: { props: { subject: 'Hello {{name}}', preheader: 'Pre', footer: 'Bye <i>' } },
+      content: [
+        { type: 'Heading', props: { text: '<script>alert(1)</script>', level: 'h1' } },
+        { type: 'Text', props: { text: 'Hi {{name}},\n\nSecond paragraph' } },
+        { type: 'Button', props: { label: 'Reset', url: '{{resetLink}}' } },
+        { type: 'Columns', props: { left: [{ type: 'Text', props: { text: 'Left' } }], right: [{ type: 'Divider', props: {} }] } },
+      ],
+    },
+    'password-reset',
+  )
+  ok(tricky.ok, 'the tricky template is valid')
+  const email = renderEmail((tricky as { data: TemplateData }).data, ctx)
+  ok(!email.html.includes('<script>') && email.html.includes('&lt;script&gt;') && email.html.includes('&lt;b&gt;Ana&lt;/b&gt; &amp; co') && email.html.includes('Bye &lt;i&gt;'), 'typed text and placeholder values are escaped')
+  ok(email.html.includes('href="https://example.test/r?token=a&amp;b=1"') && email.html.includes('class="pa-columns"'), 'the reset link is filled in, escaped, and columns render')
+  ok(email.subject === 'Hello <b>Ana</b> & co' && email.text.includes('Reset: https://example.test/r?token=a&b=1') && email.text.includes('Second paragraph'), `plain text and subject: ${email.subject}`)
+
+  ok(email.html.includes('mso-padding-alt') && email.html.includes('<!--[if mso]><table role="presentation" width="600"') && email.html.includes(`bgcolor="${ctx.theme.surface}"`), 'classic Outlook gets a bulletproof button, a fixed width and bgcolor')
+
+  // The email's logo (page settings): the logo from Site settings at a size, aligned, optionally linked,
+  // and optionally with the site's name beside or under it, either way round. Old templates keep the old look.
+  const logoEmail = (root: Record<string, unknown>, logo: RenderContext['logo'] = { url: '/media/logo.png', alt: 'Our logo' }) => {
+    const layout = validateTemplate({ root: { props: { subject: 'Logo', ...root } }, content: [{ type: 'Text', props: { text: 'Body' } }] }, 'test')
+    if (!layout.ok) throw new Error(layout.errors.join(' '))
+    return { root: layout.data.root.props, html: renderEmail(layout.data, { ...ctx, logo }).html }
+  }
+  ok(isEqual(logoEmail({ logoSize: 'huge', logoLayout: 'diagonal' }).root, { subject: 'Logo', preheader: '', footer: '', ...LOGO_DEFAULTS }), 'missing or unknown logo options keep the old look')
+  ok(errorsOf([{ type: 'Logo', props: {} }]).some((e) => /cannot be used/.test(e)), 'there is no Logo block: the logo is the email’s own')
+  const linked = logoEmail({ logoSize: 'large', logoAlign: 'left', logoLink: true }).html
+  ok(linked.includes('<td align="left" style="padding:28px 32px 0">') && linked.includes(`<a href="${ctx.origin}" target="_blank" style="text-decoration:none"><img src="${ctx.origin}/media/logo.png" alt="Our logo" height="64"`), 'large, left, linked')
+  const order = (html: string) => (html.indexOf('<img') < html.indexOf(`>${ctx.values.siteName}</span>`) ? 'logo first' : 'name first')
+  const horizontal = logoEmail({ showSiteName: true, logoLayout: 'horizontal' }).html
+  ok(order(horizontal) === 'logo first' && /<tr><td valign="middle"[^>]*><img[^]*?<\/td><td valign="middle">/.test(horizontal), 'horizontal: logo then name, in one row')
+  ok(order(logoEmail({ showSiteName: true, logoLayout: 'horizontal-reverse' }).html) === 'name first', 'horizontal reversed: name then logo')
+  const vertical = logoEmail({ showSiteName: true, logoLayout: 'vertical', logoAlign: 'right' }).html
+  ok(order(vertical) === 'logo first' && vertical.includes('</td></tr><tr><td align="right">'), 'vertical: logo above name, in two rows')
+  ok(order(logoEmail({ showSiteName: true, logoLayout: 'vertical-reverse' }).html) === 'name first', 'vertical reversed: name above logo')
+  const nameOnly = logoEmail({ showSiteName: true }, null).html
+  ok(nameOnly.split(`>${ctx.values.siteName}</span>`).length === 2 && !nameOnly.includes('<img'), 'without a logo: the name once')
+
+  // The site's own emails have no library: the built-in one is edited in place and can be restored.
+  const admin = (await listUsers()).find((user) => user.role === 'admin')!
+  ok((await fieldErrors(createEmailTemplate({ name: 'My reset', purpose: 'password-reset' }, admin.id))).purpose, 'no library templates for the site’s own emails')
+  ok(!(await getSystemEmail('password-reset')).customised, 'the original to start with')
+  ok(Object.keys(await fieldErrors(saveSystemEmail('password-reset', { root: { props: { subject: 'x' } }, content: [{ type: 'Text', props: { text: 'no link' } }] }, admin.id))).length > 0, 'an edited reset email still needs {{resetLink}}')
+  const custom = structuredClone(DEFAULT_TEMPLATES['password-reset'])
+  custom.root.props.subject = 'Custom reset for {{name}}'
+  await saveSystemEmail('password-reset', custom, admin.id)
+  await saveSystemEmail('password-reset', custom, admin.id)
+  ok((await getSystemEmail('password-reset')).customised && (await db.select().from(t.emailTemplates).where(eq(t.emailTemplates.purpose, 'password-reset'))).length === 1 && !(await listEmailTemplates()).some((item) => item.purpose === 'password-reset'), 'edited in place: one row however many saves, and not in the library')
+
+  // The password reset email uses the edited version, and the original after a restore.
+  const sent: EmailMessage[] = []
+  const user = await createUser({ email: 'tpl@example.test', name: 'Tem Plate', password: 'template-password-123', role: 'editor' })
+  const capture = { send: async (message: EmailMessage) => void sent.push(message) }
+  await (await prepareResetEmail('tpl@example.test', ip(90), capture))()
+  ok(sent[0]?.subject === 'Custom reset for Tem Plate' && /reset-password\?token=/.test(sent[0].text), `the reset email uses the edited version: ${sent[0]?.subject}`)
+  ok((await restoreSystemEmail('password-reset')) && !(await getSystemEmail('password-reset')).customised, 'restored')
+  await (await prepareResetEmail('tpl@example.test', ip(91), capture))()
+  ok(sent[1]?.subject === 'Reset your Pet Adopt password' || /^Reset your .+ password$/.test(sent[1]?.subject ?? ''), `the original again: ${sent[1]?.subject}`)
+
+  // Form emails have a library: as many as people like, unique names, layouts checked on save, and
+  // used only where a form picks one (otherwise the built-in email).
+  const a = await createEmailTemplate({ name: 'Friendly notification', purpose: 'team-notification' }, admin.id)
+  ok(/already has this name/.test((await fieldErrors(createEmailTemplate({ name: 'FRIENDLY notification', purpose: 'visitor-message' }, admin.id))).name ?? ''), 'names are unique whatever their case')
+  const b = await createEmailTemplate({ name: 'Second notification', purpose: 'team-notification', fromId: a.id }, admin.id)
+  ok((await fieldErrors(createEmailTemplate({ name: 'Wrong copy', purpose: 'visitor-message', fromId: a.id }, admin.id))).purpose, 'a copy keeps its purpose')
+  const bad = await fieldErrors(saveEmailTemplate(a.id, { data: { root: { props: { subject: '' } }, content: [{ type: 'Text', props: { text: '{{nope}}' } }] } }))
+  ok(Object.keys(bad).length >= 2 && Object.keys(bad).every((key) => key.startsWith('template.')), `layout problems come back one per field error: ${JSON.stringify(bad)}`)
+  ok((await pickTemplate('team-notification')).templateId === null, 'nothing chosen: the built-in email, however many templates exist')
+  ok((await pickTemplate('team-notification', a.id)).templateId === a.id, 'a chosen template is used')
+  const other = await createEmailTemplate({ name: 'Confirmation look', purpose: 'visitor-message' }, admin.id)
+  ok((await pickTemplate('team-notification', other.id)).templateId === null, 'a template of another type falls back to the built-in email')
+  const library = await listEmailTemplates()
+  ok(isEqual(library.map((item) => item.name).sort(), ['Confirmation look', 'Form confirmation', 'Form response', 'Friendly notification', 'Second notification']), `the library: people's templates and the form builder's defaults: ${library.map((item) => item.name)}`)
+  ok(library.find((item) => item.name === 'Friendly notification')?.createdByName === admin.name && library.find((item) => item.name === 'Form response')?.createdByName === null, 'created by: the person, or nobody for a plugin default')
+
+  // Plugin defaults: seeded, never deleted, editable and restorable, and the fallback for that plugin's emails.
+  const seededNotification = library.find((item) => item.seedKey === 'form-builder:notification')!
+  ok(seededNotification.purpose === 'team-notification' && !seededNotification.edited, 'the form builder’s notification default is seeded')
+  ok(/cannot be deleted/.test(await userError(deleteEmailTemplate(seededNotification.id))), 'a plugin default cannot be deleted')
+  const changed = structuredClone((await getEmailTemplate(seededNotification.id))!.data)
+  changed.root.props.subject = 'Changed: {{title}}'
+  await saveEmailTemplate(seededNotification.id, { data: changed })
+  ok((await getEmailTemplate(seededNotification.id))!.edited, 'edited')
+  const restored = await restoreSeededTemplate(seededNotification.id)
+  ok(!restored.edited && restored.data.root.props.subject === 'New response: {{title}}', 'restored to the plugin’s own layout')
+  ok(/Only a default/.test(await userError(restoreSeededTemplate(a.id))), 'only plugin defaults can be restored')
+  ok((await pickTemplate('team-notification', 999999, 'form-builder:notification')).templateId === seededNotification.id, 'a missing pick falls back to the plugin default')
+  ok((await pickTemplate('team-notification', null, 'form-builder:confirmation')).templateId === null, 'a default of another type is not used')
+  await deleteEmailTemplate(b.id)
+  ok((await pickTemplate('team-notification', b.id)).templateId === null, 'deleted: the built-in email')
+
+  // "Used by": the form builder reports which forms use which template.
+  const { id: usingForm } = await forms.createForm({ name: 'Uses a template', fields: [{ id: 'm', type: 'email', label: 'Email' }], settings: { notifyEmail: 'team@example.test', notifyTemplateId: a.id, confirmationFieldId: 'm', confirmationTemplateId: other.id } })
+  const { id: plainForm } = await forms.createForm({ name: 'Uses the defaults', fields: [{ id: 'm', type: 'email', label: 'Email' }], settings: { notifyEmail: 'team@example.test', confirmationFieldId: 'm' } })
+  const usage = await getEmailTemplateUsage()
+  ok(usage.get('form-builder:notification')?.some((use) => use.label === 'Form “Uses the defaults” (notification)') && usage.get('form-builder:confirmation')?.length === 1, 'forms that picked nothing use the defaults')
+  await forms.deleteForm(plainForm)
+  ok(usage.get(a.id)?.[0]?.label === 'Form “Uses a template” (notification)' && usage.get(a.id)?.[0]?.href === `/admin/plugins/form-builder/forms/${usingForm}`, `used by: ${JSON.stringify(usage.get(a.id))}`)
+  ok(usage.get(other.id)?.[0]?.label === 'Form “Uses a template” (confirmation)', 'the confirmation template too')
+  await forms.deleteForm(usingForm)
+
+  // Visitor confirmations never carry answers, whatever is passed.
+  const confirmation = await renderPurposeEmail({ purpose: 'visitor-message', values: { title: 'Hello' }, details: [{ label: 'Secret', value: 'visitor text' }] })
+  ok(!confirmation.html.includes('visitor text') && !confirmation.text.includes('visitor text'), 'nothing typed in a message to a visitor')
+
+  // The form builder: a confirmation needs an Email question, and is limited per address.
+  const fields = [
+    { id: 'name', type: 'text', label: 'Name' },
+    { id: 'mail', type: 'email', label: 'Your email', required: true },
+  ]
+  ok((await fieldErrors(forms.createForm({ name: 'Confirm me', fields, settings: { confirmationFieldId: 'name' } })))['settings.confirmationFieldId'], 'the confirmation must use an Email question')
+  const { id: formId } = await forms.createForm({ name: 'Confirm me', fields, settings: { confirmationFieldId: 'mail', notifyEmail: 'team@example.test' } })
+  const form = (await forms.getForm(formId))!
+  const captured: PluginEmail[] = []
+  const realHost = host()
+  provideHost({ ...realHost, sendTemplatedEmail: async (message) => (captured.push(message), true) })
+  try {
+    const answers = [
+      { id: 'name', label: 'Name', type: 'text' as const, value: 'Visitor text' },
+      { id: 'mail', label: 'Your email', type: 'email' as const, value: 'visitor@example.test' },
+    ]
+    const results = []
+    for (let i = 0; i < 4; i++) results.push(await forms.confirmToVisitor(form, answers, `10.88.0.${i}`))
+    ok(isEqual(results, [true, true, true, false]), `three confirmations an hour to one address: ${results}`)
+    ok(captured[0].purpose === 'visitor-message' && captured[0].to === 'visitor@example.test' && !captured[0].details && captured[0].values?.title === 'Confirm me' && captured[0].fallback === 'form-builder:confirmation', `the confirmation: ${JSON.stringify(captured[0])}`)
+    await forms.notifyNewResponse(form, answers)
+    const note = captured.at(-1)!
+    ok(note.purpose === 'team-notification' && note.to === 'team@example.test' && note.details?.some((detail) => detail.value === 'Visitor text'), 'the team notification carries the answers as details')
+  } finally {
+    provideHost(realHost)
+  }
+
+  // A real notification through Mailpit, with the answers in it.
+  const mailpit = process.env.MAILPIT_URL || 'http://127.0.0.1:8025'
+  await saveEmailSettings({ host: '127.0.0.1', port: 1025, security: 'none', fromName: 'Pet Adopt', fromAddress: 'no-reply@pet-adopt.test' })
+  const title = `Mailpit form ${Date.now()}`
+  ok(await host().sendTemplatedEmail({ purpose: 'team-notification', to: 'team@example.test', values: { title }, details: [{ label: 'Q', value: 'A <b>' }] }), 'sent')
+  let html = ''
+  for (let i = 0; i < 20 && !html; i++) {
+    const list = (await (await fetch(`${mailpit}/api/v1/search?query=${encodeURIComponent(`subject:"New: ${title}"`)}`)).json()) as { messages: Array<{ ID: string }> }
+    if (list.messages[0]) html = ((await (await fetch(`${mailpit}/api/v1/message/${list.messages[0].ID}`)).json()) as { HTML: string }).HTML
+    else await new Promise((resolve) => setTimeout(resolve, 100))
+  }
+  ok(html.includes('A &lt;b&gt;') && html.includes(title), 'the notification arrived with the escaped details')
+  // Only this check's own message: the inbox is the developer's too.
+  await fetch(`${mailpit}/api/v1/search?query=${encodeURIComponent(`subject:"New: ${title}"`)}`, { method: 'DELETE' })
+
+  await forms.deleteForm(formId)
+  await deleteUser(user.id)
+  await db.delete(t.emailTemplates)
+  await db.delete(t.emailSettings)
+})
+
+await check('email images: a WebP upload is sent as a lossless PNG copy (classic Outlook cannot show WebP), kept in storage and removed with the upload', async () => {
+  const { GET } = await import('../src/app/media/email/[name]/route')
+  const ctx = await emailContext({})
+  ok(emailImageSrc('/media/abc123.webp', ctx) === `${ctx.origin}/media/email/abc123.png`, 'a WebP image is linked as its PNG copy')
+  ok(emailImageSrc('/media/abc123.jpg', ctx) === `${ctx.origin}/media/abc123.jpg` && emailImageSrc('/media/abc123.webp', { ...ctx, showPlaceholders: true }) === `${ctx.origin}/media/abc123.webp`, 'other formats, and the builder’s canvas, keep the original')
+
+  const webp = await sharp({ create: { width: 24, height: 16, channels: 3, background: '#2a7' } }).webp({ lossless: true }).toBuffer()
+  const media = await saveUpload({ data: webp, alt: 'A WebP logo' })
+  const base = media.filename.replace(/\.webp$/, '')
+  ok(media.filename.endsWith('.webp'), `stored as WebP: ${media.filename}`)
+  const call = (name: string) => GET(new Request(`http://localhost:3000/media/email/${name}`), { params: Promise.resolve({ name }) })
+  const response = await call(`${base}.png`)
+  const body = Buffer.from(await response.arrayBuffer())
+  ok(response.status === 200 && response.headers.get('content-type') === 'image/png' && body.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])), 'a PNG comes back')
+  const meta = await sharp(body).metadata()
+  ok(meta.width === 24 && meta.height === 16, 'same size')
+  const [a, b] = await Promise.all([sharp(webp).raw().toBuffer(), sharp(body).removeAlpha().raw().toBuffer()])
+  ok(a.equals(b), 'the same pixels (lossless)')
+  const storage = await getStorage()
+  ok(await storage.exists(`${base}.email.png`), 'the copy is kept in storage')
+  ok((await call(`${base}.png`)).status === 200, 'and served again from there')
+  ok((await call('nothing-here.png')).status === 404 && (await call('../secret.png')).status === 404 && (await call(`${base}.webp`)).status === 404, 'unknown, unsafe and non-PNG names are not found')
+  const jpeg = await saveUpload({ data: await sharp({ create: { width: 8, height: 8, channels: 3, background: '#000' } }).jpeg().toBuffer(), alt: 'A JPEG' })
+  ok((await call(jpeg.filename.replace(/\.jpg$/, '.png'))).status === 404, 'only WebP uploads have an email copy')
+
+  await removeUpload(media.id)
+  await removeUpload(jpeg.id)
+  ok(!(await storage.exists(`${base}.email.png`)), 'removed with the upload')
 })
 
 // FK enforcement is on (SQLite needs a pragma)
