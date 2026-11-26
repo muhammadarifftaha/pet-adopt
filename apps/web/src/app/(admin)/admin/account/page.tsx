@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation'
 
 import { PageHeader } from '@/components/admin/PageHeader'
 import { ConnectedProviders } from '@/components/admin/account/ConnectedProviders'
+import { ProfilePicture } from '@/components/admin/account/ProfilePicture'
 import { TwoFactorCard } from '@/components/admin/two-factor/TwoFactorCard'
 import { errorCode, providerConnectError } from '@/lib/auth-provider-errors'
 import { getMyProvidersAction } from '@/server/actions/auth-providers'
@@ -36,6 +37,7 @@ export default async function AccountPage({ searchParams }: { searchParams: Prom
     <>
       <PageHeader title="Account" description={user.email} />
       <div className="flex max-w-2xl flex-col gap-6">
+        <ProfilePicture user={user} />
         <AccountForms user={user} />
         <TwoFactorCard status={status} siteName={settings.siteName} />
         <ConnectedProviders providers={providers} notice={notice} />

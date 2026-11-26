@@ -3,6 +3,7 @@
 import { ROLE_INFO } from '@pet-adopt/plugin-sdk'
 
 import { quoted, recordActivity, type Actor } from '../activity'
+import { removeAvatar } from '../avatars'
 import { sendInvite, type InviteResult } from '../invites'
 import { run, UserError, type ActionResult } from '../result'
 import { requirePermission } from '../session'
@@ -128,5 +129,16 @@ export async function deleteUserAction(id: string): Promise<ActionResult> {
     const before = await findUser(target)
     await deleteUser(target)
     await record(actor, 'user.delete', before, target, `Deleted the account ${quoted(before?.name)}`)
+  })
+}
+
+/** Removes someone's profile picture (for example an unsuitable one). Admins cannot upload one for them. */
+export async function removeUserAvatarAction(id: string): Promise<ActionResult> {
+  return run(async () => {
+    const actor = await requirePermission('users:edit')
+    const target = userId(id)
+    const user = await findUser(target)
+    if (!user) throw new UserError('User not found.')
+    if (await removeAvatar(target)) await record(actor, 'user.avatar', user, target, `Removed the profile picture of ${quoted(user.name)}`)
   })
 }

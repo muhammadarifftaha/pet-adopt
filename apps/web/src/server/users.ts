@@ -19,6 +19,7 @@ import { getDatabase, type Db, type Schema } from '@/db/client'
 import { ROLES } from '@/lib/options'
 
 import { getAuth, MIN_PASSWORD_LENGTH } from './auth'
+import { deleteAvatarFile } from './avatars'
 import { asRecord, Fields, isUniqueViolation, UserError, ValidationError } from './result'
 import type { Role } from './types'
 
@@ -29,6 +30,8 @@ export type UserListItem = {
   role: Role
   /** When the account was archived, or null for an active account. */
   archivedAt: Date | null
+  /** Profile picture address (/media/avatar-….webp), or null for initials. */
+  image: string | null
   /** Invited and not accepted yet: the account has no password (src/server/invites.ts). */
   invited: boolean
   /** When the pending invite link stops working (null: none, or it was used or cancelled). */
@@ -70,6 +73,7 @@ export async function listUsers(): Promise<UserListItem[]> {
     name: u.name,
     role: asRole(u.role),
     archivedAt: u.archivedAt ?? null,
+    image: u.image ?? null,
     invited: !withPassword.has(u.id),
     inviteExpiresAt: withPassword.has(u.id) ? null : (inviteExpiry.get(u.id) ?? null),
     inviteActive: !withPassword.has(u.id) && (inviteExpiry.get(u.id)?.getTime() ?? 0) > now,
@@ -257,16 +261,19 @@ export async function restoreUser(id: string): Promise<void> {
  */
 export async function deleteUser(id: string): Promise<void> {
   const { t, withTransaction } = await getDatabase()
-  await withTransaction(
+  const image = await withTransaction(
     async (tx) => {
-      const [target] = await tx.select({ archivedAt: t.users.archivedAt }).from(t.users).where(eq(t.users.id, id)).limit(1)
+      const [target] = await tx.select({ archivedAt: t.users.archivedAt, image: t.users.image }).from(t.users).where(eq(t.users.id, id)).limit(1)
       if (!target) throw new UserError('User not found.')
       // Archived accounts are not admins that count, so the last active admin is never deleted.
       if (!target.archivedAt) throw new UserError('Archive the account before deleting it.')
       await tx.delete(t.users).where(eq(t.users.id, id))
+      return target.image
     },
     { lock: ADMIN_LOCK },
   )
+  // The profile picture's file goes with the account (outside the transaction: it is storage).
+  await deleteAvatarFile(image)
 }
 
 /**

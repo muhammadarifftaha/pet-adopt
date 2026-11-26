@@ -86,6 +86,7 @@ import {
 import { getEmailSender, getEmailSettingsView, isLoopbackHost, parseFrom, resolveSmtp, saveEmailSettings, sendsToLocalServer } from '../src/server/email'
 import { open, seal } from '../src/server/secret-box'
 import { acceptInvite, isInviteTokenValid, sendInvite } from '../src/server/invites'
+import { adoptProviderPicture, AVATAR_SIZE, isPrivateAddress, pictureFromIdToken, removeAvatar, saveAvatar } from '../src/server/avatars'
 import { backupCodesLeft, forgetTrustedDevices, needsTwoFactorSetup, resetTwoFactor, saveTwoFactorRoles } from '../src/server/two-factor'
 import { BACKUP_CODE_ALPHABET, normalizeBackupCode, normalizeTotpCode } from '../src/server/two-factor-codes'
 import { createHmac, generateKeyPairSync, randomBytes, sign as signData } from 'node:crypto'
@@ -1762,6 +1763,7 @@ await check('roles: the permission table is as agreed, every action checks a per
     'verifyTwoFactorAction', 'getTwoFactorStatusAction', 'startTwoFactorSetupAction', 'confirmTwoFactorSetupAction',
     'disableTwoFactorAction', 'regenerateBackupCodesAction',
     'startProviderSignInAction', 'getMyProvidersAction', 'connectProviderAction', 'disconnectProviderAction',
+    'uploadAvatarAction', 'removeAvatarAction',
     'requestPasswordResetAction', 'resetPasswordWithTokenAction', 'acceptInviteAction', 'submitFormAction',
     'fetchPetSpotlightAction', 'fetchCatalogAction', 'fetchPetProfilesAction', 'fetchPetsAction', 'fetchFormAction',
   ])
@@ -2668,6 +2670,57 @@ await check('invites: an account without a password, emailed (or the link to cop
 
   await removeAccount(id)
   await removeAccount(second.id)
+})
+
+await check('profile pictures: checked like uploads, cropped as the browser shows the photo, kept as a 256 px square without metadata, old files removed; a provider picture is used only when there is none, fetched carefully', async () => {
+  const { id } = await createUser({ email: 'avatar@example.test', name: 'Ava Tar', password: 'avatar-password-12', role: 'editor' })
+  const storage = await getStorage()
+  const imageOf = async () => (await listUsers()).find((u) => u.id === id)!.image
+  const fileOf = (url: string | null) => (url ?? '').replace('/media/', '')
+
+  // A 40 x 30 photo: crops must be whole pixels, a square inside the picture, at least 16 px.
+  const photo = await sharp({ create: { width: 40, height: 30, channels: 3, background: '#09f' } }).png().toBuffer()
+  for (const crop of [{ x: 20, y: 0, size: 30 }, { x: 0, y: 0, size: 31 }, { x: -1, y: 0, size: 20 }, { x: 0.5, y: 0, size: 20 }, { x: 0, y: 0, size: 8 }, null]) {
+    ok((await fieldErrors(saveAvatar(id, photo, crop))).crop, `refused crop ${JSON.stringify(crop)}`)
+  }
+  ok((await fieldErrors(saveAvatar(id, Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"/>'), { x: 0, y: 0, size: 16 }))).file, 'SVG is refused')
+  ok((await fieldErrors(saveAvatar(id, Buffer.from('not a picture'), { x: 0, y: 0, size: 16 }))).file, 'junk is refused')
+
+  const first = await saveAvatar(id, photo, { x: 5, y: 0, size: 30 })
+  ok(/^\/media\/avatar-[a-f0-9]{32}\.webp$/.test(first) && (await imageOf()) === first, `stored and set: ${first}`)
+  const stored = await storage.get(fileOf(first))
+  const meta = await sharp(stored!.body).metadata()
+  ok(meta.format === 'webp' && meta.width === AVATAR_SIZE && meta.height === AVATAR_SIZE && !meta.exif, 'a 256 px WebP square with no metadata')
+
+  // A phone photo stored sideways (EXIF orientation 6): 40 x 20 in the file, 20 x 40 upright. The
+  // crop is chosen on the upright picture, as the browser shows it.
+  const sideways = await sharp({ create: { width: 40, height: 20, channels: 3, background: '#f60' } }).jpeg().withMetadata({ orientation: 6 }).toBuffer()
+  const second = await saveAvatar(id, sideways, { x: 0, y: 15, size: 20 })
+  ok((await imageOf()) === second && !(await storage.exists(fileOf(first))), 'replacing deletes the old file')
+
+  ok(await removeAvatar(id), 'removed')
+  ok((await imageOf()) === null && !(await storage.exists(fileOf(second))), 'back to initials, file deleted')
+  ok(!(await removeAvatar(id)), 'nothing to remove twice')
+
+  // A provider picture: only for someone without one, centre-cropped, never from a private address.
+  ok(pictureFromIdToken(`x.${Buffer.from(JSON.stringify({ picture: 'https://img.example/p.png' })).toString('base64url')}.y`) === 'https://img.example/p.png', 'read from the ID token')
+  ok(pictureFromIdToken('not-a-token') === null && pictureFromIdToken(null) === null, 'no token, no picture')
+  ok(await adoptProviderPicture(id, 'https://img.example/p.png', async () => photo), 'used when there is none')
+  const adopted = await imageOf()
+  ok(adopted && (await sharp((await storage.get(fileOf(adopted)))!.body).metadata()).width === AVATAR_SIZE, 'stored the same way')
+  ok(!(await adoptProviderPicture(id, 'https://img.example/q.png', async () => photo)) && (await imageOf()) === adopted, 'a picture someone has is kept')
+  await removeAvatar(id)
+  ok(!(await adoptProviderPicture(id, 'https://img.example/p.png', async () => Buffer.from('junk'))) && (await imageOf()) === null, 'an unreadable picture is not used')
+  ok(!(await adoptProviderPicture(id, 'http://img.example/p.png')) && !(await adoptProviderPicture(id, 'https://127.0.0.1/p.png')) && !(await adoptProviderPicture(id, 'https://localhost/p.png')), 'only https, never a private or local address')
+  for (const address of ['127.0.0.1', '10.1.2.3', '172.16.0.1', '192.168.1.1', '169.254.169.254', '100.64.0.1', '0.0.0.0', '::1', 'fd00::1', 'fe80::1', '::ffff:10.0.0.1']) {
+    ok(isPrivateAddress(address), `${address} is private`)
+  }
+  ok(!isPrivateAddress('93.184.216.34') && !isPrivateAddress('2606:4700::1111'), 'public addresses are fine')
+
+  // Deleting the account deletes its picture.
+  const last = await saveAvatar(id, photo, { x: 0, y: 0, size: 30 })
+  await removeAccount(id)
+  ok(!(await storage.exists(fileOf(last))), 'the picture goes with the account')
 })
 
 // FK enforcement is on (SQLite needs a pragma)

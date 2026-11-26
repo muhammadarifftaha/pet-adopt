@@ -10,6 +10,7 @@ import { getDatabase } from '@/db/client'
 import { recordActivity, recordArchivedSignIn, recordFailedSignIn } from '../activity'
 import { ACCOUNT_ARCHIVED, getAuth, MIN_PASSWORD_LENGTH } from '../auth'
 import { authErrorCode, isAuthError } from '../auth-errors'
+import { removeAvatar, saveAvatar } from '../avatars'
 import { asRecord, Fields, logError, run, UserError, ValidationError, type ActionResult } from '../result'
 import { getSessionUser, requireUser } from '../session'
 import { clearAttempts, guardPasswordChange, guardSignIn } from '../throttle'
@@ -152,5 +153,29 @@ export async function changePasswordAction(input: { currentPassword: string; new
       }
       throw error
     }
+  })
+}
+
+/**
+ * Your profile picture: FormData with `file` and the square to keep (`x`, `y`, `size`, in pixels of
+ * the upright picture, from the crop tool). Only the 256 px square is kept.
+ */
+export async function uploadAvatarAction(form: FormData): Promise<ActionResult<{ image: string }>> {
+  return run(async () => {
+    const user = await requireUser()
+    const file = form.get('file')
+    if (!(file instanceof Blob)) throw new ValidationError({ file: 'Choose a picture.' })
+    const crop = { x: Number(form.get('x')), y: Number(form.get('y')), size: Number(form.get('size')) }
+    const image = await saveAvatar(user.id, Buffer.from(await file.arrayBuffer()), crop)
+    await recordActivity({ actor: user, action: 'account.avatar', area: 'account', summary: 'Changed their profile picture' })
+    return { image }
+  })
+}
+
+/** Removes your profile picture (back to your initials). */
+export async function removeAvatarAction(): Promise<ActionResult> {
+  return run(async () => {
+    const user = await requireUser()
+    if (await removeAvatar(user.id)) await recordActivity({ actor: user, action: 'account.avatar', area: 'account', summary: 'Removed their profile picture' })
   })
 }

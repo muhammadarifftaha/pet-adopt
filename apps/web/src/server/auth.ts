@@ -156,6 +156,9 @@ function createAuth({ db, t, dialect }: Database, providers: GenericOAuthConfig[
             if (account.providerId === 'credential') return
             const { recordProviderActivity } = await import('./activity')
             await recordProviderActivity(account.userId, 'account.provider-connect', account.providerId, (name) => `Connected ${name} for signing in`)
+            // No profile picture yet: use the provider's (from its ID token, verified by Better Auth).
+            const { adoptProviderPicture, pictureFromIdToken } = await import('./avatars')
+            await adoptProviderPicture(account.userId, pictureFromIdToken(account.idToken))
           },
         },
       },

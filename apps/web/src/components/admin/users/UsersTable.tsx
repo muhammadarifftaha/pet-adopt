@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import React from "react";
-import { FiArchive, FiShieldOff } from "react-icons/fi";
+import { FiArchive, FiImage, FiShieldOff } from "react-icons/fi";
 
 import {
   AlertDialog,
@@ -15,14 +15,13 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@pet-adopt/ui/components/alert-dialog";
-import { Avatar, AvatarFallback } from "@pet-adopt/ui/components/avatar";
+import { UserAvatar } from "@/components/admin/UserAvatar";
 import { Badge } from "@pet-adopt/ui/components/badge";
 import { Button } from "@pet-adopt/ui/components/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@pet-adopt/ui/components/table";
-import { initialsOf } from "@/lib/admin/initials";
 import { useViewOnly } from "@/components/admin/view-only";
 import { ROLE_INFO, ROLES } from "@pet-adopt/plugin-sdk";
-import { archiveUserAction } from "@/server/actions/users";
+import { archiveUserAction, removeUserAvatarAction } from "@/server/actions/users";
 import { resetUserTwoFactorAction } from "@/server/actions/two-factor";
 import type { UserListItem } from "@/server/users";
 
@@ -78,6 +77,7 @@ export function UsersTable({ users, meId, minPasswordLength }: { users: UserList
         {user.invited ? <ResendInviteDialog user={user} onDone={done} /> : <ResetLinkDialog user={user} onDone={(text) => announce(text)} />}
         <PasswordDialog user={user} isMe={isMe} minPasswordLength={minPasswordLength} onDone={done} />
         {user.twoFactorEnabled && !isMe ? <ResetTwoFactor user={user} announce={announce} onDone={done} /> : null}
+        {user.image && !isMe ? <RemovePicture user={user} announce={announce} onDone={done} /> : null}
         <ArchiveUser user={user} isMe={isMe} isLastAdmin={user.role === "admin" && admins <= 1} announce={announce} onArchived={deleted} />
       </>
     );
@@ -98,9 +98,7 @@ export function UsersTable({ users, meId, minPasswordLength }: { users: UserList
   // Initials, as in the header's user menu (accounts have no pictures yet). Hidden from screen
   // readers: the name beside it says the same.
   const avatar = (user: UserListItem) => (
-    <Avatar aria-hidden="true">
-      <AvatarFallback>{initialsOf(user.name, user.email)}</AvatarFallback>
-    </Avatar>
+    <UserAvatar name={user.name} email={user.email} image={user.image} />
   );
   const roleBadge = (user: UserListItem) => (
     <Badge variant={user.role === "admin" ? "default" : user.role === "audit" ? "outline" : "secondary"}>{ROLE_INFO[user.role].label}</Badge>
@@ -301,6 +299,44 @@ function ResetTwoFactor({ user, announce, onDone }: { user: UserListItem; announ
           <AlertDialogCancel>Keep it on</AlertDialogCancel>
           <Button variant="destructive" aria-disabled={pending || undefined} onClick={reset}>
             {pending ? "Turning off…" : "Turn off two-factor"}
+          </Button>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}
+
+/** Removes someone's profile picture (for example an unsuitable one); they can upload another. */
+function RemovePicture({ user, announce, onDone }: { user: UserListItem; announce: Announce; onDone: (message: string) => void }) {
+  const [open, setOpen] = React.useState(false);
+  const [pending, startTransition] = React.useTransition();
+
+  function remove() {
+    if (pending) return;
+    startTransition(async () => {
+      const result = await removeUserAvatarAction(user.id);
+      setOpen(false);
+      if (result.ok) onDone(`The profile picture of ${user.name} was removed.`);
+      else announce(result.error, true);
+    });
+  }
+
+  return (
+    <AlertDialog open={open} onOpenChange={setOpen}>
+      <AlertDialogTrigger render={<Button variant="outline" size="sm" aria-disabled={pending || undefined} />}>
+        <FiImage aria-hidden />
+        Remove picture
+        <span className="sr-only">of {user.name}</span>
+      </AlertDialogTrigger>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Remove the profile picture of {user.name}?</AlertDialogTitle>
+          <AlertDialogDescription>Their initials are shown instead. They can upload another one on their Account page.</AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Keep</AlertDialogCancel>
+          <Button variant="destructive" aria-disabled={pending || undefined} onClick={remove}>
+            {pending ? "Removing…" : "Remove picture"}
           </Button>
         </AlertDialogFooter>
       </AlertDialogContent>

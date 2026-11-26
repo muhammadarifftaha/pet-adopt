@@ -179,6 +179,8 @@ export type SessionUser = {
   twoFactorEnabled: boolean
   /** How this session signed in: 'password', or 'provider:<id>' for a sign-in provider. */
   signInMethod: string
+  /** Profile picture address, or null (initials). */
+  image?: string | null
 }
 
 /** The answer to a sign-in with email and password: signed in, or a code is needed next. */

@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FiChevronDown, FiLogOut, FiMoon, FiUser } from "react-icons/fi";
 
-import { Avatar, AvatarFallback } from "@pet-adopt/ui/components/avatar";
+import { UserAvatar } from "@/components/admin/UserAvatar";
 import { Badge } from "@pet-adopt/ui/components/badge";
 import { buttonVariants } from "@pet-adopt/ui/components/button";
 import {
@@ -18,7 +18,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@pet-adopt/ui/components/dropdown-menu";
-import { initialsOf } from "@/lib/admin/initials";
 import { useColorMode } from "@/lib/color-mode";
 import { ROLE_INFO } from "@pet-adopt/plugin-sdk";
 import { cn } from "@/lib/utils";
@@ -28,7 +27,7 @@ import type { SessionUser } from "@/server/types";
 // Who is signed in: an avatar with their initials and name, opening a menu with the Account page, a
 // Dark mode switch (only when the site has dark mode, Site settings > Brand) and Sign out. The mode is
 // kept in this browser and shared with the public site's switch (src/lib/color-mode.ts). (Owners
-// have no profile picture yet; give AvatarFallback an <AvatarImage> when they do.)
+// show their profile picture when they have one: UserAvatar.)
 export function UserMenu({ user, canSwitchMode = false }: { user: SessionUser; canSwitchMode?: boolean }) {
   const [mode, setMode] = useColorMode();
   const router = useRouter();
@@ -55,9 +54,7 @@ export function UserMenu({ user, canSwitchMode = false }: { user: SessionUser; c
         className={cn(buttonVariants({ variant: "ghost" }), "h-9 gap-2 px-2")}
       >
         {/* Decorative: the name next to it is the accessible name of the button. */}
-        <Avatar aria-hidden="true">
-          <AvatarFallback>{initialsOf(user.name, user.email)}</AvatarFallback>
-        </Avatar>
+        <UserAvatar name={user.name} email={user.email} image={user.image} />
         <span className="max-w-32 truncate text-sm font-medium sm:max-w-48">
           {user.name}
         </span>
