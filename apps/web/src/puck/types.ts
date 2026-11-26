@@ -17,6 +17,8 @@ export type PuckSiteMetadata = {
     address?: string | null
     openingHours?: string | null
     socials: SocialLink[]
+    /** The live privacy policy page, linked under every form; null (or missing) when there is none. */
+    privacy?: { title: string; href: string } | null
   }
   fetchPets: (filters: PetFilters) => Promise<PetCardData[]>
   /** One pet for the Pet spotlight; null when it is unlisted, adopted or gone. */

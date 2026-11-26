@@ -1,0 +1,1 @@
+ALTER TABLE `site_settings` ADD `privacy_page_id` integer REFERENCES pages(id) ON UPDATE cascade ON DELETE set null;

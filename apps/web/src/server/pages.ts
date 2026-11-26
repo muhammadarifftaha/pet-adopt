@@ -169,6 +169,17 @@ export function hasUnpublishedChanges(row: { puckDraft: unknown; puckPublished: 
   return (row.puckDraft != null && !isEqual(row.puckDraft, row.puckPublished ?? null)) || asDetails(row.detailsDraft) !== null
 }
 
+/**
+ * Refreshes a page's paths and, when the page is the site's privacy policy, every page as well: the
+ * footer and the forms link to it by its title and address, and only while it is live.
+ */
+async function revalidatePage(id: number, paths: Parameters<typeof safeRevalidate>[0]): Promise<void> {
+  safeRevalidate(paths)
+  const { db, t } = await getDatabase()
+  const [settings] = await db.select({ privacyPageId: t.siteSettings.privacyPageId }).from(t.siteSettings).limit(1)
+  if (settings?.privacyPageId === id) safeRevalidate([['/', 'layout']])
+}
+
 export async function getPageById(id: number): Promise<Page | null> {
   const { db, t } = await getDatabase()
   const [row] = await db.select().from(t.pages).where(eq(t.pages.id, id)).limit(1)
@@ -256,7 +267,7 @@ export async function savePageDetails(id: number | null, raw: unknown, opts: { b
       },
       { lock: pageLock(id) },
     )
-    safeRevalidate([toPath(result.slug), toPath(result.previousSlug)])
+    await revalidatePage(id, [toPath(result.slug), toPath(result.previousSlug)])
     return { id: result.id, slug: result.slug }
   } catch (error) {
     if (isUniqueViolation(error)) throw new ValidationError({ slug: 'Another page already uses this address.' })
@@ -473,7 +484,7 @@ export async function publishPage(
     { lock: pageLock(id) },
   )
   // A new address: the old one stops showing the page, so refresh both.
-  safeRevalidate([toPath(result.slug), toPath(result.previousSlug)])
+  await revalidatePage(id, [toPath(result.slug), toPath(result.previousSlug)])
   return { slug: result.slug, version: result.version }
 }
 
@@ -486,7 +497,7 @@ export async function unpublishPage(id: number): Promise<void> {
     .where(eq(t.pages.id, id))
     .returning({ slug: t.pages.slug })
   if (!row) throw new UserError('Page not found.')
-  safeRevalidate([toPath(row.slug)])
+  await revalidatePage(id, [toPath(row.slug)])
 }
 
 /** Takes the page off the site and makes it read-only. Everything is kept for a restore. */
@@ -504,7 +515,7 @@ export async function archivePage(id: number): Promise<void> {
     if (!page) throw new UserError('Page not found.')
     return // Already archived.
   }
-  safeRevalidate([toPath(row.slug)])
+  await revalidatePage(id, [toPath(row.slug)])
 }
 
 /** Brings an archived page back exactly as it was (a published page is live again). */
@@ -516,7 +527,7 @@ export async function restorePage(id: number): Promise<void> {
     .where(eq(t.pages.id, id))
     .returning({ slug: t.pages.slug })
   if (!row) throw new UserError('Page not found.')
-  safeRevalidate([toPath(row.slug)])
+  await revalidatePage(id, [toPath(row.slug)])
 }
 
 /** Deletes a page and its history for good. Only an archived page can be deleted. */

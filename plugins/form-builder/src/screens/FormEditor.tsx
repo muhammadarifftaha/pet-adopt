@@ -85,11 +85,14 @@ export function FormEditor({
   readOnly = false,
   canSeeResponses = true,
   templates = { notification: [], confirmation: [] },
+  captcha = { active: false, href: null },
 }: {
   form: EditorForm
   readOnly?: boolean
   canSeeResponses?: boolean
   templates?: TemplateChoices
+  /** The forms' captcha (Spam protection screen): on or off, and its link (null: no access). */
+  captcha?: { active: boolean; href: string | null }
 }) {
   const router = useRouter()
   const [name, setName] = useState(form.name)
@@ -472,6 +475,40 @@ export function FormEditor({
           </div>
           <p aria-live="polite" className="sr-only">
             {announce}
+          </p>
+        </CardContent>
+      </Card>
+
+      {/* The spam trap (honeypot), apart from the questions: it is not one, and visitors never see it. */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Spam trap</CardTitle>
+          <CardDescription>A hidden question that only spam bots answer. It is not one of your questions: visitors never see it.</CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-4">
+          <div className="flex items-start gap-3">
+            <Switch
+              id="fb-settings-spamTrap"
+              checked={settings.spamTrap !== false}
+              onCheckedChange={(checked) => setSettings({ ...settings, spamTrap: checked ? undefined : false })}
+              aria-describedby="fb-settings-spamTrap-hint"
+            />
+            <div className="flex flex-col gap-1">
+              <Label htmlFor="fb-settings-spamTrap">Catch spam bots with a hidden box</Label>
+              <p id="fb-settings-spamTrap-hint" className="text-sm text-muted-foreground">
+                The form gets an extra box labelled “Website” that is hidden from people and skipped by screen readers and the keyboard. Bots fill in
+                every box they find; when this one is filled, the bot is told the form was sent, but nothing is saved, emailed or counted. Real
+                answers are never affected. Leave it on unless a service you use fills forms in automatically.
+              </p>
+            </div>
+          </div>
+          <p className="text-sm text-muted-foreground">
+            {captcha.active ? 'Spam protection (captcha) is also on for every form.' : 'For stronger protection, a captcha can check visitors before they send.'}{' '}
+            {captcha.href ? (
+              <Link href={captcha.href} className="underline underline-offset-4">
+                {captcha.active ? 'Spam protection settings' : 'Set up spam protection'}
+              </Link>
+            ) : null}
           </p>
         </CardContent>
       </Card>

@@ -8,7 +8,7 @@ import { SocialLinks } from '@/components/site/SocialIcons'
 import { ThemeStyle } from '@/components/site/ThemeStyle'
 import { ThemeToggle } from '@/components/site/ThemeToggle'
 import { WhatsAppButton } from '@/components/site/WhatsAppButton'
-import { getSettings, mediaOf, siteIcons } from '@/lib/queries'
+import { getPrivacyPolicy, getSettings, mediaOf, siteIcons } from '@/lib/queries'
 import { fillMessage } from '@/lib/whatsapp'
 
 import '@pet-adopt/ui/globals.css'
@@ -30,7 +30,7 @@ export async function generateMetadata(): Promise<Metadata> {
 }
 
 export default async function FrontendLayout({ children }: { children: React.ReactNode }) {
-  const settings = await getSettings()
+  const [settings, privacy] = await Promise.all([getSettings(), getPrivacyPolicy()])
   const logo = mediaOf(settings.logo)
   const nav = settings.nav?.length
     ? settings.nav
@@ -74,6 +74,11 @@ export default async function FrontendLayout({ children }: { children: React.Rea
             <div>
               <strong>{settings.siteName}</strong>
               {settings.footerText && <p className="pre-line">{settings.footerText}</p>}
+              {privacy ? (
+                <p className="footer-links">
+                  <Link href={privacy.href}>{privacy.title}</Link>
+                </p>
+              ) : null}
             </div>
             <SocialLinks items={settings.socials} />
           </div>

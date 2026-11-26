@@ -6,6 +6,7 @@ import { EditForm } from './screens/EditForm'
 import { FormsList } from './screens/FormsList'
 import { FormsWidget } from './screens/FormsWidget'
 import { Responses } from './screens/Responses'
+import { SpamProtection } from './screens/SpamProtection'
 import { FORM_EMAIL_TEMPLATES } from './email-templates'
 import { emailTemplateUsage } from './server'
 import { FORM_BUILDER, formBuilderStorage } from './storage'
@@ -43,6 +44,13 @@ export const formBuilder = definePlugin<{ title?: string } | void>((options) => 
       path: 'forms/:id',
       title: 'Edit form',
       component: ({ params, user }) => <EditForm id={params.id} user={user} />,
+    },
+    {
+      path: 'spam-protection',
+      title: 'Spam protection',
+      // Keys and the on/off switch: admins and developers change it, audit views it.
+      access: 'admin',
+      component: ({ user }) => <SpamProtection user={user} />,
     },
     {
       path: 'forms/:id/responses',

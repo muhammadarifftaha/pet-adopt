@@ -15,6 +15,8 @@ import { getSessionUser, requirePermission } from '@/server/session'
 import { clientAddress, consumeAttempt } from '@/server/throttle'
 
 import { getEmailSender } from '@/server/email'
+import { getPrivacyPolicy } from '@/server/privacy'
+import { open, seal } from '@/server/secret-box'
 
 import { getPluginInfo } from './registry'
 
@@ -53,6 +55,12 @@ provideHost({
       // A message to a visitor never carries details, whatever the plugin passes.
       details: purpose === 'team-notification' ? message.details : undefined,
     })
+  },
+  // Plugin purposes are kept apart from the site's own ("plugin:" + the plugin's purpose).
+  secrets: { seal: (plain, purpose) => seal(plain, `plugin:${purpose}`), open: (sealed, purpose) => open(sealed, `plugin:${purpose}`) },
+  privacyPolicy: async () => {
+    const policy = await getPrivacyPolicy()
+    return { policy: policy ? { title: policy.title, href: policy.href } : null, settingsHref: '/admin/settings?tab=navigation' }
   },
   emailTemplates: async (purpose) => (await listEmailTemplates(purpose)).map(({ id, name, seedKey }) => ({ id, name, seedKey })),
   logError,

@@ -1713,7 +1713,7 @@ const blocks: Config<PuckComponents> = {
             <div className="form-section">
               <Title level={headingLevel}>{heading?.trim() || form.name}</Title>
               {showDescription !== false && paragraphs(form.description ?? '').map((p, i) => <p key={i} className="form-intro">{p}</p>)}
-              <PublicForm form={form} preview={puck.isEditing} />
+              <PublicForm form={form} preview={puck.isEditing} privacy={(puck.metadata as Partial<PuckSiteMetadata>).site?.privacy ?? null} />
             </div>
           </Section>
         )

@@ -5,6 +5,7 @@ import { getDatabase } from '@/db/client'
 import type * as S from '@/db/schema/sqlite'
 import { validateLink, validateWebUrl } from '@/lib/links'
 import { SOCIAL_PLATFORMS } from '@/lib/options'
+import { isSystemPageSlug } from '@/puck/data'
 import { safeRevalidate } from '@/lib/revalidate'
 import {
   BUTTON_OPTIONS,
@@ -51,6 +52,7 @@ export const DEFAULT_SETTINGS: SiteSetting = {
   socials: [],
   nav: [],
   footerText: null,
+  privacyPageId: null,
   updatedAt: null,
 }
 
@@ -90,6 +92,7 @@ function toSettings(row: SettingsRow, logo: SiteSetting['logo'], favicon: SiteSe
     socials: row.socials ?? [],
     nav: row.nav ?? [],
     footerText: row.footerText,
+    privacyPageId: row.privacyPageId ?? null,
     updatedAt: row.updatedAt,
   }
 }
@@ -218,6 +221,7 @@ export async function updateSettings(raw: unknown): Promise<SiteSetting> {
   put('address', f.text('address', 500))
   put('openingHours', f.text('openingHours', 500))
   put('footerText', f.text('footerText', 500))
+  put('privacyPageId', f.id('privacyPageId'))
 
   const errors: FieldErrors = { ...f.errors }
 
@@ -286,6 +290,14 @@ export async function updateSettings(raw: unknown): Promise<SiteSetting> {
   if (v.faviconId) {
     const problem = faviconProblem(images.get(v.faviconId))
     if (problem) errors.faviconId = problem
+  }
+  // The privacy policy must be an ordinary page of this site (not the homepage, Pets page or Pet
+  // page template) that is not archived. It may still be a draft: it is linked once it is live.
+  if (v.privacyPageId) {
+    const [page] = await db.select({ slug: t.pages.slug, archivedAt: t.pages.archivedAt }).from(t.pages).where(eq(t.pages.id, v.privacyPageId)).limit(1)
+    if (!page) errors.privacyPageId = 'That page no longer exists.'
+    else if (isSystemPageSlug(page.slug)) errors.privacyPageId = 'Choose one of your own pages, not a built-in one.'
+    else if (page.archivedAt) errors.privacyPageId = 'That page is archived. Restore it first, or choose another.'
   }
   if (Object.keys(errors).length) throw new ValidationError(errors)
 
