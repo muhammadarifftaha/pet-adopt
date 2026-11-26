@@ -1,3 +1,4 @@
+import { can } from '@pet-adopt/plugin-sdk'
 import Link from 'next/link'
 import { FiAlertTriangle, FiCheckCircle, FiMail } from 'react-icons/fi'
 
@@ -78,7 +79,8 @@ export function PluginOverview({ info, user }: { info: PluginInfo; user: Session
                 <p className="mt-1 text-muted-foreground">{status.setup}</p>
               </div>
             ) : null}
-            <SendTestEmail defaultTo={user.email} disabled={!ready} />
+            {/* Sending is a change of sorts (it uses the provider): admins and developers, not audit. */}
+            {can(user.role, 'plugins:edit') ? <SendTestEmail defaultTo={user.email} disabled={!ready} /> : null}
           </CardContent>
         </Card>
       ) : null}

@@ -16,7 +16,7 @@ import {
 import { fetchPublicForm, type PublicForm } from '@/puck/forms'
 import { publishPage, saveDraft } from '@/server/pages'
 import { assertId, toFailure } from '@/server/result'
-import { requireUser } from '@/server/session'
+import { requirePermission } from '@/server/session'
 
 // `version` is the page's `updatedAt` in milliseconds. The builder sends the last one it received
 // and gets the new one back, so a save from a stale tab is refused instead of overwriting.
@@ -24,7 +24,7 @@ type Result = { ok: true; message: string; version: number } | { ok: false; mess
 
 async function persist(id: number, data: Data, publish: boolean, baseVersion?: number): Promise<Result> {
   try {
-    const user = await requireUser()
+    const user = await requirePermission('pages:edit')
     const pageId = assertId(id)
     const base = typeof baseVersion === 'number' && Number.isFinite(baseVersion) ? baseVersion : undefined
     const { version } = publish ? await publishPage(pageId, data, base, user.id) : await saveDraft(pageId, data, base, user.id)

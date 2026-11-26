@@ -7,12 +7,77 @@ import type { IconType } from 'react-icons'
 // Nothing here touches the database or the browser, and nothing imports the app, so a plugin
 // package (in plugins/ here, or published to npm) depends on this package alone.
 
+// --- Roles and permissions ---------------------------------------------------------------------
+// One source of truth for what each role may do, shared by the app and plugins. Every server
+// action checks a permission (`can`), and the admin's menus and buttons follow the same table.
+
+/** Who can sign in to the admin. */
+export const ROLES = ['admin', 'editor', 'developer', 'audit'] as const
+export type Role = (typeof ROLES)[number]
+
+export const ROLE_INFO: Record<Role, { label: string; description: string }> = {
+  admin: { label: 'Admin', description: 'Everything, including users.' },
+  editor: { label: 'Editor', description: 'Pets, pages, media, forms and form responses.' },
+  developer: { label: 'Developer', description: 'Pets, pages, media, forms, theme, settings and plugins. No form responses or users.' },
+  audit: { label: 'Audit', description: 'Sees everything, changes nothing. Cannot download form responses.' },
+}
+
+/**
+ * What a permission covers. `pluginContent`, `plugins` and `personalData` are the three levels a
+ * plugin screen can ask for (see PluginAccess); the rest are the site's own areas.
+ */
+export const AREAS = ['pets', 'pages', 'media', 'theme', 'settings', 'plugins', 'users', 'pluginContent', 'personalData'] as const
+export type Area = (typeof AREAS)[number]
+/** `area:view` or `area:edit`, plus downloading personal data (form responses as CSV). */
+export type Permission = `${Area}:${'view' | 'edit'}` | 'personalData:export'
+
+const edit = (...areas: Area[]) => areas.flatMap((area): Permission[] => [`${area}:view`, `${area}:edit`])
+const view = (...areas: Area[]) => areas.map((area): Permission => `${area}:view`)
+
+const GRANTS: Record<Role, ReadonlySet<Permission>> = {
+  admin: new Set<Permission>([...edit(...AREAS), 'personalData:export']),
+  editor: new Set<Permission>([...edit('pets', 'pages', 'media', 'pluginContent', 'personalData'), 'personalData:export']),
+  developer: new Set<Permission>(edit('pets', 'pages', 'media', 'pluginContent', 'theme', 'settings', 'plugins')),
+  audit: new Set<Permission>(view(...AREAS)),
+}
+
+/** Whether `role` has `permission`. An unknown role has none. */
+export function can(role: Role | null | undefined, permission: Permission): boolean {
+  return Boolean(role && GRANTS[role]?.has(permission))
+}
+
+/** A stored role string as a Role. Anything unknown becomes `audit`, which changes nothing. */
+export function asRole(value: unknown): Role {
+  return (ROLES as readonly unknown[]).includes(value) ? (value as Role) : 'audit'
+}
+
+/**
+ * Who a plugin screen or widget is for:
+ *  - `all`: the whole team (admins, editors, developers; audit can view). The default.
+ *  - `admin`: admins and developers (audit can view): setup, integrations.
+ *  - `personalData`: what visitors sent (form responses, sign-ups): admins and editors (audit can
+ *    view, developers cannot).
+ */
+export type PluginAccess = 'all' | 'admin' | 'personalData'
+
+const ACCESS_AREA: Record<PluginAccess, Area> = { all: 'pluginContent', admin: 'plugins', personalData: 'personalData' }
+
+/** The permission a plugin screen or action needs: `accessPermission('personalData', 'edit')`. */
+export function accessPermission(access: PluginAccess, level: 'view' | 'edit'): Permission {
+  return `${ACCESS_AREA[access]}:${level}`
+}
+
+/** A screen's or widget's access, reading the older `adminOnly` flag too. */
+export function accessOf(item: { access?: PluginAccess; adminOnly?: boolean }): PluginAccess {
+  return item.access ?? (item.adminOnly ? 'admin' : 'all')
+}
+
 /** The signed-in person a screen or widget is shown to. The app's session user has this shape. */
 export type PluginUser = {
   id: string
   email: string
   name: string
-  role: 'admin' | 'editor'
+  role: Role
 }
 
 /** What a plugin screen or dashboard widget receives. Both are server components by default. */
@@ -61,7 +126,13 @@ export type PluginScreen = {
   }
   /** Leave the screen out of the menu (it is still reachable by URL). */
   hidden?: boolean
-  /** Only admins can open it. Editors get no menu entry and are redirected to the dashboard. */
+  /**
+   * Who can open it (see PluginAccess; default `all`). People without access get no menu entry and
+   * are sent to the dashboard. The screen's server actions must still check the same level with
+   * `host().requirePermission(accessPermission(access, 'view' | 'edit'))`.
+   */
+  access?: PluginAccess
+  /** @deprecated Use `access: 'admin'`. */
   adminOnly?: boolean
 }
 
@@ -70,6 +141,9 @@ export type PluginWidget = {
   id: string
   title: string
   component: (props: PluginWidgetProps) => React.ReactNode | Promise<React.ReactNode>
+  /** Who sees it on the dashboard (see PluginAccess; default `all`). */
+  access?: PluginAccess
+  /** @deprecated Use `access: 'admin'`. */
   adminOnly?: boolean
 }
 
@@ -283,9 +357,18 @@ export type Choice = { value: string; label: string }
  * `host()` inside a server action or server component (not at module load).
  */
 export type PluginHost = {
-  /** The signed-in person; throws a UserError when nobody is. */
+  /**
+   * The signed-in person, if they have `permission`; throws a UserError otherwise. Check the level
+   * of the screen the action belongs to: `requirePermission(accessPermission('all', 'edit'))` to
+   * change, `'view'` to read.
+   */
+  requirePermission(permission: Permission): Promise<PluginUser>
+  /**
+   * Someone who can change the team's plugin content (`pluginContent:edit`: not audit). Use
+   * requirePermission with a `view` permission for reads, so audit can see them.
+   */
   requireUser(): Promise<PluginUser>
-  /** The signed-in admin; throws a UserError otherwise. */
+  /** Someone who can change admin-level plugin settings (`plugins:edit`: admins and developers). */
   requireAdmin(): Promise<PluginUser>
   /** Runs `fn` and turns what it throws into an ActionResult (wrap every server action in it). */
   run<T>(fn: () => Promise<T>): Promise<ActionResult<T>>

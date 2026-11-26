@@ -1,3 +1,4 @@
+import { can } from '@pet-adopt/plugin-sdk'
 import { FiAlertTriangle } from 'react-icons/fi'
 
 import { Card, CardDescription, CardHeader, CardTitle } from '@pet-adopt/ui/components/card'
@@ -16,9 +17,10 @@ export function PluginNotReady({ status, user }: { status: PluginStorageStatus; 
           {status.title} is not set up yet
         </CardTitle>
         <CardDescription>
-          {user.role === 'admin'
+          {/* The server-side fix (pnpm migrate) is for the people who look after plugins. */}
+          {can(user.role, 'plugins:edit')
             ? status.problem
-            : 'This plugin needs a setup step on the server before it can be used. Ask an admin to finish it.'}
+            : 'This plugin needs a setup step on the server before it can be used. Ask an admin or a developer to finish it.'}
         </CardDescription>
       </CardHeader>
     </Card>

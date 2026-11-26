@@ -9,14 +9,17 @@ import { PetStatus } from '@/lib/options'
 import { toE164, validatePhone } from '@/lib/phone'
 import { logError, run } from '@/server/result'
 import { listPetChoices } from '@/server/pets'
-import { requireAdmin, requireUser } from '@/server/session'
+import { requirePermission } from '@/server/session'
 import { clientAddress, consumeAttempt } from '@/server/throttle'
 
 import { getEmailSender } from './registry'
 
 provideHost({
-  requireUser,
-  requireAdmin,
+  requirePermission,
+  // Fail closed for plugins written before roles: "a user" means someone who can change the team's
+  // plugin content, so an audit (view-only) account cannot write through an older plugin's action.
+  requireUser: () => requirePermission('pluginContent:edit'),
+  requireAdmin: () => requirePermission('plugins:edit'),
   run,
   clientAddress: async () => clientAddress(await headers()),
   // Namespaced, so a plugin cannot touch the sign-in counters (and so they are purged with the rest).

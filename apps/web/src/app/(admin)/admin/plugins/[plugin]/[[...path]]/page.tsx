@@ -1,3 +1,4 @@
+import { accessOf, accessPermission, can } from '@pet-adopt/plugin-sdk'
 import type { Metadata } from 'next'
 import { notFound, redirect } from 'next/navigation'
 
@@ -46,7 +47,7 @@ export default async function PluginScreenPage({ params, searchParams }: Props) 
   const notReady = storage && !storage.ready ? <PluginNotReady status={storage} user={user} /> : null
 
   if (overview) {
-    if (user.role !== 'admin') redirect('/admin')
+    if (!can(user.role, 'plugins:view')) redirect('/admin')
     return (
       <>
         <PageHeader title={overview.title} />
@@ -56,8 +57,8 @@ export default async function PluginScreenPage({ params, searchParams }: Props) 
     )
   }
 
-  // The menu hides admin-only screens, but the URL still works, so check here too.
-  if (match!.screen.adminOnly && user.role !== 'admin') redirect('/admin')
+  // The menu hides screens a role cannot open, but the URL still works, so check here too.
+  if (!can(user.role, accessPermission(accessOf(match!.screen), 'view'))) redirect('/admin')
   const Screen = match!.screen.component
   return (
     <>

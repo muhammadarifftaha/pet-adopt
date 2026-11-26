@@ -161,7 +161,9 @@ export type ThemeRecord = {
   updatedAt: Date
 }
 
-export type Role = 'admin' | 'editor'
+// Roles and what they may do live in the plugin SDK (one table for the app and plugins).
+export type { Role } from '@pet-adopt/plugin-sdk'
+import type { Role } from '@pet-adopt/plugin-sdk'
 
 export type SessionUser = {
   id: string
