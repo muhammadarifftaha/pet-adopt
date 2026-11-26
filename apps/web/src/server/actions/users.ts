@@ -4,6 +4,7 @@ import { ROLE_INFO } from '@pet-adopt/plugin-sdk'
 
 import { quoted, recordActivity, type Actor } from '../activity'
 import { removeAvatar } from '../avatars'
+import { cancelEmailChange, sendEmailChangeNotice } from '../email-change'
 import { sendInvite, type InviteResult } from '../invites'
 import { run, UserError, type ActionResult } from '../result'
 import { requirePermission } from '../session'
@@ -69,19 +70,32 @@ export async function resendInviteAction(id: string): Promise<ActionResult<Invit
   })
 }
 
-/** `{ name, role }`. Refuses to demote the last admin. */
+/**
+ * `{ name, role, email }`. Refuses to demote the last admin. A new email takes effect at once (agreed
+ * with the owner): both addresses get a notice, a pending change the person asked for is cancelled,
+ * and a pending invite goes to the new address.
+ */
 export async function updateUserAction(id: string, input: unknown): Promise<ActionResult> {
   return run(async () => {
     const actor = await requirePermission('users:edit')
     const target = userId(id)
     const before = await findUser(target)
-    await updateUser(target, input, { canChangeRole: true })
+    const { email } = await updateUser(target, input, { canChangeRole: true })
     const after = await findUser(target)
-    const fields = [before?.name !== after?.name && 'name', before?.role !== after?.role && 'role'].filter((field): field is string => Boolean(field))
+    const fields = [before?.name !== after?.name && 'name', before?.role !== after?.role && 'role', email && 'email'].filter((field): field is string => Boolean(field))
     if (!fields.length) return
-    // Roles are not personal data, and who was given which role is what an audit looks for.
+    // Roles are not personal data, and who was given which role is what an audit looks for. Email
+    // addresses are personal data: the entry names the field only.
     const role = before && after && before.role !== after.role ? ` (role: ${ROLE_INFO[before.role].label} to ${ROLE_INFO[after.role].label})` : ''
     await record(actor, 'user.update', after, target, `Updated the account ${quoted(after?.name)}${role}`, fields)
+    if (email && after) {
+      await cancelEmailChange(target)
+      await sendEmailChangeNotice(after, email, actor.name, [email.from, email.to])
+      if (after.invited) {
+        const invite = await sendInvite(target, actor.name)
+        await record(actor, 'user.invite', after, target, inviteSummary(after.name, invite))
+      }
+    }
   })
 }
 

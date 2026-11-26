@@ -1,10 +1,8 @@
 import type { Metadata } from "next";
-import { redirect } from "next/navigation";
 import React from "react";
 
 import { ThemeStyle } from "@/components/site/ThemeStyle";
 import { getSettings, siteIcons } from "@/lib/queries";
-import { getSessionUser } from "@/server/session";
 
 // Same styling setup as the (admin) layout: Tailwind and the shadcn tokens bridged to the site
 // theme, plus the self-hosted fonts. Do NOT import ../(frontend)/styles.css here (see the note in
@@ -29,11 +27,8 @@ export default async function AuthLayout({
 }: {
   children: React.ReactNode;
 }) {
-  // Someone who is already signed in has nothing to do here. (A layout cannot read the ?redirect=
-  // query string, so this always goes to /admin; the sign-in form itself should honour ?redirect=
-  // after a successful sign-in.)
-  if (await getSessionUser()) redirect("/admin");
-
+  // Signed-in people may be here: confirming a new email (/admin/confirm-email) is usually done
+  // while signed in. The sign-in page itself sends them to the admin.
   const settings = await getSettings();
   return (
     // suppressHydrationWarning: the saved light/dark mode may be set on <html> before hydration.

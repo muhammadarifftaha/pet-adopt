@@ -11,7 +11,7 @@
 //
 // It creates accounts, pets and pages, so never point it at a real site.
 import { APIError } from 'better-auth/api'
-import { eq, sql, type SQL } from 'drizzle-orm'
+import { eq, like, sql, type SQL } from 'drizzle-orm'
 import zlib from 'node:zlib'
 
 import { isEqual } from 'es-toolkit'
@@ -86,6 +86,7 @@ import {
 import { getEmailSender, getEmailSettingsView, isLoopbackHost, parseFrom, resolveSmtp, saveEmailSettings, sendsToLocalServer } from '../src/server/email'
 import { open, seal } from '../src/server/secret-box'
 import { acceptInvite, isInviteTokenValid, sendInvite } from '../src/server/invites'
+import { cancelEmailChange, confirmEmailChange, emailChangeFor, pendingEmailChange, requestEmailChange, sendEmailChangeNotice } from '../src/server/email-change'
 import { adoptProviderPicture, AVATAR_SIZE, isPrivateAddress, pictureFromIdToken, removeAvatar, saveAvatar } from '../src/server/avatars'
 import { backupCodesLeft, forgetTrustedDevices, needsTwoFactorSetup, resetTwoFactor, saveTwoFactorRoles } from '../src/server/two-factor'
 import { BACKUP_CODE_ALPHABET, normalizeBackupCode, normalizeTotpCode } from '../src/server/two-factor-codes'
@@ -1764,6 +1765,7 @@ await check('roles: the permission table is as agreed, every action checks a per
     'disableTwoFactorAction', 'regenerateBackupCodesAction',
     'startProviderSignInAction', 'getMyProvidersAction', 'connectProviderAction', 'disconnectProviderAction',
     'uploadAvatarAction', 'removeAvatarAction',
+    'getEmailChangeStatusAction', 'requestEmailChangeAction', 'cancelEmailChangeAction', 'confirmEmailChangeAction',
     'requestPasswordResetAction', 'resetPasswordWithTokenAction', 'acceptInviteAction', 'submitFormAction',
     'fetchPetSpotlightAction', 'fetchCatalogAction', 'fetchPetProfilesAction', 'fetchPetsAction', 'fetchFormAction',
   ])
@@ -2729,6 +2731,78 @@ await check('profile pictures: checked like uploads, cropped as the browser show
   const last = await saveAvatar(id, photo, { x: 0, y: 0, size: 30 })
   await removeAccount(id)
   ok(!(await storage.exists(fileOf(last))), 'the picture goes with the account')
+})
+
+await check('email changes: yourself with your password and a link to the new address (the old one is told), confirmed once; an admin at once with notices to both; addresses stay unique; the two emails need their links', async () => {
+  const email = 'mover@example.test'
+  const password = 'mover-password-123'
+  const { id } = await createUser({ email, name: 'Mo Ver', password, role: 'editor' })
+  const auth = await getAuth()
+  const inbox: EmailMessage[] = []
+  const sender = { send: async (message: EmailMessage) => void inbox.push(message) }
+  const tokenIn = (message: EmailMessage) => /token=([A-Za-z0-9_-]{43})/.exec(message.text)?.[1] ?? ''
+
+  // Checks first: password, a real and different address that nobody uses, and the site must email.
+  ok(/cannot send email/.test(await userError(requestEmailChange(id, { email: 'new@example.test', password }, null))), 'without email: ask an admin')
+  ok((await fieldErrors(requestEmailChange(id, { email: 'new@example.test', password: 'wrong-password-1' }, sender))).password, 'the current password is required')
+  ok((await fieldErrors(requestEmailChange(id, { email: 'not an email', password }, sender))).email, 'a real address')
+  ok((await fieldErrors(requestEmailChange(id, { email: email.toUpperCase(), password }, sender))).email, 'a different address')
+  ok((await fieldErrors(requestEmailChange(id, { email: process.env.SEED_ADMIN_EMAIL!, password }, sender))).email, 'nobody else may have it')
+  ok(inbox.length === 0, 'nothing sent for refused requests')
+
+  // A request: the link goes to the new address, a notice to the old one; nothing changes yet.
+  const first = await requestEmailChange(id, { email: 'Mover.New@Example.test', password }, sender)
+  ok(first.email === 'mover.new@example.test', 'stored in lower case')
+  ok(inbox.length === 2 && inbox[0].to === 'mover.new@example.test' && tokenIn(inbox[0]), 'a confirmation link to the new address')
+  ok(inbox[1].to === email && inbox[1].text.includes('mover.new@example.test') && !tokenIn(inbox[1]), 'a notice without the link to the old address')
+  ok((await listUsers()).find((u) => u.id === id)?.email === email, 'nothing changes before it is confirmed')
+  ok((await pendingEmailChange(id))?.email === 'mover.new@example.test', 'the change waits')
+  const stored = (await db.select().from(t.verifications)).filter((row) => row.identifier.startsWith('email-change:'))
+  ok(stored.length === 1 && !stored[0].identifier.includes(tokenIn(inbox[0])), 'one pending change, its token stored as a hash')
+
+  // A second request cancels the first link.
+  const firstToken = tokenIn(inbox[0])
+  await requestEmailChange(id, { email: 'mover.second@example.test', password }, sender)
+  const secondToken = tokenIn(inbox[2])
+  ok(!(await emailChangeFor(firstToken)) && (await emailChangeFor(secondToken))?.email === 'mover.second@example.test', 'a new request cancels the older link')
+
+  // Confirming: once; then the new address signs in and the old one does not.
+  const changed = await confirmEmailChange(secondToken)
+  ok(changed.from === email && changed.to === 'mover.second@example.test', 'confirmed')
+  ok(/expired or was already used/.test(await userError(confirmEmailChange(secondToken))), 'a link works once')
+  ok((await auth.api.signInEmail({ body: { email: 'mover.second@example.test', password }, headers: ip(98) })).user.id === id, 'signs in with the new address')
+  ok((await authCode(auth.api.signInEmail({ body: { email, password }, headers: ip(98) }))) !== '', 'not with the old one')
+  ok(!(await pendingEmailChange(id)), 'nothing pending any more')
+
+  // Expired and cancelled links.
+  await requestEmailChange(id, { email: 'mover.third@example.test', password }, sender)
+  const third = tokenIn(inbox[inbox.length - 2])
+  await db.update(t.verifications).set({ expiresAt: new Date(Date.now() - 1000) }).where(like(t.verifications.identifier, 'email-change:%'))
+  ok(!(await emailChangeFor(third)) && /expired/.test(await userError(confirmEmailChange(third))), 'an expired link does nothing')
+  await requestEmailChange(id, { email: 'mover.fourth@example.test', password }, sender)
+  await cancelEmailChange(id)
+  ok(!(await pendingEmailChange(id)), 'cancelled')
+
+  // An admin: at once, unique, and both addresses are told. The person's own form cannot do it.
+  await updateUser(id, { name: 'Mo Ver', email: 'sneaky@example.test' }, { canChangeRole: false })
+  ok((await listUsers()).find((u) => u.id === id)?.email === 'mover.second@example.test', 'the name form ignores an email')
+  ok((await fieldErrors(updateUser(id, { name: 'Mo Ver', email: process.env.SEED_ADMIN_EMAIL! }, { canChangeRole: true }))).email, 'an admin cannot pick a taken address')
+  ok((await fieldErrors(updateUser(id, { name: 'Mo Ver', email: '' }, { canChangeRole: true }))).email, 'or an empty one')
+  const unchanged = await updateUser(id, { name: 'Mo Ver', email: 'MOVER.second@example.test' }, { canChangeRole: true })
+  ok(unchanged.email === null, 'the same address in other case is no change')
+  const byAdmin = await updateUser(id, { name: 'Mo Ver', email: 'mover.admin@example.test' }, { canChangeRole: true })
+  ok(byAdmin.email?.from === 'mover.second@example.test' && byAdmin.email.to === 'mover.admin@example.test', 'changed at once')
+  const before = inbox.length
+  ok((await sendEmailChangeNotice({ name: 'Mo Ver' }, byAdmin.email!, 'Ad Min', [byAdmin.email!.from, byAdmin.email!.to], sender)) === 2, 'both addresses are told')
+  ok(inbox.slice(before).every((message) => message.text.includes('Ad Min')), 'who asked for it')
+
+  // The two emails: the confirmation must carry {{confirmLink}}, which no other email may use.
+  ok(validateTemplate(DEFAULT_TEMPLATES['email-change'], 'email-change').ok && validateTemplate(DEFAULT_TEMPLATES['email-changed'], 'email-changed').ok, 'the built-in emails are valid')
+  const missing = validateTemplate({ root: { props: { subject: 'Hi' } }, content: [{ type: 'Text', props: { text: 'No link' } }] }, 'email-change')
+  ok(!missing.ok && missing.errors.some((e) => /confirmLink/.test(e)), 'a confirmation must contain {{confirmLink}}')
+  ok(!validateTemplate({ root: { props: { subject: 'Hi' } }, content: [{ type: 'Button', props: { label: 'Go', url: '{{confirmLink}}' } }] }, 'email-changed').ok, 'the notice cannot carry the link')
+
+  await removeAccount(id)
 })
 
 // FK enforcement is on (SQLite needs a pragma)

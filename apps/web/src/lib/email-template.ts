@@ -15,7 +15,7 @@
 // what is designed is what is sent. Stored data is rebuilt by `validateTemplate` from allowed
 // blocks and props only, and everything a person typed is escaped when it is rendered.
 
-export const EMAIL_PURPOSES = ['password-reset', 'invite', 'test', 'team-notification', 'visitor-message'] as const
+export const EMAIL_PURPOSES = ['password-reset', 'invite', 'email-change', 'email-changed', 'test', 'team-notification', 'visitor-message'] as const
 export type EmailPurpose = (typeof EMAIL_PURPOSES)[number]
 
 /** Placeholders every template can use. */
@@ -46,6 +46,27 @@ export const PURPOSE_INFO: Record<
     required: ['inviteLink'],
     details: false,
     sample: { name: 'Alex Rivera', inviteLink: 'https://example.com/admin/invite?token=sample', inviterName: 'Sam Lee', role: 'Editor', days: '7' },
+  },
+  'email-change': {
+    label: 'Confirm new email',
+    description: 'Sent to the new address when someone changes their email on the Account page. The change happens when they open its link.',
+    placeholders: {
+      name: 'The person’s name',
+      confirmLink: 'The one-time confirmation link (required)',
+      newEmail: 'The new address',
+      hours: 'How long the link works, in hours',
+    },
+    required: ['confirmLink'],
+    details: false,
+    sample: { name: 'Alex Rivera', confirmLink: 'https://example.com/admin/confirm-email?token=sample', newEmail: 'alex@new.example', hours: '24' },
+  },
+  'email-changed': {
+    label: 'Email change notice',
+    description: 'Sent to the old address when someone asks to change their email, and to both addresses when an admin changes it.',
+    placeholders: { name: 'The person’s name', oldEmail: 'The old address', newEmail: 'The new address', changedBy: 'Who asked for it: “you” or the admin’s name' },
+    required: [],
+    details: false,
+    sample: { name: 'Alex Rivera', oldEmail: 'alex@old.example', newEmail: 'alex@new.example', changedBy: 'you' },
   },
   test: {
     label: 'Test email',
@@ -80,7 +101,7 @@ export const isEmailPurpose = (value: unknown): value is EmailPurpose => (EMAIL_
  * edited in place, and "Restore default" brings it back. Form emails keep a library instead,
  * so each form can pick its own.
  */
-export const SYSTEM_PURPOSES = ['password-reset', 'invite', 'test'] as const satisfies readonly EmailPurpose[]
+export const SYSTEM_PURPOSES = ['password-reset', 'invite', 'email-change', 'email-changed', 'test'] as const satisfies readonly EmailPurpose[]
 export type SystemPurpose = (typeof SYSTEM_PURPOSES)[number]
 export const isSystemPurpose = (value: unknown): value is SystemPurpose => (SYSTEM_PURPOSES as readonly unknown[]).includes(value)
 export const LIBRARY_PURPOSES = EMAIL_PURPOSES.filter((purpose) => !isSystemPurpose(purpose))
@@ -145,7 +166,7 @@ const str = (value: unknown, max: number): string | null => {
 const oneOf = <T extends string>(value: unknown, options: readonly T[], fallback: T): T => (options.includes(value as T) ? (value as T) : fallback)
 
 /** One-time links an email may carry as a whole button or image link, when its purpose has them. */
-export const LINK_PLACEHOLDERS = ['resetLink', 'inviteLink'] as const
+export const LINK_PLACEHOLDERS = ['resetLink', 'inviteLink', 'confirmLink'] as const
 
 /** The one-time link placeholders a purpose has ({{resetLink}}, {{inviteLink}}). */
 export function linkPlaceholdersFor(purpose: EmailPurpose): string[] {
@@ -596,6 +617,23 @@ export const DEFAULT_TEMPLATES: Record<EmailPurpose, TemplateData> = {
       text('text-1', 'Hello {{name}},\n\n{{inviterName}} added you to the {{siteName}} admin as {{role}}. To start, choose your password with this link within {{days}} days:'),
       button('button-1', 'Choose your password', '{{inviteLink}}'),
       text('text-2', 'The link works once. If you were not expecting this, you can ignore this email.', 'small'),
+    ],
+  },
+  'email-change': {
+    root: { props: { subject: 'Confirm your new email for {{siteName}}', preheader: 'Confirm {{newEmail}} within {{hours}} hours.', ...LOGO_DEFAULTS, footer: FOOTER } },
+    content: [
+      heading('heading-1', 'Confirm your new email'),
+      text('text-1', 'Hello {{name}},\n\nYou asked to sign in to {{siteName}} with {{newEmail}} from now on. To confirm it, use this link within {{hours}} hours:'),
+      button('button-1', 'Confirm my new email', '{{confirmLink}}'),
+      text('text-2', 'Until you confirm, your old email keeps working. If you did not ask for this, ignore this email.', 'small'),
+    ],
+  },
+  'email-changed': {
+    root: { props: { subject: 'Your {{siteName}} sign-in email is changing', preheader: 'From {{oldEmail}} to {{newEmail}}.', ...LOGO_DEFAULTS, footer: FOOTER } },
+    content: [
+      heading('heading-1', 'Your sign-in email is changing'),
+      text('text-1', 'Hello {{name}},\n\nA change of the email you sign in to {{siteName}} with, from {{oldEmail}} to {{newEmail}}, was asked for by {{changedBy}}.'),
+      text('text-2', 'If you did not expect this, contact an admin of {{siteName}} straight away and change your password.', 'small'),
     ],
   },
   test: {

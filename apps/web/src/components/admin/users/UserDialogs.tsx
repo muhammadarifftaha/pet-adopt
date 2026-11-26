@@ -403,6 +403,7 @@ export function EditUserDialog({ user, isMe, onDone }: { user: UserListItem; isM
 function EditUserForm({ user, isMe, onDone }: { user: UserListItem; isMe: boolean; onDone: Done }) {
   const [name, setName] = React.useState(user.name);
   const [role, setRole] = React.useState<Role>(user.role);
+  const [email, setEmail] = React.useState(user.email);
   const [pending, startTransition] = React.useTransition();
   const errors = useFormErrors();
   const prefix = `edit-user-${user.id}`;
@@ -413,9 +414,10 @@ function EditUserForm({ user, isMe, onDone }: { user: UserListItem; isMe: boolea
     event.preventDefault();
     if (pending) return;
     startTransition(async () => {
-      const result = (await updateUserAction(user.id, { name, role })) as Result;
+      const result = (await updateUserAction(user.id, { name, role, email })) as Result;
       if (!result.ok) return errors.show(result);
-      onDone(`${name.trim()} was updated.`);
+      const movedEmail = email.trim().toLowerCase() !== user.email;
+      onDone(movedEmail ? `${name.trim()} was updated. Both email addresses were told about the change.` : `${name.trim()} was updated.`);
     });
   }
 
@@ -423,10 +425,22 @@ function EditUserForm({ user, isMe, onDone }: { user: UserListItem; isMe: boolea
     <form onSubmit={submit} noValidate className="flex flex-col gap-4">
       <DialogHeader>
         <DialogTitle>Edit {user.name}</DialogTitle>
-        <DialogDescription>{user.email}. To change an email address, add a new user and delete this one.</DialogDescription>
+        <DialogDescription>{user.email}</DialogDescription>
       </DialogHeader>
-      <ErrorSummary errors={errors.fieldErrors} formError={errors.formError} labels={{ name: "Name", role: "Role" }} idFor={id} summaryRef={errors.summaryRef} />
+      <ErrorSummary errors={errors.fieldErrors} formError={errors.formError} labels={{ name: "Name", email: "Email", role: "Role" }} idFor={id} summaryRef={errors.summaryRef} />
       <TextField id={`${prefix}-name`} label="Name" required autoComplete="off" maxLength={80} value={name} onChange={(e) => setName(e.target.value)} error={errors.fieldErrors.name} />
+      <TextField
+        id={`${prefix}-email`}
+        label="Email"
+        type="email"
+        required
+        autoComplete="off"
+        maxLength={200}
+        value={email}
+        onChange={(e) => setEmail(e.target.value)}
+        error={errors.fieldErrors.email}
+        hint="They sign in with it. A change takes effect at once, and both the old and the new address get a notice."
+      />
       <RoleField
         idPrefix={prefix}
         value={role}

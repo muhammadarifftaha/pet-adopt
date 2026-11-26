@@ -169,30 +169,48 @@ export async function createUser(raw: unknown): Promise<{ id: string }> {
   }
 }
 
-/** Name and, for admins, role. `canChangeRole` is decided by the caller. */
-export async function updateUser(id: string, raw: unknown, opts: { canChangeRole: boolean }): Promise<void> {
+/**
+ * Name and, for admins, role and email (`canChangeRole` is decided by the caller). Returns the old
+ * and new email when it changed, so the caller can tell both addresses (src/server/email-change.ts).
+ */
+export async function updateUser(id: string, raw: unknown, opts: { canChangeRole: boolean }): Promise<{ email: { from: string; to: string } | null }> {
   const input = asRecord(raw)
   const f = new Fields(input)
   const name = f.requiredText('name', 80)
   const role = opts.canChangeRole ? f.oneOf('role', ROLES) : undefined
+  const email = opts.canChangeRole ? f.text('email', 200, { validate: (s) => EMAIL.test(s) || 'Enter a valid email address.' }) : undefined
+  if (email === null) f.fail_('email', 'Enter an email address.')
   f.done()
 
+  const address = email ? email.toLowerCase() : null
   const { t, withTransaction } = await getDatabase()
-  await withTransaction(
-    async (tx) => {
-      const [existing] = await tx.select().from(t.users).where(eq(t.users.id, id)).limit(1)
-      if (!existing) throw new UserError('User not found.')
-      if (existing.archivedAt) throw new UserError('This account is archived. Restore it before changing it.')
-      if (role && role !== 'admin' && existing.role === 'admin' && (await countAdmins(tx, t)) <= 1) {
-        throw new UserError('The last admin cannot be made an editor.')
-      }
-      await tx
-        .update(t.users)
-        .set({ ...(name ? { name } : {}), ...(role ? { role } : {}), updatedAt: new Date() })
-        .where(eq(t.users.id, id))
-    },
-    { lock: ADMIN_LOCK },
-  )
+  try {
+    return await withTransaction(
+      async (tx) => {
+        const [existing] = await tx.select().from(t.users).where(eq(t.users.id, id)).limit(1)
+        if (!existing) throw new UserError('User not found.')
+        if (existing.archivedAt) throw new UserError('This account is archived. Restore it before changing it.')
+        if (role && role !== 'admin' && existing.role === 'admin' && (await countAdmins(tx, t)) <= 1) {
+          throw new UserError('The last admin cannot be made an editor.')
+        }
+        const changesEmail = address !== null && address !== existing.email
+        if (changesEmail) {
+          const [taken] = await tx.select({ id: t.users.id }).from(t.users).where(eq(t.users.email, address)).limit(1)
+          if (taken) throw new ValidationError({ email: 'Another account (maybe an archived one) already uses this email.' })
+        }
+        await tx
+          .update(t.users)
+          .set({ ...(name ? { name } : {}), ...(role ? { role } : {}), ...(changesEmail ? { email: address } : {}), updatedAt: new Date() })
+          .where(eq(t.users.id, id))
+        return { email: changesEmail ? { from: existing.email, to: address } : null }
+      },
+      { lock: ADMIN_LOCK },
+    )
+  } catch (error) {
+    // Two changes to the same address at once: the unique index decides.
+    if (isUniqueViolation(error)) throw new ValidationError({ email: 'Another account (maybe an archived one) already uses this email.' })
+    throw error
+  }
 }
 
 /** Sets a new password and signs the person out everywhere, in one step. */
