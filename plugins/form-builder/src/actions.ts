@@ -15,6 +15,7 @@ import {
   listForms,
   listResponses,
   markResponsesRead,
+  confirmToVisitor,
   notifyNewResponse,
   submitResponse,
   toFormId,
@@ -137,14 +138,17 @@ export async function exportResponsesCsvAction(formId: number): Promise<ActionRe
 
 /**
  * A visitor sends a form. `answers` is `{ [fieldId]: value }`; `website` is the honeypot (a field
- * people never see, so only bots fill it). Errors come back per field id. The notification email,
- * when the form has one, is sent after the answer, so the visitor never waits for it.
+ * people never see, so only bots fill it). Errors come back per field id. The team notification and
+ * the visitor's confirmation (when the form has them) are sent after the answer, so the visitor
+ * never waits for email.
  */
 export async function submitFormAction(formId: number, answers: unknown, website?: unknown): Promise<ActionResult<{ message: string }>> {
   return host().run(async () => {
-    const result = await submitResponse(toFormId(formId), answers, { client: await host().clientAddress(), honeypot: website })
+    const client = await host().clientAddress()
+    const result = await submitResponse(toFormId(formId), answers, { client, honeypot: website })
     const stored = result.stored
-    if (stored) after(() => notifyNewResponse(stored.form, stored.answers))
+    // After the answer, so the visitor never waits for email.
+    if (stored) after(() => Promise.all([notifyNewResponse(stored.form, stored.answers), confirmToVisitor(stored.form, stored.answers, client)]))
     return { message: result.message }
   })
 }

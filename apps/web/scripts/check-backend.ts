@@ -62,7 +62,7 @@ import { removeUpload, saveUpload } from '../src/server/uploads'
 import { siteIcons } from '../src/lib/queries'
 import { activateTheme, createTheme, deleteTheme, getTheme, listThemes, updateTheme } from '../src/server/themes'
 import { createResetLink, isResetTokenValid, prepareResetEmail, resetPasswordWithToken } from '../src/server/password-reset'
-import { accessOf, accessPermission, asRole, can, host, pluginTablePrefix, provideHost, ROLES, type EmailMessage, type Role } from '@pet-adopt/plugin-sdk'
+import { accessOf, accessPermission, asRole, can, host, pluginTablePrefix, provideHost, ROLES, type EmailMessage, type PluginEmail, type Role } from '@pet-adopt/plugin-sdk'
 import { formBuilderStorage, openFormsDatabase } from '@pet-adopt/plugin-form-builder'
 import * as forms from '@pet-adopt/plugin-form-builder/server'
 // The services plugins reach through `host()` (sign-in, limits, phone, email), as the server registers them.
@@ -83,6 +83,17 @@ import {
 } from '../src/server/activity'
 import { getEmailSender, getEmailSettingsView, parseFrom, resolveSmtp, saveEmailSettings } from '../src/server/email'
 import { open, seal } from '../src/server/secret-box'
+import { DEFAULT_TEMPLATES, EMAIL_PURPOSES, renderEmail, validateTemplate, type EmailPurpose, type TemplateData } from '../src/lib/email-template'
+import {
+  createEmailTemplate,
+  deleteEmailTemplate,
+  emailContext,
+  listEmailTemplates,
+  pickTemplate,
+  renderPurposeEmail,
+  saveEmailTemplate,
+  setDefaultEmailTemplate,
+} from '../src/server/email-templates'
 
 let failures = 0
 async function check(name: string, fn: () => Promise<unknown>) {
@@ -1636,15 +1647,18 @@ await check('form builder: forms are validated and unique; answers are checked p
   ok(summary.responses === 1 && summary.unread === 0, 'counts follow')
 
   // Notification: sent to the form's address through the site's email sender.
-  const mails: EmailMessage[] = []
+  const mails: PluginEmail[] = []
   const realHost = host()
-  provideHost({ ...realHost, emailSender: async () => ({ send: async (m) => void mails.push(m) }) })
+  provideHost({ ...realHost, sendTemplatedEmail: async (message) => (mails.push(message), true) })
   try {
     await forms.notifyNewResponse((await forms.getForm(id))!, stored.answers)
   } finally {
     provideHost(realHost)
   }
-  ok(mails.length === 1 && mails[0].to === 'team@example.test' && mails[0].text.includes('Your name: Ana'), `notification: ${JSON.stringify(mails[0])}`)
+  ok(
+    mails.length === 1 && mails[0].purpose === 'form-notification' && mails[0].to === 'team@example.test' && mails[0].answers?.some((answer) => answer.label === 'Your name' && answer.value === 'Ana'),
+    `notification: ${JSON.stringify(mails[0])}`,
+  )
 
   // Closed forms, then the per-visitor limit (10 per 10 minutes, across forms).
   await forms.updateForm(id, { isOpen: false })
@@ -1762,7 +1776,7 @@ await check('roles: the permission table is as agreed, every action checks a per
 
   // Every action that changes something (or downloads) writes to the activity log. Listed: not
   // changes (a test email), or agreed not to be logged (marking responses as read).
-  const unlogged = new Set(['sendTestEmailAction', 'markResponsesReadAction'])
+  const unlogged = new Set(['sendTestEmailAction', 'sendEmailTemplateTestAction', 'markResponsesReadAction'])
   const silent: string[] = []
   for (const file of files) {
     const source = readFileSync(file, 'utf8')
@@ -1965,6 +1979,142 @@ await check('email: SMTP settings are validated, the password is stored only enc
     restoreEnv()
     await db.delete(t.emailSettings)
   }
+})
+
+await check('email templates: only allowed blocks and placeholders, no answers to visitors, a required reset link, escaping, defaults per purpose, fallbacks, and real sends (Mailpit)', async () => {
+  const { db, t } = await getDatabase()
+  await db.delete(t.emailTemplates)
+  const ctx = await emailContext({ name: '<b>Ana</b> & co', resetLink: 'https://example.test/r?token=a&b=1', minutes: '60', formName: 'Adopt "Rex"' })
+
+  // Every built-in template passes its own rules.
+  for (const purpose of EMAIL_PURPOSES) ok(validateTemplate(DEFAULT_TEMPLATES[purpose], purpose).ok, `the built-in ${purpose} template is valid`)
+
+  // The layout is rebuilt from allowed parts: unknown props and control characters go.
+  const rebuilt = validateTemplate(
+    { root: { props: { subject: 'Hi {{siteName}}\u0007', footer: '', extra: 'x' } }, content: [{ type: 'Text', props: { id: 'a', text: 'Hello\u0000 {{name}}', align: 'middle', onclick: 'alert(1)' } }] },
+    'password-reset',
+  )
+  ok(!rebuilt.ok && rebuilt.errors.some((e) => /resetLink/.test(e)), 'a reset email must contain {{resetLink}}')
+  const clean = validateTemplate(
+    { root: { props: { subject: 'Hi {{siteName}}\u0007' } }, content: [{ type: 'Text', props: { id: 'a', text: 'Hello\u0000 {{name}}', align: 'middle', onclick: 'alert(1)' } }, { type: 'Button', props: { label: 'Go', url: '{{resetLink}}' } }] },
+    'password-reset',
+  )
+  ok(clean.ok && clean.data.content[0].type === 'Text' && isEqual(clean.data.content[0].props, { id: 'a', text: 'Hello {{name}}', align: 'left', size: 'normal' }) && clean.data.root.props.subject === 'Hi {{siteName}}', `rebuilt: ${JSON.stringify(clean.ok && clean.data)}`)
+
+  const errorsOf = (content: unknown[], purpose: EmailPurpose = 'form-confirmation') => {
+    const result = validateTemplate({ root: { props: { subject: 'S' } }, content }, purpose)
+    return result.ok ? [] : result.errors
+  }
+  ok(errorsOf([{ type: 'Script', props: {} }]).some((e) => /cannot be used/.test(e)), 'unknown blocks are refused')
+  ok(errorsOf([{ type: 'Text', props: { text: 'Hi {{resetLink}} {{password}}' } }]).length === 2, 'placeholders of another purpose, or unknown ones, are refused')
+  ok(errorsOf([{ type: 'Answers', props: {} }]).some((e) => /answers can only go/.test(e)), 'a visitor confirmation cannot list the answers')
+  ok(errorsOf([{ type: 'Answers', props: {} }], 'form-notification').length === 0, 'a team notification can')
+  for (const url of ['javascript:alert(1)', '//evil.test', 'https://user:pw@evil.test', '{{resetLink}}', '{{name}}', 'data:text/html,x']) {
+    ok(errorsOf([{ type: 'Button', props: { label: 'x', url } }]).some((e) => /link must be/.test(e)), `button link refused: ${url}`)
+  }
+  for (const url of ['https://example.test/a?b=1', '/pets', '{{siteUrl}}', '{{siteUrl}}/pets']) ok(errorsOf([{ type: 'Button', props: { label: 'x', url } }]).length === 0, `button link allowed: ${url}`)
+  ok(errorsOf([{ type: 'Image', props: { image: { id: 1, url: 'https://evil.test/x.png', alt: '' } } }]).some((e) => /media library/.test(e)), 'images come from the media library only')
+  ok(errorsOf([{ type: 'Columns', props: { left: [{ type: 'Columns', props: {} }] } }]).some((e) => /inside columns/.test(e)), 'no columns in columns')
+  ok(errorsOf(Array.from({ length: 61 }, () => ({ type: 'Divider', props: {} }))).some((e) => /at most 60/.test(e)), 'at most 60 blocks')
+
+  // Rendering escapes what people typed and what placeholders hold, in text and in links.
+  const tricky = validateTemplate(
+    {
+      root: { props: { subject: 'Hello {{name}}', preheader: 'Pre', footer: 'Bye <i>' } },
+      content: [
+        { type: 'Heading', props: { text: '<script>alert(1)</script>', level: 'h1' } },
+        { type: 'Text', props: { text: 'Hi {{name}},\n\nSecond paragraph' } },
+        { type: 'Button', props: { label: 'Reset', url: '{{resetLink}}' } },
+        { type: 'Columns', props: { left: [{ type: 'Text', props: { text: 'Left' } }], right: [{ type: 'Divider', props: {} }] } },
+      ],
+    },
+    'password-reset',
+  )
+  ok(tricky.ok, 'the tricky template is valid')
+  const email = renderEmail((tricky as { data: TemplateData }).data, ctx)
+  ok(!email.html.includes('<script>') && email.html.includes('&lt;script&gt;') && email.html.includes('&lt;b&gt;Ana&lt;/b&gt; &amp; co') && email.html.includes('Bye &lt;i&gt;'), 'typed text and placeholder values are escaped')
+  ok(email.html.includes('href="https://example.test/r?token=a&amp;b=1"') && email.html.includes('class="pa-columns"'), 'the reset link is filled in, escaped, and columns render')
+  ok(email.subject === 'Hello <b>Ana</b> & co' && email.text.includes('Reset: https://example.test/r?token=a&b=1') && email.text.includes('Second paragraph'), `plain text and subject: ${email.subject}`)
+
+  // The library: unique names, one default per purpose, layouts checked on save.
+  const admin = (await listUsers()).find((user) => user.role === 'admin')!
+  const a = await createEmailTemplate({ name: 'Friendly reset', purpose: 'password-reset' }, admin.id)
+  ok(/already has this name/.test((await fieldErrors(createEmailTemplate({ name: 'FRIENDLY reset', purpose: 'test' }, admin.id))).name ?? ''), 'names are unique whatever their case')
+  const b = await createEmailTemplate({ name: 'Second reset', purpose: 'password-reset', fromId: a.id }, admin.id)
+  ok((await fieldErrors(createEmailTemplate({ name: 'Wrong copy', purpose: 'test', fromId: a.id }, admin.id))).purpose, 'a copy keeps its purpose')
+  const bad = await fieldErrors(saveEmailTemplate(a.id, { data: { root: { props: { subject: '' } }, content: [{ type: 'Text', props: { text: '{{nope}}' } }] } }))
+  ok(Object.keys(bad).length >= 3 && Object.keys(bad).every((key) => key.startsWith('template.')), `layout problems come back one per field error: ${JSON.stringify(bad)}`)
+  const custom = structuredClone(DEFAULT_TEMPLATES['password-reset'])
+  custom.root.props.subject = 'Custom reset for {{name}}'
+  await saveEmailTemplate(a.id, { data: custom })
+  await setDefaultEmailTemplate(a.id, true)
+  await setDefaultEmailTemplate(b.id, true)
+  const defaults = (await listEmailTemplates('password-reset')).filter((item) => item.isDefault)
+  ok(defaults.length === 1 && defaults[0].id === b.id, 'one default per purpose')
+  await setDefaultEmailTemplate(a.id, true)
+  ok((await pickTemplate('password-reset')).templateId === a.id, 'the default is used')
+  ok((await pickTemplate('password-reset', b.id)).templateId === b.id, 'a chosen template is used')
+  const testTemplate = await createEmailTemplate({ name: 'Test look', purpose: 'test' }, admin.id)
+  ok((await pickTemplate('password-reset', testTemplate.id)).templateId === a.id, 'a template of another purpose falls back to the default')
+
+  // The password reset email uses it.
+  const sent: EmailMessage[] = []
+  const user = await createUser({ email: 'tpl@example.test', name: 'Tem Plate', password: 'template-password-123', role: 'editor' })
+  await (await prepareResetEmail('tpl@example.test', ip(90), { send: async (message) => void sent.push(message) }))()
+  ok(sent[0]?.subject === 'Custom reset for Tem Plate' && /reset-password\?token=/.test(sent[0].text), `the reset email uses the template: ${sent[0]?.subject}`)
+  await deleteEmailTemplate(a.id)
+  await deleteEmailTemplate(b.id)
+  ok((await pickTemplate('password-reset', a.id)).templateId === null, 'deleted: the built-in template')
+
+  // Visitor confirmations never carry answers, whatever is passed.
+  const confirmation = await renderPurposeEmail({ purpose: 'form-confirmation', values: { formName: 'Hello' }, answers: [{ label: 'Secret', value: 'visitor text' }] })
+  ok(!confirmation.html.includes('visitor text') && !confirmation.text.includes('visitor text'), 'no answers in a confirmation')
+
+  // The form builder: a confirmation needs an Email question, and is limited per address.
+  const fields = [
+    { id: 'name', type: 'text', label: 'Name' },
+    { id: 'mail', type: 'email', label: 'Your email', required: true },
+  ]
+  ok((await fieldErrors(forms.createForm({ name: 'Confirm me', fields, settings: { confirmationFieldId: 'name' } })))['settings.confirmationFieldId'], 'the confirmation must use an Email question')
+  const { id: formId } = await forms.createForm({ name: 'Confirm me', fields, settings: { confirmationFieldId: 'mail', notifyEmail: 'team@example.test' } })
+  const form = (await forms.getForm(formId))!
+  const captured: PluginEmail[] = []
+  const realHost = host()
+  provideHost({ ...realHost, sendTemplatedEmail: async (message) => (captured.push(message), true) })
+  try {
+    const answers = [
+      { id: 'name', label: 'Name', type: 'text' as const, value: 'Visitor text' },
+      { id: 'mail', label: 'Your email', type: 'email' as const, value: 'visitor@example.test' },
+    ]
+    const results = []
+    for (let i = 0; i < 4; i++) results.push(await forms.confirmToVisitor(form, answers, `10.88.0.${i}`))
+    ok(isEqual(results, [true, true, true, false]), `three confirmations an hour to one address: ${results}`)
+    ok(captured[0].purpose === 'form-confirmation' && captured[0].to === 'visitor@example.test' && !captured[0].answers && captured[0].values?.formName === 'Confirm me', `the confirmation: ${JSON.stringify(captured[0])}`)
+    await forms.notifyNewResponse(form, answers)
+    const note = captured.at(-1)!
+    ok(note.purpose === 'form-notification' && note.to === 'team@example.test' && note.answers?.some((answer) => answer.value === 'Visitor text'), 'the team notification carries the answers')
+  } finally {
+    provideHost(realHost)
+  }
+
+  // A real notification through Mailpit, with the answers in it.
+  const mailpit = process.env.MAILPIT_URL || 'http://127.0.0.1:8025'
+  await saveEmailSettings({ host: '127.0.0.1', port: 1025, security: 'none', fromName: 'Pet Adopt', fromAddress: 'no-reply@pet-adopt.test' })
+  await fetch(`${mailpit}/api/v1/messages`, { method: 'DELETE' })
+  ok(await host().sendTemplatedEmail({ purpose: 'form-notification', to: 'team@example.test', values: { formName: 'Mailpit form' }, answers: [{ label: 'Q', value: 'A <b>' }] }), 'sent')
+  let html = ''
+  for (let i = 0; i < 20 && !html; i++) {
+    const list = (await (await fetch(`${mailpit}/api/v1/search?query=${encodeURIComponent('subject:"New response: Mailpit form"')}`)).json()) as { messages: Array<{ ID: string }> }
+    if (list.messages[0]) html = ((await (await fetch(`${mailpit}/api/v1/message/${list.messages[0].ID}`)).json()) as { HTML: string }).HTML
+    else await new Promise((resolve) => setTimeout(resolve, 100))
+  }
+  ok(html.includes('A &lt;b&gt;') && html.includes('Mailpit form'), 'the notification arrived with the escaped answers')
+  await fetch(`${mailpit}/api/v1/messages`, { method: 'DELETE' })
+
+  await forms.deleteForm(formId)
+  await deleteUser(user.id)
+  await db.delete(t.emailTemplates)
+  await db.delete(t.emailSettings)
 })
 
 // FK enforcement is on (SQLite needs a pragma)

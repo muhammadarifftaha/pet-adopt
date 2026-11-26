@@ -41,6 +41,9 @@ import { BASE, responsesHref } from './paths'
 // tied with aria-describedby; a failed save shows one error summary that takes focus and links to
 // each field; moves are announced in a polite live region; Save uses aria-disabled, not disabled.
 
+/** The site's email templates the form can pick from (Settings > Templates). */
+export type TemplateChoices = { notification: Array<{ id: number; name: string; isDefault: boolean }>; confirmation: Array<{ id: number; name: string; isDefault: boolean }> }
+
 export type EditorForm = {
   id: number
   name: string
@@ -76,7 +79,17 @@ function toPayload(drafts: Draft[]): FormField[] {
   })
 }
 
-export function FormEditor({ form, readOnly = false, canSeeResponses = true }: { form: EditorForm; readOnly?: boolean; canSeeResponses?: boolean }) {
+export function FormEditor({
+  form,
+  readOnly = false,
+  canSeeResponses = true,
+  templates = { notification: [], confirmation: [] },
+}: {
+  form: EditorForm
+  readOnly?: boolean
+  canSeeResponses?: boolean
+  templates?: TemplateChoices
+}) {
   const router = useRouter()
   const [name, setName] = useState(form.name)
   const [description, setDescription] = useState(form.description ?? '')
@@ -99,7 +112,15 @@ export function FormEditor({ form, readOnly = false, canSeeResponses = true }: {
     if (key === 'description') return { id: 'fb-description', label: 'Description' }
     if (key.startsWith('settings.')) {
       const k = key.slice('settings.'.length)
-      return { id: `fb-settings-${k}`, label: k === 'notifyEmail' ? 'Email new responses to' : k === 'submitLabel' ? 'Button text' : 'Message after sending' }
+      const labels: Record<string, string> = {
+        notifyEmail: 'Email new responses to',
+        submitLabel: 'Button text',
+        successMessage: 'Message after sending',
+        notifyTemplateId: 'Notification template',
+        confirmationFieldId: 'Send the confirmation to',
+        confirmationTemplateId: 'Confirmation template',
+      }
+      return { id: `fb-settings-${k}`, label: labels[k] ?? k }
     }
     if (key.startsWith('fields.')) {
       const draft = drafts[fieldIndex(key)]
@@ -165,6 +186,32 @@ export function FormEditor({ form, readOnly = false, canSeeResponses = true }: {
     setSummary(message)
     setStatus('')
     requestAnimationFrame(() => summaryRef.current?.focus())
+  }
+
+  // Email questions, as they are being edited (a confirmation is sent to the answer of one).
+  const emailQuestions = drafts.filter((draft) => draft.type === 'email')
+
+  function templateSelect(key: 'notifyTemplateId' | 'confirmationTemplateId', choices: TemplateChoices['notification']) {
+    const fallback = choices.find((choice) => choice.isDefault)
+    return (
+      <select
+        id={`fb-settings-${key}`}
+        className={nativeSelect}
+        value={settings[key] ? String(settings[key]) : ''}
+        onChange={(e) => setSettings({ ...settings, [key]: e.target.value ? Number(e.target.value) : undefined })}
+        aria-describedby={described(`fb-settings-${key}-hint`, errors[`settings.${key}`] && `fb-settings-${key}-error`)}
+        aria-invalid={errors[`settings.${key}`] ? true : undefined}
+      >
+        <option value="">{fallback ? `The default (${fallback.name})` : 'The default (built in)'}</option>
+        {choices.map((choice) => (
+          <option key={choice.id} value={choice.id}>
+            {choice.name}
+          </option>
+        ))}
+        {/* A template that was deleted since: still shown, so the choice is visible; the email uses the default. */}
+        {settings[key] && !choices.some((choice) => choice.id === settings[key]) ? <option value={String(settings[key])}>A deleted template (the default is used)</option> : null}
+      </select>
+    )
   }
 
   function save() {
@@ -448,10 +495,61 @@ export function FormEditor({ form, readOnly = false, canSeeResponses = true }: {
             <Label htmlFor="fb-settings-notifyEmail">Email new responses to</Label>
             <Input id="fb-settings-notifyEmail" type="email" autoComplete="email" value={settings.notifyEmail ?? ''} onChange={(e) => setSettings({ ...settings, notifyEmail: e.target.value })} aria-describedby={described('fb-settings-notifyEmail-hint', errors['settings.notifyEmail'] && 'fb-settings-notifyEmail-error')} aria-invalid={errors['settings.notifyEmail'] ? true : undefined} />
             <p id="fb-settings-notifyEmail-hint" className="text-sm text-muted-foreground">
-              Optional. Needs the site&apos;s email to be set up (Plugins, Resend email).
+              Optional. Needs the site&apos;s email to be set up (Settings, Email).
             </p>
             {errorText('fb-settings-notifyEmail-error', errors['settings.notifyEmail'])}
           </div>
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="fb-settings-notifyTemplateId">Notification template</Label>
+            {templateSelect('notifyTemplateId', templates.notification)}
+            <p id="fb-settings-notifyTemplateId-hint" className="text-sm text-muted-foreground">
+              How the email to the address above looks. Templates are made in Settings, Templates.
+            </p>
+            {errorText('fb-settings-notifyTemplateId-error', errors['settings.notifyTemplateId'])}
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Confirmation to the visitor</CardTitle>
+          <CardDescription>
+            Optional: email the person who filled in the form, to the address they gave. It never repeats their answers, and each address gets at most 3 an hour.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-4">
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="fb-settings-confirmationFieldId">Send the confirmation to</Label>
+            <select
+              id="fb-settings-confirmationFieldId"
+              className={nativeSelect}
+              value={settings.confirmationFieldId ?? ''}
+              onChange={(e) => setSettings({ ...settings, confirmationFieldId: e.target.value || undefined })}
+              aria-describedby={described('fb-settings-confirmationFieldId-hint', errors['settings.confirmationFieldId'] && 'fb-settings-confirmationFieldId-error')}
+              aria-invalid={errors['settings.confirmationFieldId'] ? true : undefined}
+            >
+              <option value="">No confirmation</option>
+              {emailQuestions.map((question) => (
+                <option key={question.id} value={question.id}>
+                  The answer to “{question.label || 'Untitled question'}”
+                </option>
+              ))}
+            </select>
+            <p id="fb-settings-confirmationFieldId-hint" className="text-sm text-muted-foreground">
+              {emailQuestions.length ? 'Pick the Email question that holds their address.' : 'Add an Email question to the form first.'}
+            </p>
+            {errorText('fb-settings-confirmationFieldId-error', errors['settings.confirmationFieldId'])}
+          </div>
+          {settings.confirmationFieldId ? (
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="fb-settings-confirmationTemplateId">Confirmation template</Label>
+              {templateSelect('confirmationTemplateId', templates.confirmation)}
+              <p id="fb-settings-confirmationTemplateId-hint" className="text-sm text-muted-foreground">
+                What the visitor receives. Templates are made in Settings, Templates.
+              </p>
+              {errorText('fb-settings-confirmationTemplateId-error', errors['settings.confirmationTemplateId'])}
+            </div>
+          ) : null}
         </CardContent>
       </Card>
       </fieldset>

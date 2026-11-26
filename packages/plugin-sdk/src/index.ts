@@ -399,10 +399,31 @@ export type PluginHost = {
   /** Logs an error without the values a failed database query carries. Never log error objects yourself. */
   logError(error: unknown, context?: string): void
   /**
+   * Sends an email of a form purpose through the site's email templates (Settings > Templates): the
+   * template `templateId` when it exists and has that purpose, else the purpose's default, else the
+   * built-in one. `answers` are only used for `form-notification` (a visitor confirmation never
+   * repeats what was typed). Resolves false when the site cannot send email; rejects when sending fails.
+   */
+  sendTemplatedEmail(message: PluginEmail): Promise<boolean>
+  /** The templates people made for a purpose, for a "which template" choice. */
+  emailTemplates(purpose: PluginEmailPurpose): Promise<Array<{ id: number; name: string; isDefault: boolean }>>
+  /**
    * Adds an entry to the site's activity log, as the signed-in person, after a change succeeded.
    * Never throws (a failure is logged). See PluginActivity.
    */
   recordActivity(entry: PluginActivity): Promise<void>
+}
+
+/** Email purposes a plugin may send (see `sendTemplatedEmail`). */
+export type PluginEmailPurpose = 'form-notification' | 'form-confirmation'
+
+export type PluginEmail = {
+  purpose: PluginEmailPurpose
+  templateId?: number | null
+  to: string
+  /** The purpose's placeholders, such as `{ formName }`. The site's name and address are added. */
+  values?: Record<string, string>
+  answers?: Array<{ label: string; value: string }>
 }
 
 /**

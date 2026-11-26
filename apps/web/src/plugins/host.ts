@@ -8,6 +8,7 @@ import { headers } from 'next/headers'
 import { PetStatus } from '@/lib/options'
 import { toE164, validatePhone } from '@/lib/phone'
 import { recordActivity } from '@/server/activity'
+import { listEmailTemplates, sendPurposeEmail } from '@/server/email-templates'
 import { logError, run } from '@/server/result'
 import { listPetChoices } from '@/server/pets'
 import { getSessionUser, requirePermission } from '@/server/session'
@@ -39,6 +40,20 @@ provideHost({
     return []
   },
   emailSender: () => getEmailSender(),
+  sendTemplatedEmail: (message) => {
+    const purpose = message?.purpose
+    if (purpose !== 'form-notification' && purpose !== 'form-confirmation') throw new Error(`plugins may send form emails only, not "${String(purpose)}"`)
+    const values = Object.fromEntries(Object.entries(message.values ?? {}).filter(([, value]) => typeof value === 'string').map(([key, value]) => [key, value.slice(0, 500)]))
+    return sendPurposeEmail({
+      purpose,
+      templateId: typeof message.templateId === 'number' ? message.templateId : null,
+      to: message.to,
+      values,
+      // Visitor confirmations never carry answers, whatever the plugin passes.
+      answers: purpose === 'form-notification' ? message.answers : undefined,
+    })
+  },
+  emailTemplates: async (purpose) => (await listEmailTemplates(purpose)).map(({ id, name, isDefault }) => ({ id, name, isDefault })),
   logError,
   // Plugins log changes made by the signed-in person, under the area `plugins`. An action must start
   // with the name of a configured plugin, so a plugin cannot pass its entries off as the site's own.

@@ -340,6 +340,21 @@ export const emailSettings = pgTable('email_settings', {
   updatedAt: updatedAt(),
 })
 
+// Email templates people build (src/server/email-templates.ts, the email builder at /edit/email/<id>).
+// `purpose` decides which placeholders a template may use and which email it can be used for; at
+// most one template per purpose is the default (checked in the app, under a lock). `data` is the
+// builder's layout, rebuilt from allowed blocks on save (src/lib/email-template.ts).
+export const emailTemplates = pgTable('email_templates', {
+  id: id(),
+  name: text('name').notNull(),
+  purpose: text('purpose').notNull(),
+  data: jsonb('data').notNull(),
+  isDefault: flag('is_default'),
+  createdBy: text('created_by').references(() => users.id, { onDelete: 'set null' }),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+})
+
 // --- Activity log ------------------------------------------------------------------------
 
 // Who did what, and when (src/server/activity.ts). Append-only: nothing in the app edits a row, and
