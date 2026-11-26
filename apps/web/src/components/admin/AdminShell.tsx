@@ -25,9 +25,12 @@ import { ViewSiteLink } from "./ViewSiteLink";
 // TODO(ui): toaster (shadcn `sonner`) goes here once it is added.
 export async function AdminShell({
   user,
+  banner,
   children,
 }: {
   user: SessionUser;
+  /** A notice across the top of the content, under the header (the confirm-your-email banner). */
+  banner?: React.ReactNode;
   children: React.ReactNode;
 }) {
   // The sidebar remembers open/closed in a cookie. Reading it here means the first paint already
@@ -92,6 +95,7 @@ export async function AdminShell({
             <UserMenu user={user} canSwitchMode={resolveTheme(settings).allowModeToggle} />
           </div>
         </header>
+        {banner}
         <main id="main-content" tabIndex={-1} className="flex-1 p-4 md:p-6">
           {children}
         </main>
