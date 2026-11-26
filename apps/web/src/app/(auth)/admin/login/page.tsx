@@ -7,6 +7,7 @@ import { redirect as goTo } from "next/navigation";
 
 import { getSessionUser } from "@/server/session";
 import { DELETION_GRACE_DAYS } from "@/server/users";
+import { hasAccounts } from "@/server/setup";
 import { getSettings } from "@/server/settings";
 
 export default async function AdminLoginPage({
@@ -16,6 +17,20 @@ export default async function AdminLoginPage({
 }) {
   // Someone who is already signed in has nothing to do here.
   if (await getSessionUser()) goTo(safeRedirectPath((await searchParams).redirect));
+  // A new site has no accounts: the first one is made with the setup link (src/server/setup.ts).
+  if (!(await hasAccounts().catch(() => true))) {
+    return (
+      <div className="w-full h-full flex flex-col items-center justify-center gap-4 p-4">
+        <section className="w-full max-w-lg rounded-lg border p-6">
+          <h1 className="text-lg font-semibold">This site is not set up yet</h1>
+          <p className="mt-2 text-sm">
+            There are no accounts yet. Whoever deployed it creates the first one with the setup link printed in the server’s log (it starts with{" "}
+            <code className="break-all">/setup?key=</code>).
+          </p>
+        </section>
+      </div>
+    );
+  }
   // Providers are extra: if they cannot be read, the password form still works.
   const [settings, { redirect, error, closed }, providers] = await Promise.all([getSettings(), searchParams, listEnabledProviders().catch(() => [])]);
   // A sign-in provider that came back with an error (Better Auth adds ?error=<code>).

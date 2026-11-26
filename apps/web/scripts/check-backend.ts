@@ -23,6 +23,8 @@ import { safeHref, validateHttpsUrl } from '../src/lib/links'
 import { richTextExtensions } from '../src/components/admin/pets/form/rich-text-extensions'
 import { richTextToPlain } from '../src/lib/rich-text'
 import { forgetAuth, getAuth } from '../src/server/auth'
+import { createFirstAdmin, ensureSetupLink, finishSetup, hasAccounts, isSetupDone, isSetupKeyValid } from '../src/server/setup'
+import { addSampleAboutPage, addSamplePets, hasSampleContent, removeSampleContent } from '../src/server/sample-content'
 import { deleteAuthProvider, disconnectProvider, listAuthProviders, providersVersion, saveAuthProvider } from '../src/server/auth-providers'
 import { listMedia, updateMediaDetails } from '../src/server/media'
 import { cleanMediaName } from '../src/lib/media-name'
@@ -158,6 +160,40 @@ try {
 
 const { dialect, db, t } = await getDatabase()
 console.log(`Database dialect: ${dialect}`)
+
+// --- first-time setup (needs a site with no accounts, so it runs first) -------------------
+await check('first-time setup: a stable setup link while there are no accounts, only its key creates the first admin (once, even at the same moment), then the link is gone', async () => {
+  ok(!(await hasAccounts()), 'a fresh database has no accounts')
+  const link = await ensureSetupLink()
+  ok(link && /\/setup\?key=[A-Za-z0-9_-]{43}$/.test(link), `a setup link: ${link}`)
+  ok((await ensureSetupLink()) === link, 'the same link every time (every server instance prints the same one)')
+  const key = new URL(link!).searchParams.get('key')!
+  const [row] = await db.select({ sealed: t.siteSettings.setupKeyEncrypted }).from(t.siteSettings)
+  ok(row.sealed && !row.sealed.includes(key), 'the key is stored sealed')
+  ok(await isSetupKeyValid(key), 'its key works')
+  ok(!(await isSetupKeyValid(`${key.slice(0, -1)}${key.endsWith('A') ? 'B' : 'A'}`)) && !(await isSetupKeyValid('nope')) && !(await isSetupKeyValid(undefined)), 'other keys do not')
+  ok(/no longer works/.test(await userError(createFirstAdmin('x'.repeat(43), { name: 'Mal Lory', email: 'mallory@example.test', password: 'mallory-password-1' }))), 'a wrong key creates nothing')
+
+  // Two people with the key at the same moment: exactly one account.
+  const tries = await Promise.allSettled([
+    createFirstAdmin(key, { name: 'First One', email: 'first@example.test', password: 'first-password-123' }),
+    createFirstAdmin(key, { name: 'Second One', email: 'second@example.test', password: 'second-password-12' }),
+  ])
+  ok(tries.filter((r) => r.status === 'fulfilled').length === 1, 'only one first account')
+  const users = await listUsers()
+  ok(users.length === 1 && users[0].role === 'admin', 'an admin')
+  ok(!(await isSetupKeyValid(key)) && (await ensureSetupLink()) === null, 'the link stops working once the account exists')
+  const [after] = await db.select({ sealed: t.siteSettings.setupKeyEncrypted }).from(t.siteSettings)
+  ok(after.sealed === null, 'and its key is deleted')
+
+  ok(!(await isSetupDone()), 'the guided setup is not done yet')
+  await finishSetup()
+  ok(await isSetupDone(), 'finished (or skipped): it is not shown again')
+
+  // Back to a site with no accounts for the checks that follow (they make their own owner).
+  await db.delete(t.users)
+  await db.update(t.siteSettings).set({ setupDoneAt: null })
+})
 
 // --- accounts and auth -------------------------------------------------------------------
 await check('ensureOwner creates the first admin, then does nothing', async () => {
@@ -1767,6 +1803,7 @@ await check('roles: the permission table is as agreed, every action checks a per
     'uploadAvatarAction', 'removeAvatarAction',
     'getEmailChangeStatusAction', 'requestEmailChangeAction', 'cancelEmailChangeAction', 'confirmEmailChangeAction',
     'requestAccountDeletionAction', 'requestEmailVerificationAction',
+    'createFirstAdminAction', 'finishSetupAction',
     'requestPasswordResetAction', 'resetPasswordWithTokenAction', 'acceptInviteAction', 'submitFormAction',
     'fetchPetSpotlightAction', 'fetchCatalogAction', 'fetchPetProfilesAction', 'fetchPetsAction', 'fetchFormAction',
   ])
@@ -2930,6 +2967,21 @@ await check('confirmed emails: new accounts start unconfirmed and cannot change 
   ok(validateTemplate(DEFAULT_TEMPLATES['email-verify'], 'email-verify').ok, 'the Confirm your email email is valid')
   await removeAccount(id)
   await removeAccount(invited.id)
+})
+
+await check('sample content: example pets and an About page are added once, never next to real pets, and taken out again', async () => {
+  const removed = await removeSampleContent()
+  void removed
+  const realPets = (await queryPets({ includeUnlisted: true, limit: 1 })).totalDocs
+  if (realPets === 0) {
+    const added = await addSamplePets()
+    ok(added > 0 && (await hasSampleContent()), `added ${added} example pets`)
+    ok((await addSamplePets()) === 0, 'running it again adds nothing')
+    await addSampleAboutPage()
+    ok((await removeSampleContent()) === added && !(await hasSampleContent()), 'all taken out again')
+  } else {
+    ok((await addSamplePets()) === 0 && !(await hasSampleContent()), 'never next to real pets')
+  }
 })
 
 // FK enforcement is on (SQLite needs a pragma)

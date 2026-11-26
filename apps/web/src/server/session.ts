@@ -45,7 +45,12 @@ export async function requireUser(): Promise<SessionUser> {
 }
 
 /** The signed-in person, if their role has `permission`; a UserError that says why otherwise. */
-export async function requirePermission(permission: Permission): Promise<SessionUser> {
+/**
+ * `unconfirmed: true` lets an account whose email is not confirmed through: only for fixing how the
+ * site sends email (saving the SMTP settings, a test email). Otherwise a wrong SMTP setting would
+ * lock everyone out: the rule is on, and the confirmation email cannot arrive.
+ */
+export async function requirePermission(permission: Permission, opts: { unconfirmed?: boolean } = {}): Promise<SessionUser> {
   const user = await requireUser()
   // Their role must use two-factor and they have not set it up: nothing else until they do.
   if (await needsTwoFactorSetup(user)) throw new UserError('Set up two-factor sign-in first (your role requires it).')
@@ -53,7 +58,7 @@ export async function requirePermission(permission: Permission): Promise<Session
     // Every account confirms its email before it changes anything (viewing is fine).
     // Loaded lazily: email-change reaches the plugin registry, whose host imports this file.
     const changes = permission.endsWith(':edit') || permission.endsWith(':export')
-    if (changes && (await (await import('./email-change')).needsEmailConfirmation(user))) {
+    if (changes && !opts.unconfirmed && (await (await import('./email-change')).needsEmailConfirmation(user))) {
       throw new UserError('Confirm your email first: use “Send confirmation link” at the top of the admin.')
     }
     return user
