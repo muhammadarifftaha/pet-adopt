@@ -16,6 +16,7 @@ import { PetGallery } from '@/components/site/PetGallery'
 import { RichText } from '@/components/site/RichText'
 import { WhatsAppButton } from '@/components/site/WhatsAppButton'
 import type { PetCardData, PetPageData } from '@/lib/queries'
+import { fillPetPlaceholders } from '@/lib/pet-placeholders'
 import { fillMessage } from '@/lib/whatsapp'
 
 import { config as siteConfig, headingClass, headingStyleField, Section, type HeadingStyle, type Level, type PuckComponents } from './config'
@@ -323,7 +324,10 @@ const petBlocks: Config<PetPageComponents> = {
       label: 'Pet description',
       fields: {
         showButton: toggle('WhatsApp button (hidden for adopted pets)'),
-        buttonLabel: { type: 'text', label: 'Button text (blank: “Ask about <name> on WhatsApp”)' },
+        buttonLabel: {
+          type: 'text',
+          label: 'Button text. Blank: “Ask about {pet} on WhatsApp”. Placeholders: {pet}, {species}, {breed}, {age}, {sex}, {location}',
+        },
       } as Fields<PetDescriptionProps>,
       defaultProps: { showButton: true, buttonLabel: '' },
       render: ({ showButton, buttonLabel, puck }) => {
@@ -337,7 +341,7 @@ const petBlocks: Config<PetPageComponents> = {
             {pet.description ? <RichText doc={pet.description} className="prose" /> : null}
             {showButton !== false && !adopted ? (
               <div className="pet-page-button">
-                <WhatsAppButton phone={site?.whatsappNumber} message={fillMessage(site?.whatsappMessage, pet.name)} label={buttonLabel?.trim() || `Ask about ${pet.name} on WhatsApp`} />
+                <WhatsAppButton phone={site?.whatsappNumber} message={fillMessage(site?.whatsappMessage, pet.name)} label={fillPetPlaceholders(buttonLabel?.trim() || 'Ask about {pet} on WhatsApp', pet) || `Ask about ${pet.name} on WhatsApp`} />
               </div>
             ) : null}
           </Section>

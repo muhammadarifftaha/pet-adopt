@@ -28,6 +28,7 @@ import { addSampleAboutPage, addSamplePets, hasSampleContent, removeSampleConten
 import { deleteAuthProvider, disconnectProvider, listAuthProviders, providersVersion, saveAuthProvider } from '../src/server/auth-providers'
 import { listMedia, updateMediaDetails } from '../src/server/media'
 import { cleanMediaName } from '../src/lib/media-name'
+import { fillPetPlaceholders } from '../src/lib/pet-placeholders'
 import {
   archivePage,
   deletePage,
@@ -84,6 +85,7 @@ import {
   listActivityActors,
   purgeOldActivity,
   recordActivity,
+  recordedRecently,
   recordFailedSignIn,
 } from '../src/server/activity'
 import { getEmailSender, getEmailSettingsView, isLoopbackHost, parseFrom, resolveSmtp, saveEmailSettings, sendsToLocalServer } from '../src/server/email'
@@ -1041,6 +1043,14 @@ await check('pages: the Pet page template is a system page at id 3 with the pet 
   ok(/cannot be deleted/.test(await userError(deletePage(3))), 'cannot be deleted')
 })
 
+await check('pet placeholders: {pet} and friends are filled, missing values leave no gaps, unknown words stay', async () => {
+  const pet = { name: 'Maple', speciesLabel: 'Cat', breed: null, ageLabel: 'About 3 years', sexLabel: 'Female', location: 'Ipoh, Perak' }
+  ok(fillPetPlaceholders('Ask about {pet} on WhatsApp', pet) === 'Ask about Maple on WhatsApp', 'the name')
+  ok(fillPetPlaceholders('Meet {pet}, a {breed} {species} in {location}', pet) === 'Meet Maple, a Cat in Ipoh, Perak', 'a missing breed leaves no double space')
+  ok(fillPetPlaceholders('{pet} ({age}, {sex}) {price}', pet) === 'Maple (About 3 years, Female) {price}', 'unknown placeholders stay as typed')
+  ok(fillPetPlaceholders('Hi {pet}', { ...pet, name: '{species} $& $1' }) === 'Hi {species} $& $1', 'a name is inserted as is, never filled again')
+})
+
 await check('more pets like this: available, listed pets of the same species first, then the same state, never the pet itself', async () => {
   // Its own photo: earlier checks delete the shared one.
   const photo = await saveUpload({ data: png, alt: 'Similar pets' })
@@ -1925,6 +1935,15 @@ await check('activity log: entries name fields not values, own vs everyone, fail
 
   await recordActivity({ actor: anaActor, action: 'pet.update', area: 'pets', summary: 'Updated the pet “Bella”', subject: { id: 7, label: 'Bella' }, fields, client: '192.0.2.7' })
   await recordActivity({ actor: { id: ben.id, name: 'Ben', role: 'audit' }, action: 'auth.sign-in', area: 'sign-in', summary: 'Signed in', client: null })
+  // The page builder's autosave logs a draft at most every 15 minutes: "recently" is per person, action and subject.
+  ok(await recordedRecently(ana.id, 'pet.update', 7, 60_000), 'a fresh entry counts as recent')
+  ok(!(await recordedRecently(ana.id, 'pet.update', 8, 60_000)), 'another subject does not')
+  ok(!(await recordedRecently(ana.id, 'page.draft', 7, 60_000)), 'another action does not')
+  ok(!(await recordedRecently(ben.id, 'pet.update', 7, 60_000)), 'another person does not')
+  await db.update(t.activityLog).set({ at: new Date(Date.now() - 120_000) }).where(eq(t.activityLog.subjectId, '7'))
+  ok(!(await recordedRecently(ana.id, 'pet.update', 7, 60_000)), 'an older entry does not')
+  await db.update(t.activityLog).set({ at: new Date() }).where(eq(t.activityLog.subjectId, '7'))
+
   // A failed sign-in finds the account but stores neither the typed email nor anything typed.
   await recordFailedSignIn('ANA@example.test', '192.0.2.8')
   await recordFailedSignIn('password-typed-in-the-email-box', '192.0.2.9')

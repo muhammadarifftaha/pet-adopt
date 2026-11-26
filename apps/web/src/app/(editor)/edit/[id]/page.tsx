@@ -57,6 +57,9 @@ export default async function EditPage({ params }: { params: Promise<{ id: strin
       status={page.status}
       version={page.updatedAt.getTime()}
       initialData={initialData}
+      // What is live, and whether page settings wait for a publish: so Publish knows when there is nothing to publish.
+      publishedData={page.status === 'published' && isPuckData(page.puckPublished) ? page.puckPublished : null}
+      detailsPending={page.draftDetails != null}
       site={toSiteMeta(settings)}
       darkCss={darkCss}
       readOnly={readOnly}

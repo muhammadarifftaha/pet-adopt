@@ -174,3 +174,16 @@ li:has(> div > span > .editor-nav-link) { position: relative; }
 /* "Edit <pet>" under the Preview with picker: opens the pet's admin page in a new tab. */
 .editor-pet-edit { display: inline-flex; align-items: center; gap: 4px; flex-basis: 100%; color: inherit; font-size: 13px; }
 .editor-pet-edit svg { width: 13px; height: 13px; }
+
+/* Save draft / Publish while saving or with nothing to save (aria-disabled keeps focus on them). */
+.editor-actions button[aria-disabled='true'] { opacity: 0.6; cursor: default; }
+.editor-actions button { display: inline-flex; align-items: center; gap: 6px; }
+.editor-spinner { width: 14px; height: 14px; animation: editor-spin 1s linear infinite; }
+@keyframes editor-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .editor-spinner { animation-duration: 3s; } }
+/* Fixed minimum widths, fitting the longest labels ("Autosaving…", "Publishing…" with the spinner),
+   so the buttons never change size and nothing beside them moves. */
+.editor-actions .editor-save { min-width: 8.75rem; justify-content: center; }
+.editor-actions .editor-publish { min-width: 8rem; justify-content: center; }
+/* A failed autosave (the reason came as a toast): a red outline on Save draft. */
+.editor-actions .editor-save-paused { border-color: var(--puck-color-red-04); color: var(--puck-color-red-04); }
