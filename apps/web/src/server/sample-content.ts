@@ -1,26 +1,69 @@
-// Sample content: example pets (with placeholder pictures) and an About page, so a fresh site has
+// Sample content: example pets (with pictures made from a cat silhouette in the site's colours) and
+// an About page, so a fresh site has
 // something to look at. Used by `pnpm seed` and by the first-time setup's "Sample content" step
 // (src/server/setup.ts). Every step checks first, so running it again is safe; it never adds sample
 // pets next to real ones. removeSampleContent takes them out again.
+import { readFile } from 'node:fs/promises'
+import path from 'node:path'
+
 import { and, count, eq, inArray, isNull, notInArray } from 'drizzle-orm'
 import sharp from 'sharp'
 
 import { getDatabase } from '@/db/client'
 import { PetStatus } from '@/lib/options'
 import { slugify } from '@/lib/slugify'
+import { mix, resolveTheme } from '@/lib/theme'
 
 import { deletePage, publishPage, savePageDetails, archivePage } from './pages'
 import { deletePet, savePet } from './pets'
+import { getSettings } from './settings'
 import { removeUpload, saveUpload } from './uploads'
 
-const placeholder = (label: string, from: string, to: string) =>
-  Buffer.from(
-    `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="900" viewBox="0 0 1200 900">` +
-      `<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${from}"/><stop offset="1" stop-color="${to}"/></linearGradient></defs>` +
-      `<rect width="1200" height="900" fill="url(#g)"/>` +
-      `<text x="600" y="520" font-family="Arial, sans-serif" font-size="${Math.min(240, Math.floor(1700 / label.length))}" font-weight="700" text-anchor="middle" fill="#ffffff" fill-opacity="0.92">${label}</text>` +
-      `</svg>`,
-  )
+/**
+ * The sample pets' picture: a cat silhouette (a black shape on transparent, read only here, never
+ * served). Read from the project folder at runtime, like the migrations.
+ */
+const SILHOUETTE = path.resolve(/* turbopackIgnore: true */ process.cwd(), 'assets', 'sample-pet.png')
+
+/** Credit for the silhouette (Flaticon's free licence asks for it wherever the picture is used). */
+const PICTURE_CREDIT = { text: 'Kitty icons created by Boris farias - Flaticon', href: 'https://www.flaticon.com/free-icons/kitty' }
+
+/** A sample pet's description: its text, then the picture's credit as a link (rich text, not HTML). */
+function describe(about: string) {
+  return {
+    type: 'doc',
+    content: [
+      { type: 'paragraph', content: [{ type: 'text', text: about }] },
+      {
+        type: 'paragraph',
+        content: [
+          { type: 'text', text: 'Picture: ' },
+          { type: 'text', text: PICTURE_CREDIT.text, marks: [{ type: 'link', attrs: { href: PICTURE_CREDIT.href } }] },
+        ],
+      },
+    ],
+  }
+}
+
+/**
+ * A sample pet's picture: the silhouette in the theme's primary colour on a soft shade of it, a
+ * slightly different shade per pet and every other one facing the other way, so the grid is not
+ * six identical tiles. 1200 x 900, like a landscape photo.
+ */
+async function samplePicture(index: number, colors: { primary: string; bg: string }): Promise<Buffer> {
+  const width = 1200
+  const height = 900
+  const size = 560
+  const shape = await sharp(await readFile(SILHOUETTE)).resize(size, size, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } }).ensureAlpha().toBuffer()
+  // Fill: a block of the primary colour, kept only where the silhouette is (its alpha).
+  let cat = sharp({ create: { width: size, height: size, channels: 4, background: colors.primary } }).composite([{ input: shape, blend: 'dest-in' }])
+  if (index % 2) cat = sharp(await cat.png().toBuffer()).flop()
+  const shade = mix(colors.primary, colors.bg, [0.9, 0.84, 0.78][index % 3])
+  return sharp({ create: { width, height, channels: 4, background: shade } })
+    .composite([{ input: await cat.png().toBuffer(), left: (width - size) / 2, top: (height - size) / 2 }])
+    .png()
+    .toBuffer()
+}
 
 type Sample = {
   name: string
@@ -34,9 +77,6 @@ type Sample = {
   state: string
   featured: boolean
   about: string
-  /** Placeholder picture colours. Pets without them cycle through PALETTE. */
-  from?: string
-  to?: string
   /** Defaults to available. */
   status?: PetStatus
   unlisted?: boolean
@@ -44,52 +84,30 @@ type Sample = {
   extra?: Record<string, unknown>
 }
 
-const PALETTE = [
-  ['#fb923c', '#f43f5e'],
-  ['#60a5fa', '#6366f1'],
-  ['#34d399', '#0ea5e9'],
-  ['#a78bfa', '#ec4899'],
-  ['#facc15', '#f97316'],
-  ['#2dd4bf', '#3b82f6'],
-] as const
 
-// The first four are the original samples. The rest fill the catalog to three pages (12 per page):
-// 28 are available and listed, plus 2 pending, 2 adopted and 1 unlisted, and some custom species.
+/**
+ * Six example pets, enough to show the catalog without filling it: cats, dogs and a rabbit, every
+ * age group, two featured, one urgent, one with special needs, and one each pending and adopted.
+ */
 export const samples: Sample[] = [
-  { name: 'Mochi', species: 'cat', breed: 'Domestic shorthair', sex: 'female', ageGroup: 'baby', ageDescription: 'about 3 months', size: 'small', city: 'Petaling Jaya', state: 'Selangor', featured: true, from: '#fb923c', to: '#f43f5e', about: 'Playful and curious, Mochi loves feather toys and following you from room to room.' },
-  { name: 'Biscuit', species: 'dog', breed: 'Mixed breed', sex: 'male', ageGroup: 'young', ageDescription: '1 year', size: 'medium', city: 'Kuala Lumpur', state: 'Kuala Lumpur', featured: true, from: '#60a5fa', to: '#6366f1', about: 'Biscuit is friendly, house-trained and great with children. He needs a family who enjoys long walks.' },
-  { name: 'Clover', species: 'rabbit', breed: 'Holland lop', sex: 'female', ageGroup: 'adult', ageDescription: '2 years', size: 'small', city: 'Shah Alam', state: 'Selangor', featured: false, from: '#34d399', to: '#0ea5e9', about: 'Calm and gentle, Clover is happiest with a quiet home and plenty of fresh greens.' },
-  { name: 'Luna', species: 'cat', breed: 'Persian mix', sex: 'female', ageGroup: 'senior', ageDescription: '9 years', size: 'medium', city: 'Subang Jaya', state: 'Selangor', featured: false, from: '#a78bfa', to: '#ec4899', about: 'Luna is a lap cat who wants a peaceful retirement home. Fully vaccinated and spayed.' },
-  { name: 'Whiskers', species: 'cat', breed: 'Siamese mix', sex: 'male', ageGroup: 'adult', ageDescription: '4 years', size: 'medium', city: 'Georgetown', state: 'Penang', featured: false, status: PetStatus.Adopted, about: 'Whiskers has found his forever home. He stays here so you can see what an adopted pet looks like.' },
-  { name: 'Pumpkin', species: 'cat', breed: 'Domestic shorthair', sex: 'female', ageGroup: 'young', ageDescription: '8 months', size: 'small', city: 'Ipoh', state: 'Perak', featured: true, about: 'Pumpkin chases anything that moves and purrs the moment you pick her up.', extra: { temperament: ['playful', 'energetic'], goodWith: ['kids'], houseTrained: true, color: 'Ginger and white' } },
-  { name: 'Shadow', species: 'cat', breed: 'Black domestic', sex: 'male', ageGroup: 'adult', ageDescription: '3 years', size: 'medium', city: 'Johor Bahru', state: 'Johor', featured: false, unlisted: true, about: 'Shadow is link-only: he does not appear in the catalog, but his page opens for anyone with the link.' },
-  { name: 'Ginger', species: 'cat', breed: 'Orange tabby', sex: 'male', ageGroup: 'baby', ageDescription: '2 months', size: 'small', city: 'Klang', state: 'Selangor', featured: false, about: 'Ginger was found in a car park and is learning that laps are for sitting on.' },
-  { name: 'Oreo', species: 'cat', breed: 'Tuxedo', sex: 'female', ageGroup: 'young', ageDescription: '1 year', size: 'small', city: 'Kuala Lumpur', state: 'Kuala Lumpur', featured: false, about: 'Oreo is chatty, curious and always first to the door when someone comes home.' },
-  { name: 'Tiger', species: 'cat', breed: 'Bengal mix', sex: 'male', ageGroup: 'adult', ageDescription: '5 years', size: 'large', city: 'Shah Alam', state: 'Selangor', featured: false, about: 'Tiger is a big, athletic cat who loves climbing and needs plenty of space to explore.' },
-  { name: 'Maple', species: 'cat', breed: 'Domestic longhair', sex: 'female', ageGroup: 'senior', ageDescription: '11 years', size: 'medium', city: 'Melaka', state: 'Melaka', featured: false, about: 'Maple has spent most of her life in a shelter and would love a quiet window to nap by.', extra: { temperament: ['calm', 'affectionate'], goodWith: ['cats'], houseTrained: true, urgent: true, color: 'Cream and brown' } },
-  { name: 'Ember', species: 'cat', breed: 'Calico', sex: 'female', ageGroup: 'baby', ageDescription: '10 weeks', size: 'small', city: 'Seremban', state: 'Negeri Sembilan', featured: false, about: 'Ember and her siblings were rescued together. She is the boldest of the litter.' },
+  { name: 'Mochi', species: 'cat', breed: 'Domestic shorthair', sex: 'female', ageGroup: 'baby', ageDescription: 'about 3 months', size: 'small', city: 'Petaling Jaya', state: 'Selangor', featured: true, about: 'Playful and curious, Mochi loves feather toys and following you from room to room.' },
+  { name: 'Biscuit', species: 'dog', breed: 'Mixed breed', sex: 'male', ageGroup: 'young', ageDescription: '1 year', size: 'medium', city: 'Kuala Lumpur', state: 'Kuala Lumpur', featured: true, about: 'Biscuit is friendly, house-trained and great with children. He needs a family who enjoys long walks.' },
+  { name: 'Clover', species: 'rabbit', breed: 'Holland lop', sex: 'female', ageGroup: 'adult', ageDescription: '2 years', size: 'small', city: 'Shah Alam', state: 'Selangor', featured: false, about: 'Calm and gentle, Clover is happiest with a quiet home and plenty of fresh greens.' },
+  { name: 'Luna', species: 'cat', breed: 'Persian mix', sex: 'female', ageGroup: 'senior', ageDescription: '9 years', size: 'medium', city: 'Subang Jaya', state: 'Selangor', featured: false, about: 'Luna is a lap cat who wants a peaceful retirement home. Fully vaccinated and spayed.' },
   { name: 'Rocky', species: 'dog', breed: 'Rottweiler mix', sex: 'male', ageGroup: 'adult', ageDescription: '4 years', size: 'large', city: 'Petaling Jaya', state: 'Selangor', featured: false, status: PetStatus.Pending, about: 'Rocky is a gentle giant. An adopter is already meeting him, so he is marked as pending.' },
-  { name: 'Daisy', species: 'dog', breed: 'Beagle', sex: 'female', ageGroup: 'young', ageDescription: '2 years', size: 'medium', city: 'Cyberjaya', state: 'Selangor', featured: true, about: 'Daisy follows her nose everywhere and is happiest on a long walk with a treat at the end.', extra: { temperament: ['energetic', 'affectionate'], goodWith: ['kids', 'dogs'], houseTrained: true, microchipped: true, color: 'Tricolour' } },
-  { name: 'Bruno', species: 'dog', breed: 'Labrador mix', sex: 'male', ageGroup: 'adult', ageDescription: '6 years', size: 'large', city: 'Bayan Lepas', state: 'Penang', featured: false, about: 'Bruno is calm indoors, loves the water and gets along with everyone he meets.' },
-  { name: 'Coco', species: 'dog', breed: 'Poodle mix', sex: 'female', ageGroup: 'senior', ageDescription: '10 years', size: 'small', city: 'Kuala Lumpur', state: 'Kuala Lumpur', featured: false, about: 'Coco is a sweet senior who needs a calm home and her daily heart tablet.', extra: { temperament: ['calm', 'independent'], goodWith: ['dogs'], specialNeeds: true, healthNotes: 'Takes one tablet a day for her heart.', color: 'Apricot' } },
-  { name: 'Max', species: 'dog', breed: 'German shepherd mix', sex: 'male', ageGroup: 'young', ageDescription: '18 months', size: 'large', city: 'Johor Bahru', state: 'Johor', featured: false, about: 'Max is clever, loyal and eager to learn. He would thrive with an active family.' },
-  { name: 'Bella', species: 'dog', breed: 'Local breed', sex: 'female', ageGroup: 'adult', ageDescription: '3 years', size: 'medium', city: 'Ipoh', state: 'Perak', featured: false, status: PetStatus.Pending, about: 'Bella is shy at first and then very loyal. Her adoption is in progress.' },
-  { name: 'Lucky', species: 'dog', breed: 'Mixed breed', sex: 'male', ageGroup: 'adult', ageDescription: '5 years', size: 'medium', city: 'Kajang', state: 'Selangor', featured: false, status: PetStatus.Adopted, about: 'Lucky went home last week. He is here so the adopted badge has something to show.' },
-  { name: 'Simba', species: 'dog', breed: 'Golden retriever mix', sex: 'male', ageGroup: 'baby', ageDescription: '4 months', size: 'medium', city: 'Putrajaya', state: 'Putrajaya', featured: false, about: 'Simba is a bundle of puppy energy who is already learning to sit for treats.', extra: { temperament: ['playful', 'energetic'], goodWith: ['kids', 'dogs', 'cats'], color: 'Golden' } },
-  { name: 'Ziggy', species: 'dog', breed: 'Jack Russell mix', sex: 'male', ageGroup: 'young', ageDescription: '1 year', size: 'small', city: 'Subang Jaya', state: 'Selangor', featured: false, about: 'Ziggy never stops moving. He needs a garden, a ball and someone who can keep up.' },
-  { name: 'Rusty', species: 'dog', breed: 'Irish setter mix', sex: 'male', ageGroup: 'senior', ageDescription: '9 years', size: 'large', city: 'Alor Setar', state: 'Kedah', featured: false, about: 'Rusty is a gentle old soul with stiff joints who just wants a soft bed and company.', extra: { temperament: ['calm'], urgent: true, specialNeeds: true, healthNotes: 'Stiff joints: no stairs, short walks.', color: 'Red' } },
-  { name: 'Snowball', species: 'rabbit', breed: 'Netherland dwarf', sex: 'female', ageGroup: 'baby', ageDescription: '3 months', size: 'small', city: 'Shah Alam', state: 'Selangor', featured: false, about: 'Snowball is tiny, fluffy and loves being offered a piece of carrot.' },
-  { name: 'Thumper', species: 'rabbit', breed: 'Lionhead', sex: 'male', ageGroup: 'adult', ageDescription: '2 years', size: 'small', city: 'Georgetown', state: 'Penang', featured: false, about: 'Thumper thumps when he is excited, which is most of the time.' },
-  { name: 'Olive', species: 'rabbit', breed: 'Rex', sex: 'female', ageGroup: 'young', ageDescription: '1 year', size: 'small', city: 'Kuala Lumpur', state: 'Kuala Lumpur', featured: false, about: 'Olive has velvet fur and a calm temperament. She is already litter trained.' },
-  { name: 'Kiwi', species: 'bird', breed: 'Cockatiel', sex: 'male', ageGroup: 'adult', ageDescription: '3 years', size: 'small', city: 'Petaling Jaya', state: 'Selangor', featured: false, about: 'Kiwi whistles a few tunes and likes to sit on a shoulder.' },
-  { name: 'Sunny', species: 'bird', breed: 'Budgerigar', sex: 'female', ageGroup: 'young', ageDescription: '1 year', size: 'small', city: 'Ipoh', state: 'Perak', featured: false, about: 'Sunny is bright, chatty and does best with a friend of her own kind.' },
-  { name: 'Pip', species: 'bird', breed: 'African grey', sex: 'male', ageGroup: 'adult', ageDescription: '7 years', size: 'medium', city: 'Melaka', state: 'Melaka', featured: false, about: 'Pip is a clever talker who needs daily attention and a home that can keep him busy.' },
-  { name: 'Nibbles', species: 'guinea pig', breed: 'Abyssinian', sex: 'female', ageGroup: 'young', ageDescription: '9 months', size: 'small', city: 'Klang', state: 'Selangor', featured: false, about: 'Nibbles squeaks happily whenever she hears the fridge door open.' },
-  { name: 'Pebbles', species: 'guinea pig', breed: 'Peruvian', sex: 'male', ageGroup: 'adult', ageDescription: '2 years', size: 'small', city: 'Kuala Lumpur', state: 'Kuala Lumpur', featured: false, about: 'Pebbles has long silky hair and a gentle nature. He likes company, so a pair would be ideal.' },
-  { name: 'Peanut', species: 'hamster', breed: 'Syrian', sex: 'male', ageGroup: 'baby', ageDescription: '2 months', size: 'small', city: 'Shah Alam', state: 'Selangor', featured: false, about: 'Peanut is nocturnal and spends his nights on the wheel. Best for a home with a quiet evening routine.' },
-  { name: 'Hazel', species: 'hedgehog', breed: 'African pygmy', sex: 'female', ageGroup: 'adult', ageDescription: '1 year', size: 'small', city: 'Petaling Jaya', state: 'Selangor', featured: false, about: 'Hazel curls into a ball when she is startled and unrolls once she knows you.' },
-  { name: 'Shelly', species: 'tortoise', breed: 'Red-footed', sex: 'female', ageGroup: 'senior', ageDescription: '20 years', size: 'medium', city: 'Seremban', state: 'Negeri Sembilan', featured: false, about: 'Shelly has lived with three families already and will outlive many more. A long-term commitment.' },
+  { name: 'Whiskers', species: 'cat', breed: 'Siamese mix', sex: 'male', ageGroup: 'adult', ageDescription: '4 years', size: 'medium', city: 'Georgetown', state: 'Penang', featured: false, status: PetStatus.Adopted, about: 'Whiskers has found his forever home. He stays here so you can see what an adopted pet looks like.' },
 ]
+
+/**
+ * Sample pets of earlier versions. Not added any more, but still recognised as samples, so sites
+ * that have them can remove them, and they never count as real pets.
+ */
+const RETIRED_SAMPLES = [
+  'Pumpkin', 'Shadow', 'Ginger', 'Oreo', 'Tiger', 'Maple', 'Ember', 'Daisy', 'Bruno', 'Coco', 'Max', 'Bella', 'Lucky', 'Simba', 'Ziggy', 'Rusty', 'Snowball', 'Thumper', 'Olive', 'Kiwi', 'Sunny', 'Pip', 'Nibbles', 'Pebbles', 'Peanut', 'Hazel', 'Shelly',
+]
+
+/** The slugs of every sample pet, current and retired. */
+const sampleSlugs = () => [...samples.map((s) => s.name), ...RETIRED_SAMPLES].map((name) => slugify(name))
 
 // Behaviour and health details for the samples, so the extra pet fields have something to show.
 const extras: Record<string, Record<string, unknown>> = {
@@ -111,24 +129,26 @@ function ageFrom(text: string) {
 export async function addSamplePets(log: (line: string) => void = () => {}): Promise<number> {
   let added = 0
   const { db, t } = await getDatabase()
-  const sampleSlugs = samples.map((s) => slugify(s.name))
+  const currentSlugs = samples.map((s) => slugify(s.name))
 
-  // Any pet that is not one of our samples means this is a real site: leave its pets alone.
-  const [others] = await db.select({ n: count() }).from(t.pets).where(notInArray(t.pets.slug, sampleSlugs))
+  // Any pet that is not one of our samples (current or retired) means this is a real site: leave its
+  // pets alone.
+  const [others] = await db.select({ n: count() }).from(t.pets).where(notInArray(t.pets.slug, sampleSlugs()))
   if (others.n > 0) {
     log('Real pets exist, skipping sample pets.')
     return 0
   }
 
-  const existing = await db.select({ slug: t.pets.slug }).from(t.pets).where(inArray(t.pets.slug, sampleSlugs))
+  const existing = await db.select({ slug: t.pets.slug }).from(t.pets).where(inArray(t.pets.slug, currentSlugs))
+  // The pictures take the site's colours as they are now (the setup's theme step comes first).
+  const light = resolveTheme(await getSettings()).light
+  const colors = { primary: light['--primary'] ?? '#e8590c', bg: light['--bg'] ?? '#ffffff' }
   const have = new Set(existing.map((d) => d.slug))
 
   for (const [index, sample] of samples.entries()) {
     if (have.has(slugify(sample.name))) continue
 
-    const [defaultFrom, defaultTo] = PALETTE[index % PALETTE.length]
-    // Uploads must be raster images (SVG is blocked), so render the placeholder to PNG.
-    const buffer = await sharp(placeholder(sample.name, sample.from ?? defaultFrom, sample.to ?? defaultTo)).png().toBuffer()
+    const buffer = await samplePicture(index, colors)
     const media = await saveUpload({ data: buffer, alt: `Placeholder picture for ${sample.name}` })
     try {
       await savePet(null, {
@@ -146,7 +166,7 @@ export async function addSamplePets(log: (line: string) => void = () => {}): Pro
         vaccinated: true,
         neutered: sample.ageGroup !== 'baby',
         photoIds: [media.id],
-        description: sample.about,
+        description: describe(sample.about),
         ...extras[sample.name],
         ...sample.extra,
       })
@@ -163,7 +183,7 @@ export async function addSamplePets(log: (line: string) => void = () => {}): Pro
   const undated = await db
     .select({ id: t.pets.id, slug: t.pets.slug })
     .from(t.pets)
-    .where(and(inArray(t.pets.slug, sampleSlugs), isNull(t.pets.birthDate)))
+    .where(and(inArray(t.pets.slug, currentSlugs), isNull(t.pets.birthDate)))
   for (const pet of undated) {
     const sample = samples.find((s) => slugify(s.name) === pet.slug)
     if (!sample) continue
@@ -197,20 +217,21 @@ export async function addSampleAboutPage(log: (line: string) => void = () => {})
   return true
 }
 
-/** Whether any sample pet is on the site. */
+/** Whether any sample pet (current or retired) is on the site. */
 export async function hasSampleContent(): Promise<boolean> {
   const { db, t } = await getDatabase()
-  const [row] = await db.select({ n: count() }).from(t.pets).where(inArray(t.pets.slug, samples.map((s) => slugify(s.name))))
+  const [row] = await db.select({ n: count() }).from(t.pets).where(inArray(t.pets.slug, sampleSlugs()))
   return row.n > 0
 }
 
 /**
- * Takes the sample content out again: the sample pets (and their placeholder pictures) and the
+ * Takes the sample content out again: the sample pets, retired ones included (and their placeholder
+ * pictures), and the
  * sample About page while it is still the one this file made. Returns how many pets went.
  */
 export async function removeSampleContent(): Promise<number> {
   const { db, t } = await getDatabase()
-  const pets = await db.select({ id: t.pets.id }).from(t.pets).where(inArray(t.pets.slug, samples.map((s) => slugify(s.name))))
+  const pets = await db.select({ id: t.pets.id }).from(t.pets).where(inArray(t.pets.slug, sampleSlugs()))
   for (const pet of pets) {
     const photos = await db.select({ mediaId: t.petPhotos.mediaId }).from(t.petPhotos).where(eq(t.petPhotos.petId, pet.id))
     await deletePet(pet.id)
