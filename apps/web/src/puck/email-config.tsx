@@ -3,7 +3,7 @@
 import type { Config, Fields } from '@puckeditor/core'
 import React from 'react'
 
-import { blockHtml, footerHtml, logoHtml, placeholdersFor, PURPOSE_INFO, type BlockData, type EmailPurpose, type RenderContext, type TemplateRoot } from '@/lib/email-template'
+import { blockHtml, footerHtml, LOGO_DEFAULTS, logoHtml, placeholdersFor, PURPOSE_INFO, type BlockData, type EmailPurpose, type RenderContext, type TemplateRoot } from '@/lib/email-template'
 
 import { MediaPicker } from './media-picker'
 import type { MediaValue } from './types'
@@ -62,10 +62,46 @@ export function emailBuilderConfig(purpose: EmailPurpose): Config {
     preheader: { type: 'text', label: 'Preview text (shown after the subject in most inboxes)' },
     showLogo: {
       type: 'radio',
-      label: 'Logo at the top',
+      label: 'Logo at the top (from Site settings; the site’s name when there is none)',
       options: [
         { label: 'Show', value: true },
         { label: 'Hide', value: false },
+      ],
+    },
+    logoSize: {
+      type: 'radio',
+      label: 'Logo size',
+      options: [
+        { label: 'Small', value: 'small' },
+        { label: 'Medium', value: 'medium' },
+        { label: 'Large', value: 'large' },
+      ],
+    },
+    logoAlign: { ...align, label: 'Logo alignment' },
+    logoLink: {
+      type: 'radio',
+      label: 'Logo links to the site',
+      options: [
+        { label: 'Yes', value: true },
+        { label: 'No', value: false },
+      ],
+    },
+    showSiteName: {
+      type: 'radio',
+      label: 'Site’s name with the logo',
+      options: [
+        { label: 'Show', value: true },
+        { label: 'Hide', value: false },
+      ],
+    },
+    logoLayout: {
+      type: 'select',
+      label: 'Name and logo layout (when the name is shown)',
+      options: [
+        { label: 'Horizontal: logo, then name', value: 'horizontal' },
+        { label: 'Horizontal reversed: name, then logo', value: 'horizontal-reverse' },
+        { label: 'Vertical: logo above name', value: 'vertical' },
+        { label: 'Vertical reversed: name above logo', value: 'vertical-reverse' },
       ],
     },
     footer: { type: 'textarea', label: 'Footer' },
@@ -206,7 +242,7 @@ export function emailBuilderConfig(purpose: EmailPurpose): Config {
     },
     root: {
       fields: rootFields,
-      defaultProps: { subject: '', preheader: '', showLogo: true, footer: '' },
+      defaultProps: { subject: '', preheader: '', ...LOGO_DEFAULTS, footer: '' },
       render: ({ children, puck, ...props }: { children: React.ReactNode; puck: { metadata: unknown }; [key: string]: unknown }) => {
         const { ctx } = puck.metadata as EmailBuilderMetadata
         const root = props as unknown as TemplateRoot
@@ -218,7 +254,7 @@ export function emailBuilderConfig(purpose: EmailPurpose): Config {
         return (
           <div className="email-canvas" style={{ background: t.background, padding: '24px 12px', minHeight: '100%' }}>
             <div style={{ maxWidth: 600, margin: '0 auto', background: t.surface, borderRadius: t.radius, border: `1px solid ${t.line}`, fontFamily: t.font, color: t.ink }}>
-              {logo ? <div style={{ textAlign: 'center', padding: '28px 32px 0' }} dangerouslySetInnerHTML={{ __html: logo }} /> : null}
+              {logo ? <div style={{ textAlign: root.logoAlign ?? 'center', padding: '28px 32px 0' }} dangerouslySetInnerHTML={{ __html: logo }} /> : null}
               <div style={{ padding: '28px 32px 12px' }}>{children}</div>
               {footer ? <div style={{ padding: '0 32px 28px' }} dangerouslySetInnerHTML={{ __html: footer }} /> : null}
             </div>

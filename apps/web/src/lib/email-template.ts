@@ -90,7 +90,26 @@ export type BlockData =
   | { type: 'Columns'; props: { id: string; left: BlockData[]; right: BlockData[] } }
   | { type: 'Details'; props: { id: string; title: string } }
 
-export type TemplateRoot = { subject: string; preheader: string; showLogo: boolean; footer: string }
+/** Where the site's name goes next to the logo (the email's logo): beside it or under it, either way round. */
+export const LOGO_LAYOUTS = ['horizontal', 'horizontal-reverse', 'vertical', 'vertical-reverse'] as const
+export type LogoLayout = (typeof LOGO_LAYOUTS)[number]
+
+export type LogoSize = 'small' | 'medium' | 'large'
+/**
+ * The email's settings. The logo at the top is the site's logo from Site settings (or its name,
+ * without one): size, alignment, a link to the site, and the site's name beside or under it.
+ */
+export type TemplateRoot = {
+  subject: string
+  preheader: string
+  showLogo: boolean
+  logoSize: LogoSize
+  logoAlign: Align
+  logoLink: boolean
+  showSiteName: boolean
+  logoLayout: LogoLayout
+  footer: string
+}
 export type TemplateData = { root: { props: TemplateRoot }; content: BlockData[] }
 
 export const TEMPLATE_LIMITS = { blocks: 60, text: 5000, heading: 200, label: 80, subject: 200, preheader: 200, footer: 1000, url: 2000, name: 80 }
@@ -249,6 +268,12 @@ export function validateTemplate(raw: unknown, purpose: EmailPurpose): TemplateC
     subject,
     preheader: checkText('Preview text', rootProps.preheader, TEMPLATE_LIMITS.preheader).replace(/\s+/g, ' ').trim(),
     showLogo: rootProps.showLogo !== false,
+    // Missing values keep the look templates had before these options: medium, centred, no link, no name.
+    logoSize: oneOf(rootProps.logoSize, ['small', 'medium', 'large'] as const, 'medium'),
+    logoAlign: oneOf(rootProps.logoAlign, ALIGNS, 'center'),
+    logoLink: rootProps.logoLink === true,
+    showSiteName: rootProps.showSiteName === true,
+    logoLayout: oneOf(rootProps.logoLayout, LOGO_LAYOUTS, 'horizontal'),
     footer: checkText('Footer', rootProps.footer, TEMPLATE_LIMITS.footer),
   }
   if (!content.length) errors.push('Add at least one block.')
@@ -273,6 +298,17 @@ export type RenderContext = {
   logo: { url: string; alt: string } | null
   /** In the builder: show placeholders as {{name}} chips instead of values. */
   showPlaceholders?: boolean
+}
+
+/**
+ * An image's address in an email: absolute, and a WebP upload as its PNG copy (/media/email/…),
+ * because classic Outlook and some older clients cannot show WebP. The builder's canvas (a browser)
+ * keeps the original.
+ */
+export function emailImageSrc(url: string, ctx: RenderContext): string {
+  const webp = /^\/media\/([a-z0-9][a-z0-9-]*)\.webp$/.exec(url)
+  const path = webp && !ctx.showPlaceholders ? `/media/email/${webp[1]}.png` : url
+  return path.startsWith('/') ? `${ctx.origin}${path}` : path
 }
 
 export const escapeHtml = (value: string) =>
@@ -348,7 +384,7 @@ export function blockHtml(block: BlockData, ctx: RenderContext): string {
       if (!image) return ctx.showPlaceholders ? `<p style="margin:0 0 16px;${font}color:${t.muted};text-align:center;border:1px dashed ${t.line};padding:24px">Choose an image</p>` : ''
       const width = block.props.width === 'half' ? 268 : 536
       const alt = fill(block.props.alt || image.alt, { ...ctx, showPlaceholders: false })
-      const img = `<img src="${escapeHtml(`${ctx.origin}${image.url}`)}" width="${width}" alt="${alt}" style="display:inline-block;width:100%;max-width:${width}px;height:auto;border:0;outline:none;text-decoration:none;border-radius:${t.radius}px">`
+      const img = `<img src="${escapeHtml(emailImageSrc(image.url, ctx))}" width="${width}" alt="${alt}" style="display:inline-block;width:100%;max-width:${width}px;height:auto;border:0;text-decoration:none;border-radius:${t.radius}px">`
       const linked = block.props.link && !ctx.showPlaceholders ? `<a href="${escapeHtml(fillUrl(block.props.link, ctx))}" target="_blank">${img}</a>` : img
       return `<div style="margin:0 0 16px;text-align:${block.props.align}">${linked}</div>`
     }
@@ -414,12 +450,37 @@ export function blockText(block: BlockData, ctx: RenderContext): string {
 /** The logo row's HTML (or the site's name), shared by the email and the builder's canvas. */
 export function logoHtml(root: TemplateRoot, ctx: RenderContext): string {
   if (!root.showLogo) return ''
+  const { logoSize, logoAlign: align, logoLink, showSiteName, logoLayout: layout } = root
+  const height = LOGO_HEIGHT[logoSize]
+  const link = (html: string) => (logoLink && !ctx.showPlaceholders ? `<a href="${escapeHtml(ctx.origin)}" target="_blank" style="text-decoration:none">${html}</a>` : html)
+  // Without a logo, or without the name: one mark. Otherwise a small table (classic Outlook keeps it).
+  if (!ctx.logo || !showSiteName) return link(brandHtml(ctx, height))
+  const logo = link(logoImgHtml(ctx.logo, ctx, height))
+  const name = link(siteNameHtml(ctx, height))
+  const [first, second] = layout.endsWith('reverse') ? [name, logo] : [logo, name]
+  const center = align === 'center' ? ';margin-left:auto;margin-right:auto' : ''
+  const rows = layout.startsWith('horizontal')
+    ? `<tr><td valign="middle" style="padding-right:12px">${first}</td><td valign="middle">${second}</td></tr>`
+    : `<tr><td align="${align}" style="padding-bottom:8px">${first}</td></tr><tr><td align="${align}">${second}</td></tr>`
+  return `<table role="presentation" cellpadding="0" cellspacing="0" border="0" align="${align}" style="margin:0${center}">${rows}</table>`
+}
+
+/** Logo heights (px) for the email's logo: small, medium (the default), large. */
+const LOGO_HEIGHT = { small: 32, medium: 48, large: 64 } as const
+
+/** The site's logo at `height` px, or its name in the heading font when it has no logo. */
+function brandHtml(ctx: RenderContext, height: number): string {
+  return ctx.logo ? logoImgHtml(ctx.logo, ctx, height) : siteNameHtml(ctx, height)
+}
+
+function logoImgHtml(logo: NonNullable<RenderContext['logo']>, ctx: RenderContext, height: number): string {
+  return `<img src="${escapeHtml(emailImageSrc(logo.url, ctx))}" alt="${escapeHtml(logo.alt || ctx.values.siteName || '')}" height="${height}" style="display:inline-block;height:${height}px;width:auto;border:0;vertical-align:middle">`
+}
+
+/** The site's name in the heading font, sized to sit with a logo `height` px tall. */
+function siteNameHtml(ctx: RenderContext, height: number): string {
   const t = ctx.theme
-  if (ctx.logo) {
-    const src = ctx.logo.url.startsWith('/') ? `${ctx.origin}${ctx.logo.url}` : ctx.logo.url
-    return `<img src="${escapeHtml(src)}" alt="${escapeHtml(ctx.logo.alt || ctx.values.siteName || '')}" height="48" style="display:inline-block;height:48px;width:auto;border:0">`
-  }
-  return `<span style="font-family:${safeFont(t.headingFont)};font-size:20px;font-weight:700;color:${t.ink}">${escapeHtml(ctx.values.siteName ?? '')}</span>`
+  return `<span style="font-family:${safeFont(t.headingFont)};font-size:${Math.round(height * 0.42)}px;line-height:1.2;font-weight:700;color:${t.ink}">${escapeHtml(ctx.values.siteName ?? '')}</span>`
 }
 
 /** The footer's HTML, shared by the email and the builder's canvas. */
@@ -436,7 +497,7 @@ export function layoutHtml(inner: string, root: TemplateRoot, ctx: RenderContext
   const logo = logoHtml(root, ctx)
   const footer = footerHtml(root, ctx)
   // The preview text most inboxes show after the subject; hidden in the email itself.
-  const preheader = root.preheader ? `<div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent">${fill(root.preheader, { ...ctx, showPlaceholders: false })}</div>` : ''
+  const preheader = root.preheader ? `<div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent;mso-hide:all">${fill(root.preheader, { ...ctx, showPlaceholders: false })}</div>` : ''
   // Classic Outlook (Word's engine): the conditional comments give it a fixed 600 px table (it ignores
   // max-width) and 96 DPI, so images are not rescaled; `bgcolor` attributes for its backgrounds.
   return `<!doctype html>
@@ -447,7 +508,7 @@ export function layoutHtml(inner: string, root: TemplateRoot, ctx: RenderContext
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${t.background}" style="background:${t.background}"><tr><td align="center" style="padding:24px 12px">
 <!--[if mso]><table role="presentation" width="600" align="center" cellpadding="0" cellspacing="0" border="0"><tr><td><![endif]-->
 <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" bgcolor="${t.surface}" style="width:100%;max-width:600px;background:${t.surface};border-radius:${t.radius}px;border:1px solid ${t.line}">
-${logo ? `<tr><td align="center" style="padding:28px 32px 0">${logo}</td></tr>` : ''}<tr><td style="padding:28px 32px 12px;font-family:${safeFont(t.font)};color:${t.ink}">${inner}</td></tr>${footer ? `<tr><td style="padding:0 32px 28px">${footer}</td></tr>` : ''}
+${logo ? `<tr><td align="${root.logoAlign}" style="padding:28px 32px 0">${logo}</td></tr>` : ''}<tr><td style="padding:28px 32px 12px;font-family:${safeFont(t.font)};color:${t.ink}">${inner}</td></tr>${footer ? `<tr><td style="padding:0 32px 28px">${footer}</td></tr>` : ''}
 </table>
 <!--[if mso]></td></tr></table><![endif]-->
 </td></tr></table></body></html>`
@@ -491,11 +552,13 @@ const text = (id: string, value: string, size: 'normal' | 'small' = 'normal'): B
 const button = (id: string, label: string, url: string): BlockData => ({ type: 'Button', props: { id, label, url, align: 'left', style: 'solid' } })
 
 const FOOTER = 'Sent by {{siteName}} · {{siteUrl}}'
+/** The logo as templates have always had it: shown, medium, centred, no link, no name. */
+export const LOGO_DEFAULTS = { showLogo: true, logoSize: 'medium', logoAlign: 'center', logoLink: false, showSiteName: false, logoLayout: 'horizontal' } as const
 
 /** What each purpose sends when no template of that purpose is marked as the default. */
 export const DEFAULT_TEMPLATES: Record<EmailPurpose, TemplateData> = {
   'password-reset': {
-    root: { props: { subject: 'Reset your {{siteName}} password', preheader: 'Choose a new password within {{minutes}} minutes.', showLogo: true, footer: FOOTER } },
+    root: { props: { subject: 'Reset your {{siteName}} password', preheader: 'Choose a new password within {{minutes}} minutes.', ...LOGO_DEFAULTS, footer: FOOTER } },
     content: [
       heading('heading-1', 'Reset your password'),
       text('text-1', 'Hello {{name}},\n\nSomeone asked to reset the password of your {{siteName}} account. To choose a new one, use this link within {{minutes}} minutes:'),
@@ -504,14 +567,14 @@ export const DEFAULT_TEMPLATES: Record<EmailPurpose, TemplateData> = {
     ],
   },
   test: {
-    root: { props: { subject: 'Test email from {{siteName}}', preheader: 'The site can send email.', showLogo: true, footer: FOOTER } },
+    root: { props: { subject: 'Test email from {{siteName}}', preheader: 'The site can send email.', ...LOGO_DEFAULTS, footer: FOOTER } },
     content: [
       heading('heading-1', 'It works'),
       text('text-1', 'This is a test email from {{siteName}}, sent by {{senderName}} from the admin. If you can read it, the site can send email, for example password reset links.'),
     ],
   },
   'team-notification': {
-    root: { props: { subject: 'New: {{title}}', preheader: 'Something new on {{siteName}}: {{title}}.', showLogo: true, footer: FOOTER } },
+    root: { props: { subject: 'New: {{title}}', preheader: 'Something new on {{siteName}}: {{title}}.', ...LOGO_DEFAULTS, footer: FOOTER } },
     content: [
       heading('heading-1', 'New: {{title}}'),
       text('text-1', 'Something new came in on {{siteName}}. The details:'),
@@ -519,7 +582,7 @@ export const DEFAULT_TEMPLATES: Record<EmailPurpose, TemplateData> = {
     ],
   },
   'visitor-message': {
-    root: { props: { subject: 'Thanks, we got your message', preheader: 'We received your {{title}}.', showLogo: true, footer: FOOTER } },
+    root: { props: { subject: 'Thanks, we got your message', preheader: 'We received your {{title}}.', ...LOGO_DEFAULTS, footer: FOOTER } },
     content: [heading('heading-1', 'Thank you'), text('text-1', 'We received your “{{title}}” and will get back to you soon.\n\n{{siteName}}')],
   },
 }

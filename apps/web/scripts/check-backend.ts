@@ -84,7 +84,7 @@ import {
 } from '../src/server/activity'
 import { getEmailSender, getEmailSettingsView, parseFrom, resolveSmtp, saveEmailSettings } from '../src/server/email'
 import { open, seal } from '../src/server/secret-box'
-import { DEFAULT_TEMPLATES, EMAIL_PURPOSES, renderEmail, validateTemplate, type EmailPurpose, type TemplateData } from '../src/lib/email-template'
+import { DEFAULT_TEMPLATES, EMAIL_PURPOSES, emailImageSrc, LOGO_DEFAULTS, renderEmail, validateTemplate, type EmailPurpose, type RenderContext, type TemplateData } from '../src/lib/email-template'
 import {
   createEmailTemplate,
   deleteEmailTemplate,
@@ -1960,7 +1960,6 @@ await check('email: SMTP settings are validated, the password is stored only enc
     const mailpit = process.env.MAILPIT_URL || 'http://127.0.0.1:8025'
     const reachable = await fetch(`${mailpit}/api/v1/info`).then((r) => r.ok, () => false)
     ok(reachable, `Mailpit is not running at ${mailpit}: docker compose up -d mailpit`)
-    await fetch(`${mailpit}/api/v1/messages`, { method: 'DELETE' })
     await saveEmailSettings({ host: '127.0.0.1', port: 1025, security: 'none', username: 'mailer', password: 'pa55-word!', fromName: 'Pet Adopt', fromAddress: 'no-reply@pet-adopt.test', replyTo: 'team@pet-adopt.test' })
     const sender = await getEmailSender()
     ok(sender !== null && sender.status?.().provider === 'SMTP', 'the built-in SMTP sender is used when no plugin sends email')
@@ -1979,7 +1978,8 @@ await check('email: SMTP settings are validated, the password is stored only enc
     await saveEmailSettings({ port: 1 })
     const failure = await (await getEmailSender())!.send({ to: 'someone@pet-adopt.test', subject: 'x', text: 'x' }).then(() => '', (error: Error) => error.message)
     ok(/ECONNREFUSED|connect/i.test(failure), `an unreachable server is an error: ${failure}`)
-    await fetch(`${mailpit}/api/v1/messages`, { method: 'DELETE' })
+    // Only this check's own message: the inbox is the developer's too.
+    await fetch(`${mailpit}/api/v1/search?query=${encodeURIComponent(`subject:"${subject}"`)}`, { method: 'DELETE' })
   } finally {
     restoreEnv()
     await db.delete(t.emailSettings)
@@ -2042,6 +2042,27 @@ await check('email templates: only allowed blocks and placeholders, no answers t
   ok(email.subject === 'Hello <b>Ana</b> & co' && email.text.includes('Reset: https://example.test/r?token=a&b=1') && email.text.includes('Second paragraph'), `plain text and subject: ${email.subject}`)
 
   ok(email.html.includes('mso-padding-alt') && email.html.includes('<!--[if mso]><table role="presentation" width="600"') && email.html.includes(`bgcolor="${ctx.theme.surface}"`), 'classic Outlook gets a bulletproof button, a fixed width and bgcolor')
+
+  // The email's logo (page settings): the logo from Site settings at a size, aligned, optionally linked,
+  // and optionally with the site's name beside or under it, either way round. Old templates keep the old look.
+  const logoEmail = (root: Record<string, unknown>, logo: RenderContext['logo'] = { url: '/media/logo.png', alt: 'Our logo' }) => {
+    const layout = validateTemplate({ root: { props: { subject: 'Logo', ...root } }, content: [{ type: 'Text', props: { text: 'Body' } }] }, 'test')
+    if (!layout.ok) throw new Error(layout.errors.join(' '))
+    return { root: layout.data.root.props, html: renderEmail(layout.data, { ...ctx, logo }).html }
+  }
+  ok(isEqual(logoEmail({ logoSize: 'huge', logoLayout: 'diagonal' }).root, { subject: 'Logo', preheader: '', footer: '', ...LOGO_DEFAULTS }), 'missing or unknown logo options keep the old look')
+  ok(errorsOf([{ type: 'Logo', props: {} }]).some((e) => /cannot be used/.test(e)), 'there is no Logo block: the logo is the email’s own')
+  const linked = logoEmail({ logoSize: 'large', logoAlign: 'left', logoLink: true }).html
+  ok(linked.includes('<td align="left" style="padding:28px 32px 0">') && linked.includes(`<a href="${ctx.origin}" target="_blank" style="text-decoration:none"><img src="${ctx.origin}/media/logo.png" alt="Our logo" height="64"`), 'large, left, linked')
+  const order = (html: string) => (html.indexOf('<img') < html.indexOf(`>${ctx.values.siteName}</span>`) ? 'logo first' : 'name first')
+  const horizontal = logoEmail({ showSiteName: true, logoLayout: 'horizontal' }).html
+  ok(order(horizontal) === 'logo first' && /<tr><td valign="middle"[^>]*><img[^]*?<\/td><td valign="middle">/.test(horizontal), 'horizontal: logo then name, in one row')
+  ok(order(logoEmail({ showSiteName: true, logoLayout: 'horizontal-reverse' }).html) === 'name first', 'horizontal reversed: name then logo')
+  const vertical = logoEmail({ showSiteName: true, logoLayout: 'vertical', logoAlign: 'right' }).html
+  ok(order(vertical) === 'logo first' && vertical.includes('</td></tr><tr><td align="right">'), 'vertical: logo above name, in two rows')
+  ok(order(logoEmail({ showSiteName: true, logoLayout: 'vertical-reverse' }).html) === 'name first', 'vertical reversed: name above logo')
+  const nameOnly = logoEmail({ showSiteName: true }, null).html
+  ok(nameOnly.split(`>${ctx.values.siteName}</span>`).length === 2 && !nameOnly.includes('<img'), 'without a logo: the name once')
 
   // The site's own emails have no library: the built-in one is edited in place and can be restored.
   const admin = (await listUsers()).find((user) => user.role === 'admin')!
@@ -2140,21 +2161,52 @@ await check('email templates: only allowed blocks and placeholders, no answers t
   // A real notification through Mailpit, with the answers in it.
   const mailpit = process.env.MAILPIT_URL || 'http://127.0.0.1:8025'
   await saveEmailSettings({ host: '127.0.0.1', port: 1025, security: 'none', fromName: 'Pet Adopt', fromAddress: 'no-reply@pet-adopt.test' })
-  await fetch(`${mailpit}/api/v1/messages`, { method: 'DELETE' })
-  ok(await host().sendTemplatedEmail({ purpose: 'team-notification', to: 'team@example.test', values: { title: 'Mailpit form' }, details: [{ label: 'Q', value: 'A <b>' }] }), 'sent')
+  const title = `Mailpit form ${Date.now()}`
+  ok(await host().sendTemplatedEmail({ purpose: 'team-notification', to: 'team@example.test', values: { title }, details: [{ label: 'Q', value: 'A <b>' }] }), 'sent')
   let html = ''
   for (let i = 0; i < 20 && !html; i++) {
-    const list = (await (await fetch(`${mailpit}/api/v1/search?query=${encodeURIComponent('subject:"New: Mailpit form"')}`)).json()) as { messages: Array<{ ID: string }> }
+    const list = (await (await fetch(`${mailpit}/api/v1/search?query=${encodeURIComponent(`subject:"New: ${title}"`)}`)).json()) as { messages: Array<{ ID: string }> }
     if (list.messages[0]) html = ((await (await fetch(`${mailpit}/api/v1/message/${list.messages[0].ID}`)).json()) as { HTML: string }).HTML
     else await new Promise((resolve) => setTimeout(resolve, 100))
   }
-  ok(html.includes('A &lt;b&gt;') && html.includes('Mailpit form'), 'the notification arrived with the escaped details')
-  await fetch(`${mailpit}/api/v1/messages`, { method: 'DELETE' })
+  ok(html.includes('A &lt;b&gt;') && html.includes(title), 'the notification arrived with the escaped details')
+  // Only this check's own message: the inbox is the developer's too.
+  await fetch(`${mailpit}/api/v1/search?query=${encodeURIComponent(`subject:"New: ${title}"`)}`, { method: 'DELETE' })
 
   await forms.deleteForm(formId)
   await deleteUser(user.id)
   await db.delete(t.emailTemplates)
   await db.delete(t.emailSettings)
+})
+
+await check('email images: a WebP upload is sent as a lossless PNG copy (classic Outlook cannot show WebP), kept in storage and removed with the upload', async () => {
+  const { GET } = await import('../src/app/media/email/[name]/route')
+  const ctx = await emailContext({})
+  ok(emailImageSrc('/media/abc123.webp', ctx) === `${ctx.origin}/media/email/abc123.png`, 'a WebP image is linked as its PNG copy')
+  ok(emailImageSrc('/media/abc123.jpg', ctx) === `${ctx.origin}/media/abc123.jpg` && emailImageSrc('/media/abc123.webp', { ...ctx, showPlaceholders: true }) === `${ctx.origin}/media/abc123.webp`, 'other formats, and the builder’s canvas, keep the original')
+
+  const webp = await sharp({ create: { width: 24, height: 16, channels: 3, background: '#2a7' } }).webp({ lossless: true }).toBuffer()
+  const media = await saveUpload({ data: webp, alt: 'A WebP logo' })
+  const base = media.filename.replace(/\.webp$/, '')
+  ok(media.filename.endsWith('.webp'), `stored as WebP: ${media.filename}`)
+  const call = (name: string) => GET(new Request(`http://localhost:3000/media/email/${name}`), { params: Promise.resolve({ name }) })
+  const response = await call(`${base}.png`)
+  const body = Buffer.from(await response.arrayBuffer())
+  ok(response.status === 200 && response.headers.get('content-type') === 'image/png' && body.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])), 'a PNG comes back')
+  const meta = await sharp(body).metadata()
+  ok(meta.width === 24 && meta.height === 16, 'same size')
+  const [a, b] = await Promise.all([sharp(webp).raw().toBuffer(), sharp(body).removeAlpha().raw().toBuffer()])
+  ok(a.equals(b), 'the same pixels (lossless)')
+  const storage = await getStorage()
+  ok(await storage.exists(`${base}.email.png`), 'the copy is kept in storage')
+  ok((await call(`${base}.png`)).status === 200, 'and served again from there')
+  ok((await call('nothing-here.png')).status === 404 && (await call('../secret.png')).status === 404 && (await call(`${base}.webp`)).status === 404, 'unknown, unsafe and non-PNG names are not found')
+  const jpeg = await saveUpload({ data: await sharp({ create: { width: 8, height: 8, channels: 3, background: '#000' } }).jpeg().toBuffer(), alt: 'A JPEG' })
+  ok((await call(jpeg.filename.replace(/\.jpg$/, '.png'))).status === 404, 'only WebP uploads have an email copy')
+
+  await removeUpload(media.id)
+  await removeUpload(jpeg.id)
+  ok(!(await storage.exists(`${base}.email.png`)), 'removed with the upload')
 })
 
 // FK enforcement is on (SQLite needs a pragma)
