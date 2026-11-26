@@ -32,12 +32,13 @@ import {
   ensurePetsPage,
   getPageById,
   getPageVersionData,
-  listPageVersions,
-  restorePage,
-  restorePageVersion,
   getPublishedPage,
   listPages,
+  listPageVersions,
   publishPage,
+  restoreAndPublishPageVersion,
+  restorePage,
+  restorePageVersion,
   saveDraft,
   savePageDetails,
   unpublishPage,
@@ -696,7 +697,7 @@ await check('pages: archive first, then restore or delete; archived pages are of
   ok(/not found/i.test(await userError(deletePage(page.id))), 'a missing page')
 })
 
-await check('pages: one version per publish cycle; drafts update the open version; Use as draft fills it; the latest 50 kept', async () => {
+await check('pages: one version per publish cycle; drafts update the open version; a restore is always a new version (also with publish); the latest 50 kept', async () => {
   const [admin] = await listUsers()
   const page = await savePageDetails(null, { title: 'History', slug: 'history' })
   const layout = (heading: string) => ({ root: { props: {} }, zones: {}, content: [{ type: 'TextSection', props: { id: 'a', heading } }] })
@@ -723,7 +724,7 @@ await check('pages: one version per publish cycle; drafts update the open versio
   ok((await shape()) === '2:published,1:published', `a re-publish adds nothing: ${await shape()}`)
   ok(heading(await getPageVersionData(page.id, 2)) === 'two-b', 'version 2 is what went live')
 
-  // Use as draft: fills the open version (opening one if needed) and remembers the source.
+  // Restore: a new version holding the old layout, which remembers its source.
   const opened = (await getPageById(page.id))!.updatedAt.getTime()
   const restored = await restorePageVersion(page.id, 1, { baseVersion: opened, by: admin.id })
   ok(restored.number === 3, `version 1 goes into the open version 3: ${restored.number}`)
@@ -740,7 +741,27 @@ await check('pages: one version per publish cycle; drafts update the open versio
   ok(/already the draft/.test(await userError(restorePageVersion(page.id, 3))), 'the open version cannot be restored onto itself')
   ok(/changed somewhere else/.test(await userError(restorePageVersion(page.id, 2, { baseVersion: opened }))), 'a stale restore is refused')
   ok(/no longer exists/.test(await userError(restorePageVersion(page.id, 99))), 'a missing version')
-  await publishPage(page.id)
+
+  // Restoring over unpublished work keeps that work: version 3 (an open draft) stays as it was and
+  // version 1 comes back as a new version 4. Nothing is overwritten or renumbered.
+  const before = (await getPageById(page.id))!.updatedAt.getTime()
+  const again = await restorePageVersion(page.id, 1, { baseVersion: before, by: admin.id })
+  ok(again.number === 4, `restoring over an open draft starts version 4: ${again.number}`)
+  ok(heading(await getPageVersionData(page.id, 3)) === 'three', 'the unpublished work in version 3 is kept')
+  ok(heading(await getPageVersionData(page.id, 4)) === 'one-b', 'version 4 holds version 1')
+  ok((await shape()) === '4:draft,3:draft,2:published,1:published', `history: ${await shape()}`)
+  await saveDraft(page.id, layout('four'))
+  ok((await shape()).startsWith('4:draft,3:draft'), 'later saves go into version 4, the new open one')
+
+  // Restore and publish: one step, the restored version goes live, the history only grows.
+  const base = (await getPageById(page.id))!.updatedAt.getTime()
+  const rolled = await restoreAndPublishPageVersion(page.id, 2, { baseVersion: base, by: admin.id })
+  ok(rolled.number === 5, `restore and publish makes version 5: ${rolled.number}`)
+  ok(heading((await getPublishedPage('history'))!.puckData) === 'two-b', 'version 2 is live again')
+  ok((await shape()) === '5:published,4:draft,3:draft,2:published,1:published', `history after the rollback: ${await shape()}`)
+  ok((await listPageVersions(page.id))[0].restoredFrom === 2, 'version 5 says where it came from')
+  ok(/changed somewhere else/.test(await userError(restoreAndPublishPageVersion(page.id, 1, { baseVersion: base }))), 'a stale restore and publish is refused, nothing goes live')
+  ok(heading((await getPublishedPage('history'))!.puckData) === 'two-b', 'and the live page is untouched by the refused one')
 
   // Only the latest 50 versions are kept.
   for (let i = 0; i < 55; i++) {
@@ -748,13 +769,67 @@ await check('pages: one version per publish cycle; drafts update the open versio
     await publishPage(page.id)
   }
   versions = await listPageVersions(page.id)
-  ok(versions.length === 50 && versions[0].number === 58 && versions.at(-1)!.number === 9, `trimmed to 50: ${versions.length}, ${versions[0].number}..${versions.at(-1)!.number}`)
+  ok(versions.length === 50 && versions[0].number === 60 && versions.at(-1)!.number === 11, `trimmed to 50: ${versions.length}, ${versions[0].number}..${versions.at(-1)!.number}`)
 
   // Deleting the page removes its history.
   await archivePage(page.id)
   await deletePage(page.id)
   const [{ n }] = await db.select({ n: sql<number>`count(*)` }).from(t.pageVersions).where(eq(t.pageVersions.pageId, page.id))
   ok(Number(n) === 0, 'versions go with the page')
+})
+
+await check('pages: on a live page, settings wait for publish and make versions; addresses cannot clash, even as drafts', async () => {
+  const [admin] = await listUsers()
+  const layout = { root: { props: {} }, zones: {}, content: [{ type: 'TextSection', props: { id: 'a', heading: 'Hello' } }] }
+  const page = await savePageDetails(null, { title: 'About us', slug: 'about-us' })
+  await saveDraft(page.id, layout, undefined, admin.id)
+  await publishPage(page.id, undefined, undefined, admin.id)
+  const shape = async () => (await listPageVersions(page.id)).map((v) => `${v.number}:${v.kind}`).join(',')
+  ok((await shape()) === '1:published', `published as version 1: ${await shape()}`)
+
+  // A title and address change on the live page: a draft, visitors keep the old ones.
+  await savePageDetails(page.id, { title: 'Who we are', slug: 'who-we-are', seoDescription: 'Our team.' }, { by: admin.id })
+  let p = (await getPageById(page.id))!
+  ok(p.title === 'About us' && p.slug === 'about-us', 'the live title and address are unchanged')
+  ok(p.draftDetails?.title === 'Who we are' && p.draftDetails.slug === 'who-we-are' && p.draftDetails.seo.description === 'Our team.', 'the draft holds the new settings')
+  ok((await getPublishedPage('about-us')) !== null && (await getPublishedPage('who-we-are')) === null, 'visitors still find it at the old address')
+  ok((await listPages()).find((x) => x.id === page.id)?.hasUnpublishedChanges === true, 'it shows as having unpublished changes')
+  ok((await shape()) === '2:draft,1:published', `a settings change opens version 2: ${await shape()}`)
+
+  // Another page cannot take an address that is waiting to be published.
+  ok((await fieldErrors(savePageDetails(null, { title: 'Clash', slug: 'who-we-are' }))).slug, 'a new page cannot take a pending address either')
+  const other = await savePageDetails(null, { title: 'Other', slug: 'other' })
+  ok((await fieldErrors(savePageDetails(other.id, { title: 'Other', slug: 'who-we-are' }))).slug, 'a pending address is taken')
+
+  // Publishing applies the settings with the layout, in the same version.
+  await publishPage(page.id, undefined, undefined, admin.id)
+  p = (await getPageById(page.id))!
+  ok(p.title === 'Who we are' && p.slug === 'who-we-are' && p.draftDetails === null, 'publishing applies the settings')
+  ok((await getPublishedPage('who-we-are')) !== null && (await getPublishedPage('about-us')) === null, 'visitors now find it at the new address')
+  ok((await shape()) === '2:published,1:published', `version 2 is what went live: ${await shape()}`)
+
+  // Changing a setting back to what is live clears the draft.
+  await savePageDetails(page.id, { title: 'Temporary', slug: 'who-we-are' })
+  await savePageDetails(page.id, { title: 'Who we are', slug: 'who-we-are' })
+  ok((await getPageById(page.id))!.draftDetails === null, 'settings back to the live ones leave no draft')
+
+  // Restoring version 1 brings its title and address back, as a draft of a new version.
+  const base = (await getPageById(page.id))!.updatedAt.getTime()
+  const restored = await restorePageVersion(page.id, 1, { baseVersion: base, by: admin.id })
+  p = (await getPageById(page.id))!
+  ok(p.draftDetails?.title === 'About us' && p.draftDetails.slug === 'about-us' && p.title === 'Who we are', `the restore is a draft of the old settings (version ${restored.number})`)
+  await publishPage(page.id)
+  ok((await getPageById(page.id))!.slug === 'about-us', 'publishing the restore brings the old address back')
+
+  // A page that is not live has nothing to protect: settings are written straight away.
+  await unpublishPage(other.id)
+  await savePageDetails(other.id, { title: 'Other page', slug: 'other' })
+  ok((await getPageById(other.id))!.title === 'Other page', 'on a page that is not live, settings apply at once')
+
+  for (const id of [page.id, other.id]) {
+    await archivePage(id)
+    await deletePage(id)
+  }
 })
 
 await check('pages: the homepage always exists, starts from the built-in layout, keeps its address, cannot be archived or deleted', async () => {
@@ -793,7 +868,9 @@ await check('pages: the homepage always exists, starts from the built-in layout,
 
   ok((await fieldErrors(savePageDetails(home.id, { slug: 'start' }))).slug, 'its address cannot change')
   await savePageDetails(home.id, { title: 'Welcome', slug: 'home' })
-  ok((await getPageById(home.id))!.title === 'Welcome', 'its title can change')
+  ok((await getPageById(home.id))!.draftDetails?.title === 'Welcome', 'its title can change (as a draft: the homepage is live)')
+  await publishPage(home.id)
+  ok((await getPageById(home.id))!.title === 'Welcome', 'and goes live when published')
   ok(/cannot be archived/.test(await userError(archivePage(home.id))), 'cannot be archived')
   ok(/cannot be deleted/.test(await userError(deletePage(home.id))), 'cannot be deleted')
   await unpublishPage(home.id)
@@ -861,7 +938,9 @@ await check('pages: the Pets page is a system page at id 2, keeps /pets, cannot 
 
   // Its own reserved address is fine for it, and for nobody else.
   await savePageDetails(2, { title: 'Meet the pets', slug: 'pets' })
-  ok((await getPageById(2))!.title === 'Meet the pets', 'its title can change')
+  ok((await getPageById(2))!.draftDetails?.title === 'Meet the pets', 'its title can change (as a draft: the Pets page is live)')
+  await publishPage(2)
+  ok((await getPageById(2))!.title === 'Meet the pets', 'and goes live when published')
   ok((await fieldErrors(savePageDetails(2, { slug: 'animals' }))).slug, 'its address cannot change')
   ok((await fieldErrors(savePageDetails(null, { title: 'Copy', slug: 'pets' }))).slug, 'no other page can take /pets')
   ok(/cannot be archived/.test(await userError(archivePage(2))), 'cannot be archived')
