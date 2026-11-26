@@ -319,3 +319,31 @@ export const pluginMigrations = pgTable(
   },
   (t) => [primaryKey({ columns: [t.plugin, t.migration] })],
 )
+
+// --- Activity log ------------------------------------------------------------------------
+
+// Who did what, and when (src/server/activity.ts). Append-only: nothing in the app edits a row, and
+// rows older than ACTIVITY_LOG_DAYS (default 365) are purged. No foreign keys on purpose: an entry
+// outlives the account and the item it is about, so their names are copied in when it is written.
+// `fields` lists which fields changed, never their values, so the log holds no personal data.
+export const activityLog = pgTable(
+  'activity_log',
+  {
+    id: id(),
+    at: timestamp('at').notNull().defaultNow(),
+    // Who did it; null for a failed sign-in (nobody signed in).
+    actorId: text('actor_id'),
+    actorName: text('actor_name'),
+    actorRole: text('actor_role'),
+    // `pet.update`, `auth.sign-in-failed`, `form-builder.form.update`...; `area` groups them.
+    action: text('action').notNull(),
+    area: text('area').notNull(),
+    summary: text('summary').notNull(),
+    subjectId: text('subject_id'),
+    subjectLabel: text('subject_label'),
+    fields: jsonb('fields').$type<string[]>(),
+    // The client address (an IPv6 address cut to its /64), when the proxy reports one.
+    client: text('client'),
+  },
+  (t) => [index('activity_log_at_idx').on(t.at), index('activity_log_actor_at_idx').on(t.actorId, t.at), index('activity_log_area_at_idx').on(t.area, t.at)],
+)

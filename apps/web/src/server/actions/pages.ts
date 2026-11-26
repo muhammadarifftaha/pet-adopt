@@ -15,6 +15,7 @@ import {
   savePageDetails,
   unpublishPage,
 } from '../pages'
+import { changedFields, pageSettings, recordPageActivity } from '../activity'
 import { assertId, run, type ActionResult } from '../result'
 import { requirePermission } from '../session'
 import type { Page, PageVersionSummary } from '../types'
@@ -42,7 +43,20 @@ export async function getPageAction(id: number): Promise<ActionResult<Page | nul
 export async function savePageDetailsAction(id: number | null, input: unknown): Promise<ActionResult<{ id: number; slug: string }>> {
   return run(async () => {
     const user = await requirePermission('pages:edit')
-    return savePageDetails(id === null ? null : assertId(id), input, { by: user.id })
+    const pageId = id === null ? null : assertId(id)
+    const before = pageId === null ? null : await getPageById(pageId)
+    const saved = await savePageDetails(pageId, input, { by: user.id })
+    const after = await getPageById(saved.id)
+    if (pageId === null) {
+      await recordPageActivity(user, saved.id, 'page.create', (title) => `Created the page ${title}`)
+    } else {
+      // On a live page the settings wait for Publish, like the layout.
+      const pending = Boolean(after?.draftDetails)
+      await recordPageActivity(user, saved.id, 'page.settings', (title) => `Changed the settings of the page ${title}${pending ? ' (draft, not live yet)' : ''}`, {
+        fields: changedFields(pageSettings(before), pageSettings(after)),
+      })
+    }
+    return saved
   })
 }
 
@@ -54,7 +68,10 @@ export async function savePageDetailsAction(id: number | null, input: unknown): 
 export async function saveDraftAction(id: number, data: unknown, baseVersion?: number): Promise<ActionResult<{ version: number }>> {
   return run(async () => {
     const user = await requirePermission('pages:edit')
-    return saveDraft(assertId(id), data, version(baseVersion), user.id)
+    const pageId = assertId(id)
+    const saved = await saveDraft(pageId, data, version(baseVersion), user.id)
+    await recordPageActivity(user, pageId, 'page.draft', (title) => `Saved a draft of the page ${title}`)
+    return saved
   })
 }
 
@@ -66,30 +83,39 @@ export async function publishPageAction(
 ): Promise<ActionResult<{ slug: string; version: number }>> {
   return run(async () => {
     const user = await requirePermission('pages:edit')
-    return publishPage(assertId(id), data, version(baseVersion), user.id)
+    const pageId = assertId(id)
+    const published = await publishPage(pageId, data, version(baseVersion), user.id)
+    await recordPageActivity(user, pageId, 'page.publish', (title) => `Published the page ${title}`)
+    return published
   })
 }
 
 export async function unpublishPageAction(id: number): Promise<ActionResult> {
   return run(async () => {
-    await requirePermission('pages:edit')
-    await unpublishPage(assertId(id))
+    const user = await requirePermission('pages:edit')
+    const pageId = assertId(id)
+    await unpublishPage(pageId)
+    await recordPageActivity(user, pageId, 'page.unpublish', (title) => `Unpublished the page ${title}`)
   })
 }
 
 /** Takes the page off the site and makes it read-only, until it is restored or deleted. */
 export async function archivePageAction(id: number): Promise<ActionResult> {
   return run(async () => {
-    await requirePermission('pages:edit')
-    await archivePage(assertId(id))
+    const user = await requirePermission('pages:edit')
+    const pageId = assertId(id)
+    await archivePage(pageId)
+    await recordPageActivity(user, pageId, 'page.archive', (title) => `Archived the page ${title}`)
   })
 }
 
 /** Brings an archived page back exactly as it was. */
 export async function restorePageAction(id: number): Promise<ActionResult> {
   return run(async () => {
-    await requirePermission('pages:edit')
-    await restorePage(assertId(id))
+    const user = await requirePermission('pages:edit')
+    const pageId = assertId(id)
+    await restorePage(pageId)
+    await recordPageActivity(user, pageId, 'page.restore', (title) => `Brought back the archived page ${title}`)
   })
 }
 
@@ -109,7 +135,11 @@ export async function restoreAndPublishPageVersionAction(
 ): Promise<ActionResult<{ version: number; number: number }>> {
   return run(async () => {
     const user = await requirePermission('pages:edit')
-    return restoreAndPublishPageVersion(assertId(id), assertId(number), { baseVersion: version(baseVersion), by: user.id })
+    const pageId = assertId(id)
+    const from = assertId(number)
+    const result = await restoreAndPublishPageVersion(pageId, from, { baseVersion: version(baseVersion), by: user.id })
+    await recordPageActivity(user, pageId, 'page.version.restore-publish', (title) => `Restored version ${from} of the page ${title} as version ${result.number} and published it`)
+    return result
   })
 }
 
@@ -121,14 +151,21 @@ export async function restorePageVersionAction(
 ): Promise<ActionResult<{ version: number; number: number }>> {
   return run(async () => {
     const user = await requirePermission('pages:edit')
-    return restorePageVersion(assertId(id), assertId(number), { baseVersion: version(baseVersion), by: user.id })
+    const pageId = assertId(id)
+    const from = assertId(number)
+    const result = await restorePageVersion(pageId, from, { baseVersion: version(baseVersion), by: user.id })
+    await recordPageActivity(user, pageId, 'page.version.restore', (title) => `Restored version ${from} of the page ${title} as a draft (version ${result.number})`)
+    return result
   })
 }
 
 /** Deletes the page and its history for good. Only an archived page can be deleted. */
 export async function deletePageAction(id: number): Promise<ActionResult> {
   return run(async () => {
-    await requirePermission('pages:edit')
-    await deletePage(assertId(id))
+    const user = await requirePermission('pages:edit')
+    const pageId = assertId(id)
+    const before = await getPageById(pageId)
+    await deletePage(pageId)
+    await recordPageActivity(user, pageId, 'page.delete', (title) => `Deleted the page ${title} and its history`, { title: before?.title ?? null })
   })
 }

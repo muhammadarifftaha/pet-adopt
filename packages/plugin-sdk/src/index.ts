@@ -28,17 +28,21 @@ export const ROLE_INFO: Record<Role, { label: string; description: string }> = {
  */
 export const AREAS = ['pets', 'pages', 'media', 'theme', 'settings', 'plugins', 'users', 'pluginContent', 'personalData'] as const
 export type Area = (typeof AREAS)[number]
-/** `area:view` or `area:edit`, plus downloading personal data (form responses as CSV). */
-export type Permission = `${Area}:${'view' | 'edit'}` | 'personalData:export'
+/**
+ * `area:view` or `area:edit`, plus downloading personal data (form responses as CSV) and the
+ * activity log: everyone reads their own entries (`activity:own`); admins and audit read everyone's
+ * (`activity:view`) and download it (`activity:export`).
+ */
+export type Permission = `${Area}:${'view' | 'edit'}` | 'personalData:export' | 'activity:own' | 'activity:view' | 'activity:export'
 
 const edit = (...areas: Area[]) => areas.flatMap((area): Permission[] => [`${area}:view`, `${area}:edit`])
 const view = (...areas: Area[]) => areas.map((area): Permission => `${area}:view`)
 
 const GRANTS: Record<Role, ReadonlySet<Permission>> = {
-  admin: new Set<Permission>([...edit(...AREAS), 'personalData:export']),
-  editor: new Set<Permission>([...edit('pets', 'pages', 'media', 'pluginContent', 'personalData'), 'personalData:export']),
-  developer: new Set<Permission>(edit('pets', 'pages', 'media', 'pluginContent', 'theme', 'settings', 'plugins')),
-  audit: new Set<Permission>(view(...AREAS)),
+  admin: new Set<Permission>([...edit(...AREAS), 'personalData:export', 'activity:own', 'activity:view', 'activity:export']),
+  editor: new Set<Permission>([...edit('pets', 'pages', 'media', 'pluginContent', 'personalData'), 'personalData:export', 'activity:own']),
+  developer: new Set<Permission>([...edit('pets', 'pages', 'media', 'pluginContent', 'theme', 'settings', 'plugins'), 'activity:own']),
+  audit: new Set<Permission>([...view(...AREAS), 'activity:own', 'activity:view', 'activity:export']),
 }
 
 /** Whether `role` has `permission`. An unknown role has none. */
@@ -394,6 +398,32 @@ export type PluginHost = {
   emailSender(): EmailSender | null
   /** Logs an error without the values a failed database query carries. Never log error objects yourself. */
   logError(error: unknown, context?: string): void
+  /**
+   * Adds an entry to the site's activity log, as the signed-in person, after a change succeeded.
+   * Never throws (a failure is logged). See PluginActivity.
+   */
+  recordActivity(entry: PluginActivity): Promise<void>
+}
+
+/**
+ * One line of the activity log, written by a plugin. Record changes (and downloads of personal
+ * data), not reads. Never put personal data in it: name the fields that changed, not their values.
+ */
+export type PluginActivity = {
+  /** `<plugin name>.<thing>.<verb>`, such as `form-builder.form.update`. Used to filter. */
+  action: string
+  /** One sentence, past tense, for people: `Updated the form "Adopt a cat"`. */
+  summary: string
+  /** What it was done to: an id, and its name as it is now (kept even if it is deleted later). */
+  subject?: { id: string | number; label?: string | null }
+  /** Field names (or labels) that changed. */
+  fields?: string[]
+}
+
+/** One CSV cell. Cells a spreadsheet would run as a formula get an apostrophe in front. */
+export function csvCell(value: string): string {
+  const safe = /^[=+\-@\t\r]/.test(value) ? `'${value}` : value
+  return /[",\r\n]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe
 }
 
 const HOST = Symbol.for('pet-adopt.plugin-host')

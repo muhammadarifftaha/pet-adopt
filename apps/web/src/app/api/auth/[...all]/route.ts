@@ -1,3 +1,6 @@
+import { asRole } from '@pet-adopt/plugin-sdk'
+
+import { recordActivity, recordFailedSignIn } from '@/server/activity'
 import { getAuth } from '@/server/auth'
 import { UserError } from '@/server/result'
 import { clearAttempts, guardPasswordChange, guardSignIn } from '@/server/throttle'
@@ -50,7 +53,13 @@ async function handle(request: Request) {
       throw error
     }
     const response = await auth.handler(request)
-    if (response.ok) await clearAttempts(keys)
+    if (response.ok) {
+      await clearAttempts(keys)
+      const user = ((await response.clone().json().catch(() => null)) as { user?: { id: string; name: string; role?: string | null } } | null)?.user
+      if (user) await recordActivity({ actor: { id: user.id, name: user.name, role: asRole(user.role) }, action: 'auth.sign-in', area: 'sign-in', summary: 'Signed in' })
+    } else if (response.status === 401) {
+      await recordFailedSignIn(email)
+    }
     return response
   }
 
@@ -69,9 +78,23 @@ async function handle(request: Request) {
         throw error
       }
       const response = await auth.handler(request)
-      if (response.ok) await clearAttempts(keys)
+      if (response.ok) {
+        await clearAttempts(keys)
+        const { id, name, role } = session.user as { id: string; name: string; role?: string | null }
+        await recordActivity({ actor: { id, name, role: asRole(role) }, action: 'account.password', area: 'account', summary: 'Changed their own password' })
+      }
       return response
     }
+  }
+
+  if (request.method === 'POST' && pathname === '/api/auth/sign-out') {
+    const session = await auth.api.getSession({ headers: request.headers })
+    const response = await auth.handler(request)
+    if (response.ok && session?.user) {
+      const { id, name, role } = session.user as { id: string; name: string; role?: string | null }
+      await recordActivity({ actor: { id, name, role: asRole(role) }, action: 'auth.sign-out', area: 'sign-in', summary: 'Signed out' })
+    }
+    return response
   }
 
   return auth.handler(request)

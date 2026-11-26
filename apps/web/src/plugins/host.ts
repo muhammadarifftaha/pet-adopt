@@ -7,12 +7,16 @@ import { headers } from 'next/headers'
 
 import { PetStatus } from '@/lib/options'
 import { toE164, validatePhone } from '@/lib/phone'
+import { recordActivity } from '@/server/activity'
 import { logError, run } from '@/server/result'
 import { listPetChoices } from '@/server/pets'
-import { requirePermission } from '@/server/session'
+import { getSessionUser, requirePermission } from '@/server/session'
 import { clientAddress, consumeAttempt } from '@/server/throttle'
 
-import { getEmailSender } from './registry'
+import { getEmailSender, getPluginInfo } from './registry'
+
+/** `<plugin>.<thing>.<verb>`: lower-case words, starting with the name of a plugin in the config. */
+const PLUGIN_ACTION = /^([a-z0-9-]+)(\.[a-z0-9-]+)+$/
 
 provideHost({
   requirePermission,
@@ -34,4 +38,24 @@ provideHost({
   },
   emailSender: () => getEmailSender(),
   logError,
+  // Plugins log changes made by the signed-in person, under the area `plugins`. An action must start
+  // with the name of a configured plugin, so a plugin cannot pass its entries off as the site's own.
+  recordActivity: async (entry) => {
+    try {
+      const match = typeof entry?.action === 'string' ? PLUGIN_ACTION.exec(entry.action) : null
+      if (!match || !getPluginInfo(match[1])) throw new Error(`activity action "${String(entry?.action)}" must start with a plugin's name`)
+      const user = await getSessionUser()
+      if (!user) return
+      await recordActivity({
+        actor: user,
+        action: entry.action,
+        area: 'plugins',
+        summary: String(entry.summary ?? ''),
+        subject: entry.subject ? { id: entry.subject.id, label: entry.subject.label ?? null } : null,
+        fields: Array.isArray(entry.fields) ? entry.fields.filter((field): field is string => typeof field === 'string') : null,
+      })
+    } catch (error) {
+      logError(error, 'a plugin could not record activity')
+    }
+  },
 })

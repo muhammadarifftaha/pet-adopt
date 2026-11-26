@@ -1,7 +1,7 @@
 // The form builder's data rules. Server-only: everything opens the plugin's own tables through
 // `openFormsDatabase()` and reaches the app only through `host()` from the SDK. The screens call
 // these through ./actions.ts; check:backend calls them directly.
-import { foldText, host, UserError, ValidationError } from '@pet-adopt/plugin-sdk'
+import { csvCell, foldText, host, UserError, ValidationError } from '@pet-adopt/plugin-sdk'
 import { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm'
 
 import {
@@ -384,9 +384,4 @@ export async function exportResponsesCsv(formId: number): Promise<{ filename: st
   const csv = '\uFEFF' + [header, ...lines].map((cells) => cells.map(csvCell).join(',')).join('\r\n') + '\r\n'
   const base = form.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'form'
   return { filename: `${base}-responses-${new Date().toISOString().slice(0, 10)}.csv`, csv }
-}
-
-export function csvCell(value: string): string {
-  const safe = /^[=+\-@\t\r]/.test(value) ? `'${value}` : value
-  return /[",\r\n]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe
 }

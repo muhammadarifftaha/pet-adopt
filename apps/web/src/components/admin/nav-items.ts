@@ -26,5 +26,7 @@ export const ADMIN_NAV: AdminNavItem[] = [
   { href: '/admin/theme', label: 'Theme', permission: 'theme:view' },
   { href: '/admin/settings', label: 'Settings', permission: 'settings:view' },
   { href: '/admin/users', label: 'Users', permission: 'users:view' },
+  // Everyone sees their own entries; admins and audit see everyone's.
+  { href: '/admin/activity', label: 'Activity', permission: 'activity:own' },
   // Account is in the user menu in the header (UserMenu), not here.
 ]

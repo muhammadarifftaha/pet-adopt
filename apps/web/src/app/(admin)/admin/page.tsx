@@ -1,6 +1,7 @@
 import { can } from '@pet-adopt/plugin-sdk'
 import Link from 'next/link'
 
+import { RecentActivity } from '@/components/admin/activity/RecentActivity'
 import { PageHeader } from '@/components/admin/PageHeader'
 import { PluginWidgets } from '@/components/admin/PluginWidgets'
 import { buttonVariants } from '@pet-adopt/ui/components/button'
@@ -64,6 +65,7 @@ export default async function DashboardPage() {
           </li>
         ))}
       </ul>
+      {can(user.role, 'activity:own') ? <RecentActivity /> : null}
       <PluginWidgets />
     </>
   )

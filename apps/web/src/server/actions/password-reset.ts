@@ -6,8 +6,10 @@ import { after } from 'next/server'
 import { getEmailSender } from '@/plugins/registry'
 
 import { createResetLink, prepareResetEmail, resetPasswordWithToken } from '../password-reset'
+import { quoted, recordActivity } from '../activity'
 import { run, UserError, type ActionResult } from '../result'
 import { requirePermission } from '../session'
+import { listUsers } from '../users'
 
 // The first two are for people who are signed out, so they check nothing about a session. Their
 // protection is in ../password-reset.ts: request limits, one-time hashed tokens, the same answer
@@ -30,15 +32,32 @@ export async function requestPasswordResetAction(input: { email: string }): Prom
 /** `{ token, password }` from the reset page. Signs that person out everywhere. */
 export async function resetPasswordWithTokenAction(input: { token: string; password: string }): Promise<ActionResult> {
   return run(async () => {
-    await resetPasswordWithToken(input)
+    const user = await resetPasswordWithToken(input)
+    // Nobody is signed in: the link proved who they are, so the entry is theirs.
+    await recordActivity({
+      actor: user,
+      action: 'auth.password-reset',
+      area: 'account',
+      summary: 'Set a new password with a reset link (signed out everywhere)',
+      subject: { id: user.id, label: user.name },
+    })
   })
 }
 
 /** Admins: a one-time link for someone who cannot sign in, to share with them however you like. */
 export async function createResetLinkAction(userId: string): Promise<ActionResult<{ url: string; expiresAt: Date }>> {
   return run(async () => {
-    await requirePermission('users:edit')
+    const actor = await requirePermission('users:edit')
     if (typeof userId !== 'string' || !userId || userId.length > 64) throw new UserError('User not found.')
-    return createResetLink(userId)
+    const link = await createResetLink(userId)
+    const user = (await listUsers()).find((item) => item.id === userId)
+    await recordActivity({
+      actor,
+      action: 'user.reset-link',
+      area: 'users',
+      summary: `Created a password reset link for ${quoted(user?.name)}`,
+      subject: { id: userId, label: user?.name ?? null },
+    })
+    return link
   })
 }

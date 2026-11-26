@@ -72,6 +72,16 @@ import { forgetPluginStorageStatus, getPluginStorageStatus } from '../src/plugin
 import { storageProblems } from '../src/plugins/storage-rules'
 import { applyPluginMigrations, pluginMigrationStates } from '../src/db/plugin-migrations'
 import { createUser, deleteUser, ensureOwner, listUsers, resetPassword, updateUser } from '../src/server/users'
+import {
+  activityRetentionDays,
+  changedFields,
+  exportActivityCsv,
+  listActivity,
+  listActivityActors,
+  purgeOldActivity,
+  recordActivity,
+  recordFailedSignIn,
+} from '../src/server/activity'
 
 let failures = 0
 async function check(name: string, fn: () => Promise<unknown>) {
@@ -1694,11 +1704,12 @@ await check('form builder: a "Which pet?" question offers listed pets that are n
 await check('roles: the permission table is as agreed, every action checks a permission, developer and audit accounts work', async () => {
   // The table agreed with the owner. Any change to what a role may do must change this too.
   const table: Record<Role, string> = {
-    // pets pages media theme settings plugins users pluginContent personalData (v = view, e = edit, - = none), then export
-    admin: 'e e e e e e e e e x',
-    editor: 'e e e - - - - e e x',
-    developer: 'e e e e e e - e - -',
-    audit: 'v v v v v v v v v -',
+    // pets pages media theme settings plugins users pluginContent personalData (v = view, e = edit, - = none),
+    // then: export personal data, then the activity log (o = own entries, a = everyone's, x = everyone's and download)
+    admin: 'e e e e e e e e e x x',
+    editor: 'e e e - - - - e e x o',
+    developer: 'e e e e e e - e - - o',
+    audit: 'v v v v v v v v v - x',
   }
   const areas = ['pets', 'pages', 'media', 'theme', 'settings', 'plugins', 'users', 'pluginContent', 'personalData'] as const
   for (const role of ROLES) {
@@ -1712,6 +1723,9 @@ await check('roles: the permission table is as agreed, every action checks a per
       ok(!edit || view, `${role} can edit ${area} without viewing it`)
     })
     ok(can(role, 'personalData:export') === (cells[9] === 'x'), `${role} and downloading personal data`)
+    const activity = can(role, 'activity:export') ? 'x' : can(role, 'activity:view') ? 'a' : can(role, 'activity:own') ? 'o' : '-'
+    ok(activity === cells[10], `${role} and the activity log: expected ${cells[10]}, got ${activity}`)
+    ok(!can(role, 'activity:export') || can(role, 'activity:view'), `${role} can download the activity log without reading it`)
   }
   ok(!can(asRole('superuser'), 'pets:view') || asRole('superuser') === 'audit', 'an unknown stored role changes nothing')
   ok(asRole('superuser') === 'audit' && asRole(null) === 'audit', 'unknown roles are read as audit')
@@ -1746,6 +1760,21 @@ await check('roles: the permission table is as agreed, every action checks a per
   }
   ok(unchecked.length === 0, `actions without a permission check: ${unchecked.join(', ')}`)
 
+  // Every action that changes something (or downloads) writes to the activity log. Listed: not
+  // changes (a test email), or agreed not to be logged (marking responses as read).
+  const unlogged = new Set(['sendTestEmailAction', 'markResponsesReadAction'])
+  const silent: string[] = []
+  for (const file of files) {
+    const source = readFileSync(file, 'utf8')
+    for (const part of source.split(/^export async function /m).slice(1)) {
+      const name = part.match(/^(\w+)/)?.[1] ?? '?'
+      const body = part.split(/^export /m)[0]
+      if (unlogged.has(name) || !/requirePermission\([^)]*(:edit|:export)/.test(body)) continue
+      if (!/record\w*\(/.test(body)) silent.push(`${file}: ${name}`)
+    }
+  }
+  ok(silent.length === 0, `changes that are not logged: ${silent.join(', ')}`)
+
   // The new roles as accounts: created, changed, and the last-admin rule still holds.
   const dev = await createUser({ email: 'dev@example.test', name: 'Dev Eloper', password: 'developer-password-1', role: 'developer' })
   const aud = await createUser({ email: 'audit@example.test', name: 'Audrey Tor', password: 'audit-password-123', role: 'audit' })
@@ -1762,6 +1791,78 @@ await check('roles: the permission table is as agreed, every action checks a per
   }
   await deleteUser(dev.id)
   await deleteUser(aud.id)
+})
+
+await check('activity log: entries name fields not values, own vs everyone, failed sign-ins keep no email, plugins prefixed, CSV safe, old entries purged', async () => {
+  const { db, t } = await getDatabase()
+  await db.delete(t.activityLog)
+  const ana = await createUser({ email: 'ana@example.test', name: 'Ana', password: 'ana-password-123456', role: 'editor' })
+  const ben = await createUser({ email: 'ben@example.test', name: 'Ben', password: 'ben-password-123456', role: 'audit' })
+  const anaActor = { id: ana.id, name: 'Ana', role: 'editor' as const }
+
+  // Changed fields: names only, deep comparison, timestamps ignored.
+  const fields = changedFields(
+    { name: 'Bella', status: 'available', temperament: ['calm'], updatedAt: new Date(1), notes: 'x' },
+    { name: 'Bella', status: 'adopted', temperament: ['calm', 'shy'], updatedAt: new Date(2), notes: 'x' },
+  )
+  ok(isEqual(fields, ['status', 'temperament']), `changed fields: ${fields}`)
+
+  await recordActivity({ actor: anaActor, action: 'pet.update', area: 'pets', summary: 'Updated the pet “Bella”', subject: { id: 7, label: 'Bella' }, fields, client: '192.0.2.7' })
+  await recordActivity({ actor: { id: ben.id, name: 'Ben', role: 'audit' }, action: 'auth.sign-in', area: 'sign-in', summary: 'Signed in', client: null })
+  // A failed sign-in finds the account but stores neither the typed email nor anything typed.
+  await recordFailedSignIn('ANA@example.test', '192.0.2.8')
+  await recordFailedSignIn('password-typed-in-the-email-box', '192.0.2.9')
+  const rows = await db.select().from(t.activityLog)
+  ok(rows.length === 4, `four entries, got ${rows.length}`)
+  ok(!JSON.stringify(rows).includes('password-typed') && !JSON.stringify(rows).toLowerCase().includes('ana@example.test'), 'no typed email is stored')
+  const failed = rows.filter((row) => row.action === 'auth.sign-in-failed')
+  ok(failed.some((row) => row.subjectId === ana.id && row.actorId === null) && failed.some((row) => row.subjectId === null), 'failed sign-ins: one on Ana, one unknown')
+
+  // Own scope: what they did plus failed sign-ins on their account. Everyone: all of it.
+  const own = await listActivity({ id: ana.id, all: false })
+  ok(own.total === 2 && own.entries.every((row) => row.actorId === ana.id || row.subjectId === ana.id), `Ana sees her own: ${own.total}`)
+  const everyone = await listActivity({ id: ben.id, all: true })
+  ok(everyone.total === 4, `audit sees everything: ${everyone.total}`)
+  ok((await listActivity({ id: ben.id, all: false }, { actor: ana.id })).total === 1, 'the person filter cannot widen the own scope')
+  ok((await listActivity({ id: ben.id, all: true }, { actor: ana.id })).total === 1, 'filter by person')
+  ok((await listActivity({ id: ben.id, all: true }, { area: 'sign-in' })).total === 3, 'filter by area')
+  ok(/Unknown area/.test(await userError(listActivity({ id: ben.id, all: true }, { area: 'nope' }))), 'an unknown area is refused')
+  ok(/not valid/.test(await userError(listActivity({ id: ben.id, all: true }, { from: 'yesterday-ish' }))), 'a bad date is refused')
+  const future = new Date(Date.now() + 60_000).toISOString()
+  ok((await listActivity({ id: ben.id, all: true }, { from: future })).total === 0 && (await listActivity({ id: ben.id, all: true }, { to: future })).total === 4, 'date range')
+  ok(isEqual((await listActivityActors()).map((a) => a.name), ['Ana', 'Ben']), 'people with entries')
+
+  // CSV: a summary that looks like a formula is defused; commas and quotes are escaped.
+  await recordActivity({ actor: anaActor, action: 'pet.update', area: 'pets', summary: '=HYPERLINK("http://evil")', subject: { id: 8, label: 'Rex, "the dog"' } })
+  const csv = await exportActivityCsv({ id: ben.id, all: true })
+  ok(csv.rows === 5 && !csv.truncated && csv.csv.startsWith('\uFEFFWhen (UTC),Who'), 'CSV header and rows')
+  ok(csv.csv.includes(`"'=HYPERLINK(""http://evil"")"`) && csv.csv.includes(`"Rex, ""the dog"""`), 'CSV cells are escaped and formulas defused')
+
+  // Plugins: recorded under `plugins` only with their own name in front, and only for a signed-in person.
+  const before = (await db.select().from(t.activityLog)).length
+  await host().recordActivity({ action: 'pet.delete', summary: 'pretending to be the site' })
+  await host().recordActivity({ action: 'form-builder.form.update', summary: 'Updated the form' })
+  ok((await db.select().from(t.activityLog)).length === before, 'a non-plugin action is refused, and nothing is logged with nobody signed in')
+
+  // Retention: older than ACTIVITY_LOG_DAYS (default 365) is purged.
+  ok(activityRetentionDays() === 365, 'kept for a year by default')
+  const day = 24 * 60 * 60 * 1000
+  await db.insert(t.activityLog).values({ action: 'pet.update', area: 'pets', summary: 'old', at: new Date(Date.now() - 366 * day) })
+  await db.insert(t.activityLog).values({ action: 'pet.update', area: 'pets', summary: 'recent', at: new Date(Date.now() - 364 * day) })
+  ok((await purgeOldActivity()) === 1, 'one old entry purged')
+  const saved = process.env.ACTIVITY_LOG_DAYS
+  process.env.ACTIVITY_LOG_DAYS = '90'
+  ok(activityRetentionDays() === 90 && (await purgeOldActivity()) === 1, 'ACTIVITY_LOG_DAYS shortens it')
+  process.env.ACTIVITY_LOG_DAYS = 'nonsense'
+  ok(activityRetentionDays() === 365, 'a bad value falls back to a year')
+  if (saved === undefined) delete process.env.ACTIVITY_LOG_DAYS
+  else process.env.ACTIVITY_LOG_DAYS = saved
+
+  // Entries outlive their account (no foreign key) and keep the name.
+  await deleteUser(ana.id)
+  ok((await listActivity({ id: ben.id, all: true }, { actor: ana.id })).entries.every((row) => row.actorName === 'Ana'), 'entries outlive the account')
+  await deleteUser(ben.id)
+  await db.delete(t.activityLog)
 })
 
 // FK enforcement is on (SQLite needs a pragma)
