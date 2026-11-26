@@ -27,6 +27,7 @@ const MEDIA_KEY = "media";
 
 const toRef = (media: MediaItem): PetFormMedia => ({
   id: media.id,
+  url: media.url,
   thumbnailUrl: media.thumbnailUrl,
   alt: media.alt,
 });

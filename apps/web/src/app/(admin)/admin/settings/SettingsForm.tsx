@@ -147,9 +147,10 @@ function ImageField({
             <FieldDescription id={`${id}-description`}>{description}</FieldDescription>
             {image ? (
               <div className="flex items-center gap-3 rounded-lg border p-2">
-                {/* Decorative here: the text beside it is the image's description. */}
+                {/* Decorative here: the text beside it is the image's description. The original, scaled
+                    to fit: thumbnails are 4:3 crops, which cut the top and bottom off a logo. */}
                 <Image
-                  src={image.thumbnailUrl}
+                  src={image.url}
                   alt=""
                   width={previewSize}
                   height={previewSize}

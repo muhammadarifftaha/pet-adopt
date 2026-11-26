@@ -34,7 +34,7 @@ export async function AdminShell({
   const [cookieStore, settings] = await Promise.all([cookies(), getSettings()]);
   const defaultOpen = cookieStore.get("sidebar_state")?.value !== "false";
   // The site's own name and logo (Settings > Brand), so owners see whose admin this is.
-  const logo = settings.logo?.thumbnailUrl ? settings.logo : null;
+  const logo = settings.logo?.url ? settings.logo : null;
 
   return (
     <SidebarProvider defaultOpen={defaultOpen}>
@@ -55,7 +55,8 @@ export async function AdminShell({
             {/* Decorative: the site name beside it is the link's text. */}
             {logo ? (
               <Image
-                src={logo.thumbnailUrl}
+                // The original, scaled to fit (thumbnails are 4:3 crops that cut a logo's edges).
+                src={logo.url}
                 alt=""
                 width={32}
                 height={32}
