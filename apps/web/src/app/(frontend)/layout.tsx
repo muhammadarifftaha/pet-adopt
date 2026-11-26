@@ -9,6 +9,7 @@ import { ThemeStyle } from '@/components/site/ThemeStyle'
 import { ThemeToggle } from '@/components/site/ThemeToggle'
 import { WhatsAppButton } from '@/components/site/WhatsAppButton'
 import { getPrivacyPolicy, getSettings, mediaOf, siteIcons } from '@/lib/queries'
+import { robotsFor } from '@/lib/seo'
 import { fillMessage } from '@/lib/whatsapp'
 
 import '@pet-adopt/ui/globals.css'
@@ -25,6 +26,9 @@ export async function generateMetadata(): Promise<Metadata> {
     title: { default: settings.siteName, template: `%s | ${settings.siteName}` },
     description: settings.tagline ?? undefined,
     openGraph: { siteName: settings.siteName, type: 'website' },
+    // Pages with their own metadata repeat this (pageMetadata in src/lib/seo.ts): a preview or
+    // staging copy of the site is never indexed.
+    robots: robotsFor(),
     icons: siteIcons(settings),
   }
 }

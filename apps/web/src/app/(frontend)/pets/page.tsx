@@ -2,7 +2,8 @@ import type { Metadata } from 'next'
 import React from 'react'
 
 import { BuilderContent } from '@/components/site/BuilderContent'
-import { getPublishedPage, mediaOf, type CatalogParams } from '@/lib/queries'
+import { getPublishedPage, getSettings, type CatalogParams } from '@/lib/queries'
+import { pageMetadata } from '@/lib/seo'
 import { DEFAULT_PETS_DATA, isPuckData } from '@/puck/data'
 
 // The Pets page is a builder page (slug "pets", always id 2): owners can put anything around the
@@ -12,12 +13,19 @@ import { DEFAULT_PETS_DATA, isPuckData } from '@/puck/data'
 const DEFAULT_TITLE = 'Adoptable pets'
 const DEFAULT_DESCRIPTION = 'Browse the pets currently looking for a home.'
 
-export async function generateMetadata(): Promise<Metadata> {
-  const page = await getPublishedPage('pets')
-  const image = mediaOf(page?.seo?.image)
-  const title = page?.title || DEFAULT_TITLE
-  const description = page?.seo?.description || DEFAULT_DESCRIPTION
-  return { title, description, openGraph: { title, description, images: image ? [image.url] : undefined } }
+// Filtered or paged catalogues (`?species=cat&page=3`) all point at /pets as their canonical address
+// and are not indexed themselves (their links still are): every pet is in the sitemap anyway.
+export async function generateMetadata({ searchParams }: { searchParams: Promise<CatalogParams> }): Promise<Metadata> {
+  const [page, settings, params] = await Promise.all([getPublishedPage('pets'), getSettings(), searchParams])
+  const filtered = Object.values(params).some((value) => (Array.isArray(value) ? value.some(Boolean) : Boolean(value)))
+  return pageMetadata({
+    path: '/pets',
+    siteName: settings.siteName,
+    title: page?.title || DEFAULT_TITLE,
+    description: page?.seo?.description || DEFAULT_DESCRIPTION,
+    image: page?.seo?.image,
+    robots: filtered ? 'noindex-follow' : 'index',
+  })
 }
 
 export default async function PetsPage({ searchParams }: { searchParams: Promise<CatalogParams> }) {

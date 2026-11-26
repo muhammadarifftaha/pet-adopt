@@ -55,6 +55,8 @@ import { getStorage, s3Settings } from '../src/server/storage'
 import { StripError, stripMetadata } from '../src/server/strip-metadata'
 import { getSettings, updateSettings } from '../src/server/settings'
 import { getPrivacyPolicy } from '../src/server/privacy'
+import { sitemapEntries } from '../src/server/sitemap'
+import { absoluteUrl, jsonLd, organizationLd, pageMetadata, petBreadcrumbsLd, searchIndexingAllowed, SITE_URL } from '../src/lib/seo'
 import {
   PAIR_RULE,
   PASSWORD_CHANGE_RULE,
@@ -1097,6 +1099,54 @@ await check('privacy policy: one of your own pages, linked only while live; buil
   await deletePage(page.id)
   ok((await getSettings()).privacyPageId === null, 'deleting the page clears the setting')
   await updateSettings({ privacyPageId: null })
+})
+
+await check('search: the sitemap lists live pages and listed, not adopted pets (with photos); previews are never indexed; canonical, share cards and structured data', async () => {
+  const photo = await saveUpload({ data: png, alt: 'Sitemap photo' })
+  const listed = await savePet(null, { name: 'Sitemap Listed', species: 'cat', photoIds: [photo.id], location: 'Ipoh' })
+  const adopted = await savePet(null, { name: 'Sitemap Adopted', species: 'cat', photoIds: [photo.id], location: 'Ipoh', status: 'adopted' })
+  const hidden = await savePet(null, { name: 'Sitemap Hidden', species: 'cat', photoIds: [photo.id], location: 'Ipoh', unlisted: true })
+  const live = await savePageDetails(null, { title: 'Sitemap live', slug: 'sitemap-live' })
+  await saveDraft(live.id, { root: { props: {} }, zones: {}, content: [] })
+  await publishPage(live.id)
+  const draft = await savePageDetails(null, { title: 'Sitemap draft', slug: 'sitemap-draft' })
+  try {
+    const entries = await sitemapEntries()
+    const urls = entries.map((entry) => entry.url)
+    ok(urls[0] === absoluteUrl('/') && urls[1] === absoluteUrl('/pets'), `homepage and Pets page first: ${urls.slice(0, 2)}`)
+    ok(urls.includes(absoluteUrl('/sitemap-live')) && !urls.includes(absoluteUrl('/sitemap-draft')), 'live pages in, drafts out')
+    ok(!urls.includes(absoluteUrl('/pet-page')) && urls.filter((url) => url === absoluteUrl('/')).length === 1, 'never the Pet page template, the homepage once')
+    const pet = entries.find((entry) => entry.url === absoluteUrl(`/pets/${listed.slug}`))
+    ok(pet !== undefined && pet.images?.[0]?.startsWith(SITE_URL + '/media/') === true, `a listed pet with its main photo: ${JSON.stringify(pet)}`)
+    ok(!urls.includes(absoluteUrl(`/pets/${adopted.slug}`)) && !urls.includes(absoluteUrl(`/pets/${hidden.slug}`)), 'adopted and unlisted pets left out')
+    await archivePage(live.id)
+    ok(!(await sitemapEntries()).some((entry) => entry.url === absoluteUrl('/sitemap-live')), 'archived pages left out')
+  } finally {
+    for (const id of [listed.id, adopted.id, hidden.id]) await deletePet(id)
+    await deletePage(live.id)
+    await archivePage(draft.id)
+    await deletePage(draft.id)
+    await removeUpload(photo.id)
+  }
+
+  // Previews and staging copies are never indexed.
+  ok(searchIndexingAllowed({}) && searchIndexingAllowed({ VERCEL_ENV: 'production' }), 'production is indexed')
+  ok(!searchIndexingAllowed({ VERCEL_ENV: 'preview' }) && !searchIndexingAllowed({ SEARCH_INDEXING: 'OFF' }), 'previews and SEARCH_INDEXING=off are not')
+
+  // Canonical address, share card, and the robots rule kept on pages with their own metadata.
+  const meta = pageMetadata({ path: '/about', siteName: 'Paws', title: 'About', description: 'Who we are', image: { url: '/media/a.webp', alt: 'Team', width: 1200, height: 630 } })
+  ok((meta.alternates as { canonical: string }).canonical === '/about', 'canonical address')
+  const og = meta.openGraph as { siteName: string; url: string; images: Array<{ width: number; alt: string }> }
+  ok(og.siteName === 'Paws' && og.url === '/about' && og.images[0].width === 1200 && og.images[0].alt === 'Team', 'share card with the site name, address and image size')
+  ok((meta.twitter as { card: string }).card === 'summary_large_image', 'a large card when there is an image')
+  ok(JSON.stringify(pageMetadata({ path: '/x', siteName: 'Paws', robots: 'noindex-follow' }).robots) === JSON.stringify({ index: false, follow: true }), 'filtered catalogue: not indexed, links followed')
+
+  // Structured data cannot end its <script> early, whatever an owner types.
+  const ld = jsonLd(organizationLd({ siteName: 'Paws </script><script>alert(1)</script>', socials: [{ url: 'https://instagram.com/paws' }], whatsappNumber: '+60123456789' }))
+  ok(!ld.includes('</script>') && JSON.parse(ld)['@graph'][0].name.includes('</script>'), 'the < is escaped, the text intact')
+  ok(JSON.parse(ld)['@graph'][0].contactPoint.telephone === '+60123456789' && JSON.parse(ld)['@graph'][0].sameAs[0] === 'https://instagram.com/paws', 'contact and social profiles')
+  const crumbs = petBreadcrumbsLd('Adoptable pets', { name: 'Mochi', slug: 'mochi' })
+  ok(crumbs.itemListElement.map((item) => item.name).join(' › ') === 'Home › Adoptable pets › Mochi' && crumbs.itemListElement[2].item === absoluteUrl('/pets/mochi'), 'breadcrumbs')
 })
 
 await check('settings: invalid values give nested field errors; valid update is saved', async () => {
