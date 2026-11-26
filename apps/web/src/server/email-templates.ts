@@ -1,12 +1,16 @@
-// Email templates: the library people build (Settings > Templates, the builder at /edit/email/<id>)
-// and the one place that turns a purpose into a sent email. The format, the blocks and the
-// rules (placeholders per purpose, no answers in visitor confirmations) are in src/lib/email-template.ts.
+// Email templates (Settings > Email templates, the builder at /edit/email/…) and the one place that
+// turns a purpose into a sent email. The format, the blocks and the rules (placeholders per purpose,
+// no answers in visitor confirmations) are in src/lib/email-template.ts. Agreed with the owner:
+//  - The site's own emails (password reset, test; SYSTEM_PURPOSES) have no library: the built-in
+//    template is edited in place (one row per purpose, `is_default` true, created on the first
+//    save) and "Restore the original" deletes that row.
+//  - Form emails keep a library: named templates, one of them the default, and a form may pick one.
 //
-// Which template an email uses: the one asked for (a form can pick one) if it exists and has that
-// purpose, else the purpose's default template, else the built-in one. So deleting a template never
-// stops an email; it falls back.
+// Which template an email uses: the one asked for (forms) if it exists and has that purpose, else
+// the purpose's default (for a system email: its edited copy), else the built-in one. So deleting a
+// template never stops an email; it falls back.
 import { foldText } from '@pet-adopt/plugin-sdk'
-import { and, asc, eq, ne } from 'drizzle-orm'
+import { and, asc, eq, inArray, ne } from 'drizzle-orm'
 
 import { getDatabase } from '@/db/client'
 import {
@@ -14,6 +18,8 @@ import {
   EMAIL_PURPOSES,
   emailThemeFrom,
   isEmailPurpose,
+  isSystemPurpose,
+  LIBRARY_PURPOSES,
   PURPOSE_INFO,
   renderEmail,
   TEMPLATE_LIMITS,
@@ -21,6 +27,7 @@ import {
   type EmailPurpose,
   type RenderContext,
   type RenderedEmail,
+  type SystemPurpose,
   type TemplateData,
 } from '@/lib/email-template'
 import { resolveTheme } from '@/lib/theme'
@@ -34,7 +41,7 @@ export type EmailTemplateSummary = { id: number; name: string; purpose: EmailPur
 export type EmailTemplateRecord = EmailTemplateSummary & { data: TemplateData }
 
 const DEFAULT_LOCK = 'email-templates:default'
-const PURPOSE_OPTIONS = EMAIL_PURPOSES.map((value) => ({ value }))
+const PURPOSE_OPTIONS = LIBRARY_PURPOSES.map((value) => ({ value }))
 
 function toRecord(row: { id: number; name: string; purpose: string; data: unknown; isDefault: boolean; updatedAt: Date }): EmailTemplateRecord | null {
   if (!isEmailPurpose(row.purpose)) return null
@@ -63,7 +70,8 @@ export async function getEmailTemplate(id: number): Promise<EmailTemplateRecord 
 
 async function assertNameFree(name: string, exceptId?: number) {
   const folded = foldText(name)
-  const others = await listEmailTemplates()
+  // Only the library has names people choose; the site's own emails are not in it.
+  const others = (await listEmailTemplates()).filter((other) => !isSystemPurpose(other.purpose))
   if (others.some((other) => other.id !== exceptId && foldText(other.name) === folded)) throw new ValidationError({ name: 'Another template already has this name.' })
 }
 
@@ -74,6 +82,7 @@ export async function createEmailTemplate(raw: unknown, by: string | null): Prom
   const name = f.requiredText('name', TEMPLATE_LIMITS.name)
   const purpose = f.oneOf('purpose', PURPOSE_OPTIONS, { required: true })
   const fromId = input.fromId === undefined || input.fromId === null ? null : f.id('fromId')
+  if (isSystemPurpose(input.purpose)) f.fail_('purpose', 'This email has no library: edit its built-in template instead.')
   f.done()
   await assertNameFree(name as string)
   let data: TemplateData = DEFAULT_TEMPLATES[purpose as EmailPurpose]
@@ -98,7 +107,7 @@ const layoutErrors = (errors: string[]) => new ValidationError(Object.fromEntrie
 export async function saveEmailTemplate(id: number, raw: unknown): Promise<EmailTemplateRecord> {
   const input = asRecord(raw)
   const current = await getEmailTemplate(id)
-  if (!current) throw new UserError('This template no longer exists.')
+  if (!current || isSystemPurpose(current.purpose)) throw new UserError('This template no longer exists.')
   const f = new Fields(input)
   const name = f.text('name', TEMPLATE_LIMITS.name)
   if (name === null) f.fail_('name', 'Give the template a name.')
@@ -122,7 +131,7 @@ export async function setDefaultEmailTemplate(id: number, isDefault: boolean): P
   await withTransaction(
     async (tx) => {
       const [row] = await tx.select({ purpose: t.emailTemplates.purpose }).from(t.emailTemplates).where(eq(t.emailTemplates.id, id)).limit(1)
-      if (!row) throw new UserError('This template no longer exists.')
+      if (!row || isSystemPurpose(row.purpose)) throw new UserError('This template no longer exists.')
       if (isDefault) await tx.update(t.emailTemplates).set({ isDefault: false }).where(and(eq(t.emailTemplates.purpose, row.purpose), ne(t.emailTemplates.id, id)))
       await tx.update(t.emailTemplates).set({ isDefault }).where(eq(t.emailTemplates.id, id))
     },
@@ -133,8 +142,51 @@ export async function setDefaultEmailTemplate(id: number, isDefault: boolean): P
 /** Deletes a template. Emails and forms that used it fall back to the default, then the built-in one. */
 export async function deleteEmailTemplate(id: number): Promise<void> {
   const { db, t } = await getDatabase()
-  const removed = await db.delete(t.emailTemplates).where(eq(t.emailTemplates.id, id)).returning({ id: t.emailTemplates.id })
+  const removed = await db
+    .delete(t.emailTemplates)
+    .where(and(eq(t.emailTemplates.id, id), inArray(t.emailTemplates.purpose, [...LIBRARY_PURPOSES])))
+    .returning({ id: t.emailTemplates.id })
   if (!removed.length) throw new UserError('This template no longer exists.')
+}
+
+// --- The site's own emails (edited in place) -----------------------------------------------------
+
+export type SystemEmail = { purpose: SystemPurpose; data: TemplateData; customised: boolean; updatedAt: Date | null }
+
+async function systemRow(purpose: SystemPurpose) {
+  const { db, t } = await getDatabase()
+  const [row] = await db.select().from(t.emailTemplates).where(eq(t.emailTemplates.purpose, purpose)).orderBy(asc(t.emailTemplates.id)).limit(1)
+  return row ?? null
+}
+
+/** The email as it is sent now: the edited copy, or the built-in template. */
+export async function getSystemEmail(purpose: SystemPurpose): Promise<SystemEmail> {
+  const row = await systemRow(purpose)
+  const record = row ? toRecord(row) : null
+  return record ? { purpose, data: record.data, customised: true, updatedAt: record.updatedAt } : { purpose, data: DEFAULT_TEMPLATES[purpose], customised: false, updatedAt: null }
+}
+
+/** Saves the edited email (checked like any template). The first save creates its row. */
+export async function saveSystemEmail(purpose: SystemPurpose, raw: unknown, by: string | null): Promise<SystemEmail> {
+  const check = validateTemplate(raw, purpose)
+  if (!check.ok) throw layoutErrors(check.errors)
+  const { t, withTransaction } = await getDatabase()
+  await withTransaction(
+    async (tx) => {
+      const [row] = await tx.select({ id: t.emailTemplates.id }).from(t.emailTemplates).where(eq(t.emailTemplates.purpose, purpose)).limit(1)
+      if (row) await tx.update(t.emailTemplates).set({ data: check.data, isDefault: true, updatedAt: new Date() }).where(eq(t.emailTemplates.id, row.id))
+      else await tx.insert(t.emailTemplates).values({ name: PURPOSE_INFO[purpose].label, purpose, data: check.data, isDefault: true, createdBy: by })
+    },
+    { lock: DEFAULT_LOCK },
+  )
+  return getSystemEmail(purpose)
+}
+
+/** "Restore the original": forgets the edits, so the built-in template is sent again. Returns whether there were edits. */
+export async function restoreSystemEmail(purpose: SystemPurpose): Promise<boolean> {
+  const { db, t } = await getDatabase()
+  const removed = await db.delete(t.emailTemplates).where(eq(t.emailTemplates.purpose, purpose)).returning({ id: t.emailTemplates.id })
+  return removed.length > 0
 }
 
 // --- Rendering and sending ----------------------------------------------------------------------

@@ -1,6 +1,6 @@
 'use server'
 
-import { isEmailPurpose, PURPOSE_INFO, type EmailPurpose } from '@/lib/email-template'
+import { isEmailPurpose, isSystemPurpose, PURPOSE_INFO, type EmailPurpose } from '@/lib/email-template'
 
 import { quoted, recordActivity, type Actor } from '../activity'
 import { getEmailSender } from '../email'
@@ -10,10 +10,13 @@ import {
   getEmailTemplate,
   listEmailTemplates,
   renderTemplatePreview,
+  restoreSystemEmail,
   saveEmailTemplate,
+  saveSystemEmail,
   setDefaultEmailTemplate,
   type EmailTemplateRecord,
   type EmailTemplateSummary,
+  type SystemEmail,
 } from '../email-templates'
 import { assertId, describeError, run, UserError, ValidationError, type ActionResult } from '../result'
 import { requirePermission } from '../session'
@@ -99,6 +102,28 @@ export async function deleteEmailTemplateAction(id: number): Promise<ActionResul
     const before = await getEmailTemplate(templateId)
     await deleteEmailTemplate(templateId)
     await record(user, 'email-template.delete', before, templateId, `Deleted the email template ${quoted(before?.name)}`)
+  })
+}
+
+/** Saves the edited copy of one of the site's own emails (password reset, test email). */
+export async function saveSystemEmailAction(purpose: string, data: unknown): Promise<ActionResult<SystemEmail>> {
+  return run(async () => {
+    const user = await requirePermission('settings:edit')
+    if (!isSystemPurpose(purpose)) throw new UserError('Unknown email.')
+    const saved = await saveSystemEmail(purpose, data, user.id)
+    await recordActivity({ actor: user, action: 'email-template.system', area: 'settings', summary: `Edited the “${PURPOSE_INFO[purpose].label}” email`, subject: { id: purpose, label: PURPOSE_INFO[purpose].label } })
+    return saved
+  })
+}
+
+/** "Restore the original": the built-in template is sent again. */
+export async function restoreSystemEmailAction(purpose: string): Promise<ActionResult> {
+  return run(async () => {
+    const user = await requirePermission('settings:edit')
+    if (!isSystemPurpose(purpose)) throw new UserError('Unknown email.')
+    if (await restoreSystemEmail(purpose)) {
+      await recordActivity({ actor: user, action: 'email-template.restore', area: 'settings', summary: `Restored the original “${PURPOSE_INFO[purpose].label}” email`, subject: { id: purpose, label: PURPOSE_INFO[purpose].label } })
+    }
   })
 }
 

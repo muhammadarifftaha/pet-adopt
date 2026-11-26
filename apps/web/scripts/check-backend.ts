@@ -89,9 +89,12 @@ import {
   deleteEmailTemplate,
   emailContext,
   listEmailTemplates,
+  getSystemEmail,
   pickTemplate,
   renderPurposeEmail,
+  restoreSystemEmail,
   saveEmailTemplate,
+  saveSystemEmail,
   setDefaultEmailTemplate,
 } from '../src/server/email-templates'
 
@@ -2036,35 +2039,46 @@ await check('email templates: only allowed blocks and placeholders, no answers t
   ok(email.html.includes('href="https://example.test/r?token=a&amp;b=1"') && email.html.includes('class="pa-columns"'), 'the reset link is filled in, escaped, and columns render')
   ok(email.subject === 'Hello <b>Ana</b> & co' && email.text.includes('Reset: https://example.test/r?token=a&b=1') && email.text.includes('Second paragraph'), `plain text and subject: ${email.subject}`)
 
-  // The library: unique names, one default per purpose, layouts checked on save.
+  ok(email.html.includes('mso-padding-alt') && email.html.includes('<!--[if mso]><table role="presentation" width="600"') && email.html.includes(`bgcolor="${ctx.theme.surface}"`), 'classic Outlook gets a bulletproof button, a fixed width and bgcolor')
+
+  // The site's own emails have no library: the built-in one is edited in place and can be restored.
   const admin = (await listUsers()).find((user) => user.role === 'admin')!
-  const a = await createEmailTemplate({ name: 'Friendly reset', purpose: 'password-reset' }, admin.id)
-  ok(/already has this name/.test((await fieldErrors(createEmailTemplate({ name: 'FRIENDLY reset', purpose: 'test' }, admin.id))).name ?? ''), 'names are unique whatever their case')
-  const b = await createEmailTemplate({ name: 'Second reset', purpose: 'password-reset', fromId: a.id }, admin.id)
-  ok((await fieldErrors(createEmailTemplate({ name: 'Wrong copy', purpose: 'test', fromId: a.id }, admin.id))).purpose, 'a copy keeps its purpose')
-  const bad = await fieldErrors(saveEmailTemplate(a.id, { data: { root: { props: { subject: '' } }, content: [{ type: 'Text', props: { text: '{{nope}}' } }] } }))
-  ok(Object.keys(bad).length >= 3 && Object.keys(bad).every((key) => key.startsWith('template.')), `layout problems come back one per field error: ${JSON.stringify(bad)}`)
+  ok((await fieldErrors(createEmailTemplate({ name: 'My reset', purpose: 'password-reset' }, admin.id))).purpose, 'no library templates for the site’s own emails')
+  ok(!(await getSystemEmail('password-reset')).customised, 'the original to start with')
+  ok(Object.keys(await fieldErrors(saveSystemEmail('password-reset', { root: { props: { subject: 'x' } }, content: [{ type: 'Text', props: { text: 'no link' } }] }, admin.id))).length > 0, 'an edited reset email still needs {{resetLink}}')
   const custom = structuredClone(DEFAULT_TEMPLATES['password-reset'])
   custom.root.props.subject = 'Custom reset for {{name}}'
-  await saveEmailTemplate(a.id, { data: custom })
-  await setDefaultEmailTemplate(a.id, true)
-  await setDefaultEmailTemplate(b.id, true)
-  const defaults = (await listEmailTemplates('password-reset')).filter((item) => item.isDefault)
-  ok(defaults.length === 1 && defaults[0].id === b.id, 'one default per purpose')
-  await setDefaultEmailTemplate(a.id, true)
-  ok((await pickTemplate('password-reset')).templateId === a.id, 'the default is used')
-  ok((await pickTemplate('password-reset', b.id)).templateId === b.id, 'a chosen template is used')
-  const testTemplate = await createEmailTemplate({ name: 'Test look', purpose: 'test' }, admin.id)
-  ok((await pickTemplate('password-reset', testTemplate.id)).templateId === a.id, 'a template of another purpose falls back to the default')
+  await saveSystemEmail('password-reset', custom, admin.id)
+  await saveSystemEmail('password-reset', custom, admin.id)
+  ok((await getSystemEmail('password-reset')).customised && (await listEmailTemplates('password-reset')).length === 1, 'edited in place: one row, however many saves')
 
-  // The password reset email uses it.
+  // The password reset email uses the edited version, and the original after a restore.
   const sent: EmailMessage[] = []
   const user = await createUser({ email: 'tpl@example.test', name: 'Tem Plate', password: 'template-password-123', role: 'editor' })
-  await (await prepareResetEmail('tpl@example.test', ip(90), { send: async (message) => void sent.push(message) }))()
-  ok(sent[0]?.subject === 'Custom reset for Tem Plate' && /reset-password\?token=/.test(sent[0].text), `the reset email uses the template: ${sent[0]?.subject}`)
-  await deleteEmailTemplate(a.id)
+  const capture = { send: async (message: EmailMessage) => void sent.push(message) }
+  await (await prepareResetEmail('tpl@example.test', ip(90), capture))()
+  ok(sent[0]?.subject === 'Custom reset for Tem Plate' && /reset-password\?token=/.test(sent[0].text), `the reset email uses the edited version: ${sent[0]?.subject}`)
+  ok((await restoreSystemEmail('password-reset')) && !(await getSystemEmail('password-reset')).customised, 'restored')
+  await (await prepareResetEmail('tpl@example.test', ip(91), capture))()
+  ok(sent[1]?.subject === 'Reset your Pet Adopt password' || /^Reset your .+ password$/.test(sent[1]?.subject ?? ''), `the original again: ${sent[1]?.subject}`)
+
+  // Form emails keep a library: unique names, one default per purpose, layouts checked on save.
+  const a = await createEmailTemplate({ name: 'Friendly notification', purpose: 'form-notification' }, admin.id)
+  ok(/already has this name/.test((await fieldErrors(createEmailTemplate({ name: 'FRIENDLY notification', purpose: 'form-confirmation' }, admin.id))).name ?? ''), 'names are unique whatever their case')
+  const b = await createEmailTemplate({ name: 'Second notification', purpose: 'form-notification', fromId: a.id }, admin.id)
+  ok((await fieldErrors(createEmailTemplate({ name: 'Wrong copy', purpose: 'form-confirmation', fromId: a.id }, admin.id))).purpose, 'a copy keeps its purpose')
+  const bad = await fieldErrors(saveEmailTemplate(a.id, { data: { root: { props: { subject: '' } }, content: [{ type: 'Text', props: { text: '{{nope}}' } }] } }))
+  ok(Object.keys(bad).length >= 2 && Object.keys(bad).every((key) => key.startsWith('template.')), `layout problems come back one per field error: ${JSON.stringify(bad)}`)
+  await setDefaultEmailTemplate(a.id, true)
+  await setDefaultEmailTemplate(b.id, true)
+  const defaults = (await listEmailTemplates('form-notification')).filter((item) => item.isDefault)
+  ok(defaults.length === 1 && defaults[0].id === b.id, 'one default per purpose')
+  ok((await pickTemplate('form-notification')).templateId === b.id, 'the default is used')
+  ok((await pickTemplate('form-notification', a.id)).templateId === a.id, 'a chosen template is used')
+  const other = await createEmailTemplate({ name: 'Confirmation look', purpose: 'form-confirmation' }, admin.id)
+  ok((await pickTemplate('form-notification', other.id)).templateId === b.id, 'a template of another purpose falls back to the default')
   await deleteEmailTemplate(b.id)
-  ok((await pickTemplate('password-reset', a.id)).templateId === null, 'deleted: the built-in template')
+  ok((await pickTemplate('form-notification', b.id)).templateId === null, 'deleted: the built-in template')
 
   // Visitor confirmations never carry answers, whatever is passed.
   const confirmation = await renderPurposeEmail({ purpose: 'form-confirmation', values: { formName: 'Hello' }, answers: [{ label: 'Secret', value: 'visitor text' }] })

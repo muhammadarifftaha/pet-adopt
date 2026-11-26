@@ -6,15 +6,18 @@ import React, { createContext, useContext, useMemo, useState, useTransition } fr
 
 import type { EmailPurpose, RenderContext } from '@/lib/email-template'
 import { emailBuilderConfig, type EmailBuilderMetadata } from '@/puck/email-config'
-import { saveEmailTemplateAction, sendEmailTemplateTestAction } from '@/server/actions/email-templates'
+import { saveEmailTemplateAction, saveSystemEmailAction, sendEmailTemplateTestAction } from '@/server/actions/email-templates'
 
 // The email builder for one template. Save checks the layout on the server (placeholders, links, the
 // purpose's rules) and lists what to fix. "Send test" sends the layout as it is now, filled with
 // sample values, to an address (the person's own by default). View-only roles get every field
 // read-only and no buttons.
 
+/** A library template (form emails), or one of the site's own emails, edited in place. */
+type Target = { kind: 'template'; id: number } | { kind: 'system'; purpose: string }
+
 type Props = {
-  templateId: number
+  target: Target
   name: string
   purpose: EmailPurpose
   purposeLabel: string
@@ -24,7 +27,7 @@ type Props = {
   readOnly: boolean
 }
 
-type EditorState = Pick<Props, 'templateId' | 'purpose' | 'defaultTo' | 'readOnly'> & { onProblems: (problems: string[]) => void }
+type EditorState = Pick<Props, 'target' | 'purpose' | 'defaultTo' | 'readOnly'> & { onProblems: (problems: string[]) => void }
 const EditorContext = createContext<EditorState | null>(null)
 const useEditor = () => {
   const value = useContext(EditorContext)
@@ -39,7 +42,7 @@ const problemsOf = (fieldErrors: Record<string, string> | undefined) =>
 
 // Replaces Puck's Publish button. `useGetPuck` reads the layout at the moment of the click.
 function HeaderActions() {
-  const { templateId, purpose, defaultTo, readOnly, onProblems } = useEditor()
+  const { target, purpose, defaultTo, readOnly, onProblems } = useEditor()
   const getPuck = useGetPuck()
   const [pending, startTransition] = useTransition()
   const [to, setTo] = useState(defaultTo)
@@ -53,7 +56,8 @@ function HeaderActions() {
 
   const save = () =>
     startTransition(async () => {
-      const result = await saveEmailTemplateAction(templateId, { data: getPuck().appState.data })
+      const data = getPuck().appState.data
+      const result = target.kind === 'system' ? await saveSystemEmailAction(target.purpose, data) : await saveEmailTemplateAction(target.id, { data })
       if (!result.ok) return failed('Not saved', result)
       onProblems([])
       setMessage({ ok: true, text: 'Saved.' })
@@ -97,11 +101,11 @@ function HeaderActions() {
 const OVERRIDES = { headerActions: HeaderActions }
 const READ_ONLY = { drag: false, duplicate: false, delete: false, edit: false, insert: false }
 
-export function EmailEditor({ templateId, name, purpose, purposeLabel, initialData, ctx, defaultTo, readOnly }: Props) {
+export function EmailEditor({ target, name, purpose, purposeLabel, initialData, ctx, defaultTo, readOnly }: Props) {
   const [problems, setProblems] = useState<string[]>([])
   const config = useMemo(() => emailBuilderConfig(purpose), [purpose])
   const metadata = useMemo<EmailBuilderMetadata>(() => ({ ctx }), [ctx])
-  const editor = useMemo<EditorState>(() => ({ templateId, purpose, defaultTo, readOnly, onProblems: setProblems }), [templateId, purpose, defaultTo, readOnly])
+  const editor = useMemo<EditorState>(() => ({ target, purpose, defaultTo, readOnly, onProblems: setProblems }), [target, purpose, defaultTo, readOnly])
 
   return (
     <EditorContext.Provider value={editor}>

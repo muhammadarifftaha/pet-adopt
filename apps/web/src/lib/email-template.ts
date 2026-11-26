@@ -8,7 +8,8 @@
 //    enter any address in a public form, so echoing answers would let strangers mail their own text.
 //
 // Every block turns itself into email-safe HTML (tables and inline styles, plus one media query for
-// stacking columns on phones) and into plain text. The builder's canvas shows that same HTML, so
+// stacking columns on phones; classic Outlook gets a fixed-width wrapper and bulletproof buttons) and
+// into plain text. The builder's canvas shows that same HTML, so
 // what is designed is what is sent. Stored data is rebuilt by `validateTemplate` from allowed
 // blocks and props only, and everything a person typed is escaped when it is rendered.
 
@@ -57,6 +58,16 @@ export const PURPOSE_INFO: Record<
 }
 
 export const isEmailPurpose = (value: unknown): value is EmailPurpose => (EMAIL_PURPOSES as readonly unknown[]).includes(value)
+
+/**
+ * The site's own emails (agreed with the owner): no library of templates. The built-in template is
+ * edited in place, and "Restore the original" brings it back. Form emails keep a library instead,
+ * so each form can pick its own.
+ */
+export const SYSTEM_PURPOSES = ['password-reset', 'test'] as const satisfies readonly EmailPurpose[]
+export type SystemPurpose = (typeof SYSTEM_PURPOSES)[number]
+export const isSystemPurpose = (value: unknown): value is SystemPurpose => (SYSTEM_PURPOSES as readonly unknown[]).includes(value)
+export const LIBRARY_PURPOSES = EMAIL_PURPOSES.filter((purpose) => !isSystemPurpose(purpose))
 
 /** The placeholders a purpose may use (its own plus the common ones). */
 export function placeholdersFor(purpose: EmailPurpose): Record<string, string> {
@@ -320,18 +331,22 @@ export function blockHtml(block: BlockData, ctx: RenderContext): string {
         .join('')
     }
     case 'Button': {
+      // A "bulletproof" button: the colour and padding sit on a table cell, which every client draws;
+      // classic Outlook (Word's engine) ignores padding on links, so it gets `mso-padding-alt` and
+      // `bgcolor` on the cell. Other clients use the link's own padding, so all of it is clickable.
       const solid = block.props.style === 'solid'
       const href = ctx.showPlaceholders ? '#' : escapeHtml(fillUrl(block.props.url, ctx))
-      const background = solid ? t.primary : 'transparent'
       const color = solid ? t.onPrimary : t.primary
-      return `<div style="margin:0 0 16px;text-align:${block.props.align}"><a href="${href}" target="_blank" style="display:inline-block;padding:12px 22px;${font}font-size:16px;font-weight:700;line-height:1.2;color:${color};background:${background};border:2px solid ${t.primary};text-decoration:none;border-radius:${t.radius}px">${fill(block.props.label, ctx)}</a></div>`
+      const cellColor = solid ? ` bgcolor="${t.primary}"` : ''
+      const tableAlign = block.props.align === 'center' ? 'center' : block.props.align
+      return `<table role="presentation" cellpadding="0" cellspacing="0" border="0" align="${tableAlign}" style="margin:0 0 16px${block.props.align === 'center' ? ';margin-left:auto;margin-right:auto' : ''}"><tr><td align="center"${cellColor} style="border-radius:${t.radius}px;background:${solid ? t.primary : 'transparent'};border:2px solid ${t.primary};mso-padding-alt:12px 22px"><a href="${href}" target="_blank" style="display:inline-block;padding:12px 22px;${font}font-size:16px;font-weight:700;line-height:1.2;color:${color};text-decoration:none;border-radius:${t.radius}px">${fill(block.props.label, ctx)}</a></td></tr></table><div style="clear:both;height:0;line-height:0;font-size:0">&nbsp;</div>`
     }
     case 'Image': {
       const image = block.props.image
       if (!image) return ctx.showPlaceholders ? `<p style="margin:0 0 16px;${font}color:${t.muted};text-align:center;border:1px dashed ${t.line};padding:24px">Choose an image</p>` : ''
       const width = block.props.width === 'half' ? 268 : 536
       const alt = fill(block.props.alt || image.alt, { ...ctx, showPlaceholders: false })
-      const img = `<img src="${escapeHtml(`${ctx.origin}${image.url}`)}" width="${width}" alt="${alt}" style="display:inline-block;width:100%;max-width:${width}px;height:auto;border:0;border-radius:${t.radius}px">`
+      const img = `<img src="${escapeHtml(`${ctx.origin}${image.url}`)}" width="${width}" alt="${alt}" style="display:inline-block;width:100%;max-width:${width}px;height:auto;border:0;outline:none;text-decoration:none;border-radius:${t.radius}px">`
       const linked = block.props.link && !ctx.showPlaceholders ? `<a href="${escapeHtml(fillUrl(block.props.link, ctx))}" target="_blank">${img}</a>` : img
       return `<div style="margin:0 0 16px;text-align:${block.props.align}">${linked}</div>`
     }
@@ -420,14 +435,20 @@ export function layoutHtml(inner: string, root: TemplateRoot, ctx: RenderContext
   const footer = footerHtml(root, ctx)
   // The preview text most inboxes show after the subject; hidden in the email itself.
   const preheader = root.preheader ? `<div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent">${fill(root.preheader, { ...ctx, showPlaceholders: false })}</div>` : ''
+  // Classic Outlook (Word's engine): the conditional comments give it a fixed 600 px table (it ignores
+  // max-width) and 96 DPI, so images are not rescaled; `bgcolor` attributes for its backgrounds.
   return `<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="light"><title>${escapeHtml(subject)}</title>
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="light"><meta name="x-apple-disable-message-reformatting"><title>${escapeHtml(subject)}</title>
+<!--[if mso]><xml><o:OfficeDocumentSettings><o:PixelsPerInch>96</o:PixelsPerInch></o:OfficeDocumentSettings></xml><![endif]-->
 <style>@media (max-width: 600px) { .pa-columns .pa-column { display: block !important; width: 100% !important; padding: 0 !important; } }</style></head>
-<body style="margin:0;padding:0;background:${t.background}">${preheader}
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:${t.background}"><tr><td align="center" style="padding:24px 12px">
-<table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:600px;background:${t.surface};border-radius:${t.radius}px;border:1px solid ${t.line}">
+<body bgcolor="${t.background}" style="margin:0;padding:0;background:${t.background}">${preheader}
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${t.background}" style="background:${t.background}"><tr><td align="center" style="padding:24px 12px">
+<!--[if mso]><table role="presentation" width="600" align="center" cellpadding="0" cellspacing="0" border="0"><tr><td><![endif]-->
+<table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" bgcolor="${t.surface}" style="width:100%;max-width:600px;background:${t.surface};border-radius:${t.radius}px;border:1px solid ${t.line}">
 ${logo ? `<tr><td align="center" style="padding:28px 32px 0">${logo}</td></tr>` : ''}<tr><td style="padding:28px 32px 12px;font-family:${safeFont(t.font)};color:${t.ink}">${inner}</td></tr>${footer ? `<tr><td style="padding:0 32px 28px">${footer}</td></tr>` : ''}
-</table></td></tr></table></body></html>`
+</table>
+<!--[if mso]></td></tr></table><![endif]-->
+</td></tr></table></body></html>`
 }
 
 export type RenderedEmail = { subject: string; html: string; text: string }

@@ -21,17 +21,21 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from '@pet-adopt/ui/components/input'
 import { Label } from '@pet-adopt/ui/components/label'
 import { useViewOnly } from '@/components/admin/view-only'
-import { EMAIL_PURPOSES, PURPOSE_INFO, type EmailPurpose } from '@/lib/email-template'
-import { createEmailTemplateAction, deleteEmailTemplateAction, saveEmailTemplateAction, setDefaultEmailTemplateAction } from '@/server/actions/email-templates'
+import { LIBRARY_PURPOSES, PURPOSE_INFO, type EmailPurpose, type SystemPurpose } from '@/lib/email-template'
+import { createEmailTemplateAction, deleteEmailTemplateAction, restoreSystemEmailAction, saveEmailTemplateAction, setDefaultEmailTemplateAction } from '@/server/actions/email-templates'
 import type { EmailTemplateSummary } from '@/server/email-templates'
 
-// Settings > Email templates: one section per kind of email the site sends. Each says which
-// template is used (the one marked "In use", or the built-in wording) and lists the templates made
-// for it. Results go to one status line (an alert for failures).
+// Settings > Email templates. The site's own emails (password reset, test) are edited in place, with
+// "Restore the original". Form emails have a library: templates made for them, one "In use" by
+// default, and each form can pick another. Results go to one status line (an alert for failures).
 
 type Announce = (text: string, isError?: boolean) => void
 
-export function EmailTemplates({ templates }: { templates: EmailTemplateSummary[] }) {
+export type SystemEmailStatus = { purpose: SystemPurpose; customised: boolean; updatedAt: Date | string | null }
+
+const edited = new Intl.DateTimeFormat('en-GB', { dateStyle: 'medium' })
+
+export function EmailTemplates({ templates, system }: { templates: EmailTemplateSummary[]; system: SystemEmailStatus[] }) {
   const router = useRouter()
   const viewOnly = useViewOnly()
   const [message, setMessage] = React.useState<{ text: string; isError: boolean; id: number } | null>(null)
@@ -44,7 +48,7 @@ export function EmailTemplates({ templates }: { templates: EmailTemplateSummary[
   return (
     <div className="flex max-w-3xl flex-col gap-6">
       <p className="text-sm text-muted-foreground">
-        Every email the site sends uses a template. Without one of your own, the built-in wording is used. Templates take the site’s colours and logo.
+        Every email the site sends is built from a template that takes the site’s colours and logo. Edit the site’s own emails directly (you can always restore the original); form emails can have several templates.
       </p>
       <div aria-live="polite" className="min-h-5 text-sm">
         {message && !message.isError ? <p key={message.id}>{message.text}</p> : null}
@@ -55,7 +59,38 @@ export function EmailTemplates({ templates }: { templates: EmailTemplateSummary[
         </p>
       ) : null}
 
-      {EMAIL_PURPOSES.map((purpose) => {
+      <section aria-labelledby="site-emails-heading" className="flex flex-col gap-3">
+        <h2 id="site-emails-heading" className="text-lg font-semibold">
+          The site’s emails
+        </h2>
+        {system.map((email) => (
+          <Card key={email.purpose}>
+            <CardHeader>
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div className="flex flex-col gap-1">
+                  <CardTitle>
+                    <h3 className="text-base font-semibold">{PURPOSE_INFO[email.purpose].label}</h3>
+                  </CardTitle>
+                  <CardDescription>{PURPOSE_INFO[email.purpose].description}</CardDescription>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  {email.customised ? <Badge>Edited</Badge> : <Badge variant="outline">The original</Badge>}
+                  <Link href={`/edit/email/${email.purpose}`} className={buttonVariants({ variant: 'outline', size: 'sm' })}>
+                    {viewOnly ? 'View' : 'Edit'}
+                    <span className="sr-only"> the {PURPOSE_INFO[email.purpose].label} email</span>
+                  </Link>
+                  {email.customised && !viewOnly ? <RestoreSystemEmail purpose={email.purpose} announce={announce} onDone={done} /> : null}
+                </div>
+              </div>
+              {email.customised && email.updatedAt ? <p className="text-sm text-muted-foreground">Last edited {edited.format(new Date(email.updatedAt))}.</p> : null}
+            </CardHeader>
+          </Card>
+        ))}
+      </section>
+
+      <h2 className="text-lg font-semibold">Form emails</h2>
+      <p className="-mt-4 text-sm text-muted-foreground">Make as many as you like; one is used by default, and each form can choose another.</p>
+      {LIBRARY_PURPOSES.map((purpose) => {
         const list = templates.filter((template) => template.purpose === purpose)
         const inUse = list.find((template) => template.isDefault)
         return (
@@ -64,7 +99,7 @@ export function EmailTemplates({ templates }: { templates: EmailTemplateSummary[
               <div className="flex flex-wrap items-start justify-between gap-2">
                 <div className="flex flex-col gap-1">
                   <CardTitle>
-                    <h2 className="text-base font-semibold">{PURPOSE_INFO[purpose].label}</h2>
+                    <h3 className="text-base font-semibold">{PURPOSE_INFO[purpose].label}</h3>
                   </CardTitle>
                   <CardDescription>{PURPOSE_INFO[purpose].description}</CardDescription>
                 </div>
@@ -72,7 +107,7 @@ export function EmailTemplates({ templates }: { templates: EmailTemplateSummary[
               </div>
               <p className="text-sm">
                 In use: <span className="font-medium">{inUse ? inUse.name : 'the built-in template'}</span>
-                {purpose.startsWith('form-') ? <span className="text-muted-foreground"> (each form can choose another)</span> : null}
+
               </p>
             </CardHeader>
             {list.length ? (
@@ -105,6 +140,42 @@ export function EmailTemplates({ templates }: { templates: EmailTemplateSummary[
         )
       })}
     </div>
+  )
+}
+
+function RestoreSystemEmail({ purpose, announce, onDone }: { purpose: SystemPurpose; announce: Announce; onDone: (text: string) => void }) {
+  const [open, setOpen] = React.useState(false)
+  const [pending, startTransition] = React.useTransition()
+  const label = PURPOSE_INFO[purpose].label
+  return (
+    <AlertDialog open={open} onOpenChange={setOpen}>
+      <AlertDialogTrigger render={<Button type="button" variant="outline" size="sm" />}>
+        Restore the original<span className="sr-only"> {label} email</span>
+      </AlertDialogTrigger>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Restore the original “{label}” email?</AlertDialogTitle>
+          <AlertDialogDescription>Your changes to this email are removed and the built-in version is sent again. This cannot be undone.</AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Keep my changes</AlertDialogCancel>
+          <Button
+            aria-disabled={pending || undefined}
+            onClick={() => {
+              if (pending) return
+              startTransition(async () => {
+                const result = await restoreSystemEmailAction(purpose)
+                setOpen(false)
+                if (result.ok) onDone(`The original “${label}” email is back.`)
+                else announce(result.error, true)
+              })
+            }}
+          >
+            {pending ? 'Restoring…' : 'Restore the original'}
+          </Button>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   )
 }
 
