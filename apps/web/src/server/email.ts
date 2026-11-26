@@ -343,6 +343,24 @@ function smtpStatus(smtp: ResolvedSmtp): EmailStatus {
   }
 }
 
+/** `localhost`, `*.localhost`, 127.x.x.x or ::1: a mail server on this machine (Mailpit, say). */
+export function isLoopbackHost(host: string | null | undefined): boolean {
+  const name = (host ?? '').trim().toLowerCase().replace(/^\[|\]$/g, '')
+  return name === 'localhost' || name.endsWith('.localhost') || /^127(\.\d{1,3}){3}$/.test(name) || name === '::1'
+}
+
+/**
+ * Whether test emails go to a mail server on this machine: the built-in SMTP sender is in use (no
+ * ready email plugin) and its host is a loopback address. Then nothing leaves the machine, so test
+ * sends are not limited (agreed with the owner: designing templates against Mailpit needs many).
+ */
+export async function sendsToLocalServer(): Promise<boolean> {
+  const plugin = getEmailPlugin()
+  if (plugin && (!plugin.sender.status || plugin.sender.status().ready)) return false
+  const smtp = await resolveSmtp()
+  return smtp.ready && isLoopbackHost(smtp.config.host)
+}
+
 /**
  * The site's email sender, or null when nothing is set up (the site then does not offer email, such
  * as reset links, rather than offer it and fail). A ready email plugin wins; otherwise built-in SMTP.

@@ -82,7 +82,7 @@ import {
   recordActivity,
   recordFailedSignIn,
 } from '../src/server/activity'
-import { getEmailSender, getEmailSettingsView, parseFrom, resolveSmtp, saveEmailSettings } from '../src/server/email'
+import { getEmailSender, getEmailSettingsView, isLoopbackHost, parseFrom, resolveSmtp, saveEmailSettings, sendsToLocalServer } from '../src/server/email'
 import { open, seal } from '../src/server/secret-box'
 import { DEFAULT_TEMPLATES, EMAIL_PURPOSES, emailImageSrc, LOGO_DEFAULTS, renderEmail, validateTemplate, type EmailPurpose, type RenderContext, type TemplateData } from '../src/lib/email-template'
 import {
@@ -1963,6 +1963,9 @@ await check('email: SMTP settings are validated, the password is stored only enc
     await saveEmailSettings({ host: '127.0.0.1', port: 1025, security: 'none', username: 'mailer', password: 'pa55-word!', fromName: 'Pet Adopt', fromAddress: 'no-reply@pet-adopt.test', replyTo: 'team@pet-adopt.test' })
     const sender = await getEmailSender()
     ok(sender !== null && sender.status?.().provider === 'SMTP', 'the built-in SMTP sender is used when no plugin sends email')
+    // A mail server on this machine (Mailpit) lifts the test-email limit; a real one keeps it.
+    ok(['localhost', 'LOCALHOST', 'mail.localhost', '127.0.0.1', '127.1.2.3', '::1', '[::1]'].every(isLoopbackHost) && !['smtp.example.com', '10.0.0.1', '1127.0.0.1', 'localhost.example.com', ''].some(isLoopbackHost), 'loopback hosts')
+    ok(await sendsToLocalServer(), 'sending to 127.0.0.1 counts as a local server')
     const subject = `Check ${Date.now()}`
     await sender!.send({ to: 'someone@pet-adopt.test', subject, text: 'Plain text body', html: '<p>HTML body</p>' })
     let found: { From: { Name: string; Address: string }; To: Array<{ Address: string }>; ReplyTo: Array<{ Address: string }>; Subject: string } | undefined

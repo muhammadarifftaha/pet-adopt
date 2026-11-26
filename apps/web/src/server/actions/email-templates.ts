@@ -3,7 +3,7 @@
 import { isEmailPurpose, isSystemPurpose, PURPOSE_INFO, type EmailPurpose } from '@/lib/email-template'
 
 import { quoted, recordActivity, type Actor } from '../activity'
-import { getEmailSender } from '../email'
+import { getEmailSender, sendsToLocalServer } from '../email'
 import {
   createEmailTemplate,
   deleteEmailTemplate,
@@ -122,7 +122,8 @@ export async function restoreSeededTemplateAction(id: number): Promise<ActionRes
 
 /**
  * The builder's "Send test": the layout as it is now (saved or not), filled with sample values, to
- * `to`. Shares the test-email limit (5 per 15 minutes per person).
+ * `to`. Shares the test-email limit (5 per 15 minutes per person), except with a mail server on this
+ * machine.
  */
 export async function sendEmailTemplateTestAction(purpose: EmailPurpose, data: unknown, to: string): Promise<ActionResult<{ to: string }>> {
   return run(async () => {
@@ -133,7 +134,8 @@ export async function sendEmailTemplateTestAction(purpose: EmailPurpose, data: u
     const email = await renderTemplatePreview(purpose, data)
     const sender = await getEmailSender()
     if (!sender) throw new UserError('Email is not set up yet, so nothing can be sent. Set it up on the Email page.')
-    await consumeAttempt(`emailtest:${user.id}`, TEST_RULE)
+    // A mail server on this machine (Mailpit) sends nothing anywhere: no limit there.
+    if (!(await sendsToLocalServer())) await consumeAttempt(`emailtest:${user.id}`, TEST_RULE)
     try {
       await sender.send({ to: address, subject: `[Test] ${email.subject}`, text: email.text, html: email.html })
     } catch (error) {
