@@ -101,7 +101,7 @@ export type PageVersionSummary = {
   createdAt: Date
   /** Last saved (an open version is saved many times; a published one, when it was published). */
   updatedAt: Date
-  /** The version copied in with "Use as draft", if any. */
+  /** The version this one was restored from, if any (a restore is always a new version). */
   restoredFrom: number | null
   /** Name of the person who saved it last, or null when that account was deleted. */
   createdBy: string | null
@@ -122,6 +122,11 @@ export type Page = {
   archivedAt: Date | null
   createdAt: Date
   updatedAt: Date
+  /**
+   * Settings saved but not published yet (a live page only): what the settings form and page builder
+   * show, while visitors still get title/slug/seo above. Null when there are none.
+   */
+  draftDetails: { title: string; slug: string; seo: { description: string | null; image: MediaItem | null } } | null
 }
 
 export type SiteSetting = {
