@@ -5,3 +5,14 @@ packages:
 
 allowBuilds:
   esbuild: true
+
+# Security fixes in development tools (none of this runs in the site). Remove each once the parent
+# package ships the fixed version itself.
+overrides:
+  # drizzle-kit pulls @esbuild-kit, which pins esbuild 0.18 (GHSA-67mh-4wv8-2f99, dev server). It
+  # only uses esbuild's transform call, which later versions keep; 0.28.2 is the copy the workspace
+  # already installs (newest at least two weeks old). drizzle-kit 0.31.11 is still the latest.
+  "@esbuild-kit/core-utils>esbuild": 0.28.2
+  # minimatch 7 to 11.0.0 (GHSA-g3hv-75wg-m249), via typescript-eslint and shadcn's ts-morph.
+  # 11 keeps 10's API, exports and Node range. typescript-eslint 8.74+ and shadcn 4.23.1+ use it.
+  "minimatch@>=7.0.0 <11.0.1": 11.0.8
