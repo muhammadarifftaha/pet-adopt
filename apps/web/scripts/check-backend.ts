@@ -61,7 +61,7 @@ import { removeUpload, saveUpload } from '../src/server/uploads'
 import { siteIcons } from '../src/lib/queries'
 import { activateTheme, createTheme, deleteTheme, getTheme, listThemes, updateTheme } from '../src/server/themes'
 import { createResetLink, isResetTokenValid, prepareResetEmail, resetPasswordWithToken } from '../src/server/password-reset'
-import { host, pluginTablePrefix, provideHost, type EmailMessage } from '@pet-adopt/plugin-sdk'
+import { accessOf, accessPermission, asRole, can, host, pluginTablePrefix, provideHost, ROLES, type EmailMessage, type Role } from '@pet-adopt/plugin-sdk'
 import { formBuilderStorage, openFormsDatabase } from '@pet-adopt/plugin-form-builder'
 import * as forms from '@pet-adopt/plugin-form-builder/server'
 // The services plugins reach through `host()` (sign-in, limits, phone, email), as the server registers them.
@@ -1609,6 +1609,80 @@ await check('form builder: a "Which pet?" question offers listed pets that are n
     await removeUpload(photo.id)
     await db.delete(t.rateLimits).where(sql`${t.rateLimits.key} like 'plugin:form-builder:%'`)
   }
+})
+
+// Roles: the agreed table, every server action checking a permission, and the users rules.
+await check('roles: the permission table is as agreed, every action checks a permission, developer and audit accounts work', async () => {
+  // The table agreed with the owner. Any change to what a role may do must change this too.
+  const table: Record<Role, string> = {
+    // pets pages media theme settings plugins users pluginContent personalData (v = view, e = edit, - = none), then export
+    admin: 'e e e e e e e e e x',
+    editor: 'e e e - - - - e e x',
+    developer: 'e e e e e e - e - -',
+    audit: 'v v v v v v v v v -',
+  }
+  const areas = ['pets', 'pages', 'media', 'theme', 'settings', 'plugins', 'users', 'pluginContent', 'personalData'] as const
+  for (const role of ROLES) {
+    const cells = table[role].split(' ')
+    areas.forEach((area, i) => {
+      const expected = cells[i]
+      const view = can(role, `${area}:view`)
+      const edit = can(role, `${area}:edit`)
+      const got = edit ? 'e' : view ? 'v' : '-'
+      ok(got === expected, `${role} on ${area}: expected ${expected}, got ${got}`)
+      ok(!edit || view, `${role} can edit ${area} without viewing it`)
+    })
+    ok(can(role, 'personalData:export') === (cells[9] === 'x'), `${role} and downloading personal data`)
+  }
+  ok(!can(asRole('superuser'), 'pets:view') || asRole('superuser') === 'audit', 'an unknown stored role changes nothing')
+  ok(asRole('superuser') === 'audit' && asRole(null) === 'audit', 'unknown roles are read as audit')
+  // Plugin levels map onto the table.
+  ok(accessPermission('personalData', 'view') === 'personalData:view' && !can('developer', accessPermission('personalData', 'view')), 'developers cannot open personal-data screens')
+  ok(can('developer', accessPermission('admin', 'edit')) && !can('editor', accessPermission('admin', 'view')), 'admin-level plugin screens are for admins and developers')
+  ok(accessOf({ adminOnly: true }) === 'admin' && accessOf({}) === 'all', 'the older adminOnly flag still means admin level')
+
+  // Every exported server action checks a permission. The listed ones are public or are about the
+  // person's own account; save/publish in the page builder check it inside persist().
+  const allowed = new Set([
+    'signInAction', 'signOutAction', 'getCurrentUserAction', 'updateProfileAction', 'changePasswordAction',
+    'requestPasswordResetAction', 'resetPasswordWithTokenAction', 'submitFormAction',
+    'fetchPetSpotlightAction', 'fetchCatalogAction', 'fetchPetProfilesAction', 'fetchPetsAction', 'fetchFormAction',
+  ])
+  const { readFileSync, readdirSync } = await import('node:fs')
+  const files = [
+    ...readdirSync('src/server/actions').map((f) => `src/server/actions/${f}`),
+    'src/puck/actions.ts',
+    'src/app/(editor)/edit/[id]/actions.ts',
+    '../../plugins/form-builder/src/actions.ts',
+  ]
+  const unchecked: string[] = []
+  for (const file of files) {
+    const source = readFileSync(file, 'utf8')
+    for (const part of source.split(/^export async function /m).slice(1)) {
+      const name = part.match(/^(\w+)/)?.[1] ?? '?'
+      const body = part.split(/^export /m)[0]
+      if (allowed.has(name)) continue
+      if (!/requirePermission\(|\bpersist\(/.test(body)) unchecked.push(`${file}: ${name}`)
+    }
+  }
+  ok(unchecked.length === 0, `actions without a permission check: ${unchecked.join(', ')}`)
+
+  // The new roles as accounts: created, changed, and the last-admin rule still holds.
+  const dev = await createUser({ email: 'dev@example.test', name: 'Dev Eloper', password: 'developer-password-1', role: 'developer' })
+  const aud = await createUser({ email: 'audit@example.test', name: 'Audrey Tor', password: 'audit-password-123', role: 'audit' })
+  const roles = Object.fromEntries((await listUsers()).map((u) => [u.email, u.role]))
+  ok(roles['dev@example.test'] === 'developer' && roles['audit@example.test'] === 'audit', `stored roles: ${JSON.stringify(roles)}`)
+  const bad = await fieldErrors(createUser({ email: 'x@example.test', name: 'X', password: 'some-password-123', role: 'superuser' }))
+  ok(bad.role, 'an unknown role is a field error')
+  await updateUser(aud.id, { name: 'Audrey Tor', role: 'developer' }, { canChangeRole: true })
+  ok((await listUsers()).find((u) => u.id === aud.id)?.role === 'developer', 'a role can be changed to developer')
+  const admins = (await listUsers()).filter((u) => u.role === 'admin')
+  if (admins.length === 1) {
+    const message = await userError(updateUser(admins[0].id, { name: admins[0].name, role: 'audit' }, { canChangeRole: true }))
+    ok(/last admin/.test(message), `the last admin cannot become audit: ${message}`)
+  }
+  await deleteUser(dev.id)
+  await deleteUser(aud.id)
 })
 
 // FK enforcement is on (SQLite needs a pragma)
