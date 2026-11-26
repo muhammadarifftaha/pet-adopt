@@ -138,7 +138,13 @@ function createAuth({ db, t, dialect }: Database, providers: GenericOAuthConfig[
             const [user] = await db.select({ archivedAt: t.users.archivedAt }).from(t.users).where(eq(t.users.id, session.userId)).limit(1)
             if (user?.archivedAt) throw new APIError('FORBIDDEN', { message: 'This account is archived.', code: ACCOUNT_ARCHIVED })
             const provider = providerOf(ctx)
-            return { data: { ...session, signInMethod: provider ? `provider:${provider}` : 'password' } }
+            // A session that replaces another (password change, two-factor on or off) keeps how the
+            // person signed in: from the copied fields (two-factor) or the request's own session
+            // (a password change makes a fresh one).
+            const current = (ctx as { context?: { session?: { session?: { signInMethod?: unknown } } } } | null)?.context?.session?.session
+            const kept = (session as { signInMethod?: unknown }).signInMethod ?? current?.signInMethod
+            const signInMethod = provider ? `provider:${provider}` : typeof kept === 'string' && kept ? kept : 'password'
+            return { data: { ...session, signInMethod } }
           },
           // A provider sign-in happens in the callback route, not a server action: log it here.
           async after(session, ctx) {

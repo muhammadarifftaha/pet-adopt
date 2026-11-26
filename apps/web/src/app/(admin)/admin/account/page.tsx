@@ -9,6 +9,7 @@ import { getMyProvidersAction } from '@/server/actions/auth-providers'
 import { unwrap } from '@/lib/admin/unwrap'
 import { getSettings } from '@/lib/queries'
 import { getTwoFactorStatusAction } from '@/server/actions/two-factor'
+import { MIN_PASSWORD_LENGTH } from '@/server/auth'
 import { getSessionUser } from '@/server/session'
 
 import { AccountForms } from './AccountForms'
@@ -38,7 +39,7 @@ export default async function AccountPage({ searchParams }: { searchParams: Prom
       <PageHeader title="Account" description={user.email} />
       <div className="flex max-w-2xl flex-col gap-6">
         <ProfilePicture user={user} />
-        <AccountForms user={user} />
+        <AccountForms user={user} minPasswordLength={MIN_PASSWORD_LENGTH} />
         <TwoFactorCard status={status} siteName={settings.siteName} />
         <ConnectedProviders providers={providers} notice={notice} />
       </div>

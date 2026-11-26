@@ -2564,6 +2564,14 @@ await check('sign-in providers: https only, secret encrypted, never an account o
     const asUser = { id, email, name: 'Pro Vider', role: 'editor' as const, twoFactorEnabled: false }
     ok(!(await needsTwoFactorSetup({ ...asUser, signInMethod: 'provider:mock-idp' })), 'a provider sign-in counts as two-factor')
     ok(await needsTwoFactorSetup({ ...asUser, signInMethod: 'password' }), 'a password sign-in still has to set it up')
+    // Changing the password replaces the session; it must still count as a provider sign-in.
+    const changed = await auth.api.changePassword({
+      body: { currentPassword: password, newPassword: 'provider-password-456', revokeOtherSessions: true },
+      headers: viaProvider.headers,
+      returnHeaders: true,
+    })
+    const replaced = await auth.api.getSession({ headers: withCookies(viaProvider.headers, changed.headers) })
+    ok((replaced?.session as { signInMethod?: string } | undefined)?.signInMethod === 'provider:mock-idp', 'a replaced session keeps how it signed in')
     await saveTwoFactorRoles([])
     const logged = await db.select().from(t.activityLog).where(eq(t.activityLog.actorId, id))
     ok(logged.some((row) => row.action === 'account.provider-connect' && row.summary.includes('Mock IdP')), 'connecting is logged')
