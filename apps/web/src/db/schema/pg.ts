@@ -46,6 +46,9 @@ export const users = pgTable('users', {
   // Set when an admin archives the account (src/server/users.ts): it cannot sign in, keeps its name
   // on what it made, and can be restored, or then deleted.
   archivedAt: timestamp('archived_at'),
+  // Set when the person asked to delete their own account: archived now, deleted for good after this
+  // (src/server/users.ts, purgeDueDeletions). An admin's restore clears it.
+  deleteAfter: timestamp('delete_after'),
 })
 
 export const sessions = pgTable(

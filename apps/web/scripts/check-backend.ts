@@ -72,7 +72,7 @@ import { forgetPluginStorageStatus, getPluginStorageStatus } from '../src/plugin
 import { getEmailTemplateUsage } from '../src/plugins/registry'
 import { storageProblems } from '../src/plugins/storage-rules'
 import { applyPluginMigrations, pluginMigrationStates } from '../src/db/plugin-migrations'
-import { archiveUser, createUser, deleteUser, ensureOwner, listUsers, resetPassword, restoreUser, updateUser } from '../src/server/users'
+import { archiveUser, createUser, deleteUser, DELETION_GRACE_DAYS, ensureOwner, listUsers, purgeDueDeletions, requestOwnDeletion, resetPassword, restoreUser, updateUser } from '../src/server/users'
 import {
   activityRetentionDays,
   changedFields,
@@ -1766,6 +1766,7 @@ await check('roles: the permission table is as agreed, every action checks a per
     'startProviderSignInAction', 'getMyProvidersAction', 'connectProviderAction', 'disconnectProviderAction',
     'uploadAvatarAction', 'removeAvatarAction',
     'getEmailChangeStatusAction', 'requestEmailChangeAction', 'cancelEmailChangeAction', 'confirmEmailChangeAction',
+    'requestAccountDeletionAction',
     'requestPasswordResetAction', 'resetPasswordWithTokenAction', 'acceptInviteAction', 'submitFormAction',
     'fetchPetSpotlightAction', 'fetchCatalogAction', 'fetchPetProfilesAction', 'fetchPetsAction', 'fetchFormAction',
   ])
@@ -2803,6 +2804,88 @@ await check('email changes: yourself with your password and a link to the new ad
   ok(!validateTemplate({ root: { props: { subject: 'Hi' } }, content: [{ type: 'Button', props: { label: 'Go', url: '{{confirmLink}}' } }] }, 'email-changed').ok, 'the notice cannot carry the link')
 
   await removeAccount(id)
+})
+
+await check('deleting accounts: your own request closes it at once and deletes it after 30 days (an admin can restore it); every deletion anonymises the activity log, removes the picture and counters, and leaves other people alone', async () => {
+  const owner = (await listUsers()).find((u) => u.role === 'admin' && !u.archivedAt)!
+  const ownerActor = { id: owner.id, name: owner.name, role: owner.role }
+  const email = 'leaver@example.test'
+  const password = 'leaver-password-123'
+  const { id } = await createUser({ email, name: 'Lee Ver', password, role: 'editor' })
+  const auth = await getAuth()
+
+  // History about them: their own entries, an admin's entry about them, a failed sign-in on them (with
+  // an address), then a rename, so their entries carry two names. Another person shares the old name.
+  const twin = await createUser({ email: 'twin@example.test', name: 'Lee Ver', password, role: 'editor' })
+  await recordActivity({ actor: { id, name: 'Lee Ver', role: 'editor' }, action: 'pet.update', area: 'pets', summary: 'Updated the pet “Rex”', subject: { id: 42, label: 'Rex' }, fields: ['name'], client: '203.0.113.7' })
+  await recordActivity({ actor: ownerActor, action: 'user.create', area: 'users', summary: 'Added the account “Lee Ver” as Editor', subject: { id, label: 'Lee Ver' } })
+  await recordActivity({ actor: null, action: 'auth.sign-in-failed', area: 'sign-in', summary: 'Failed sign-in to the account “Lee Ver” (wrong password)', subject: { id, label: 'Lee Ver' }, client: '198.51.100.9' })
+  await updateUser(id, { name: 'Lee Renamed' }, { canChangeRole: false })
+  await recordActivity({ actor: { id, name: 'Lee Renamed', role: 'editor' }, action: 'page.update', area: 'pages', summary: 'Saved a draft of “About”', client: '203.0.113.7' })
+  await recordActivity({ actor: { id: twin.id, name: 'Lee Ver', role: 'editor' }, action: 'pet.update', area: 'pets', summary: 'Updated the pet “Lee Ver”', subject: { id: 43, label: 'Lee Ver' } })
+  const signedIn = withCookies(ip(99), (await auth.api.signInEmail({ body: { email, password }, headers: ip(99), returnHeaders: true })).headers)
+  const picture = await saveAvatar(id, await sharp({ create: { width: 20, height: 20, channels: 3, background: '#0a0' } }).png().toBuffer(), { x: 0, y: 0, size: 20 })
+  await consumeAttempt(`chpw:${id}`, PASSWORD_CHANGE_RULE)
+
+  // Asking: the password, not the last admin; then closed at once with a date.
+  ok((await fieldErrors(requestOwnDeletion(id, { password: 'wrong-password-12' }))).password, 'the password is checked')
+  // The last active admin cannot delete their own account: made certain here (other admins are made
+  // editors for the moment), not left to whoever happens to be an admin at this point of the run.
+  const otherAdmins = (await listUsers()).filter((u) => u.role === 'admin' && !u.archivedAt && u.id !== owner.id)
+  for (const other of otherAdmins) await updateUser(other.id, { name: other.name, role: 'editor' }, { canChangeRole: true })
+  ok(/last admin/.test(await userError(requestOwnDeletion(owner.id, { password: process.env.SEED_ADMIN_PASSWORD! }))), 'the last admin cannot delete their account')
+  ok(!(await listUsers()).find((u) => u.id === owner.id)?.archivedAt, 'and stays active')
+  // Two admins asking at the same moment: exactly one gets through, one admin stays.
+  await updateUser(twin.id, { name: 'Lee Ver', role: 'admin' }, { canChangeRole: true })
+  const both = await Promise.allSettled([requestOwnDeletion(owner.id, { password: process.env.SEED_ADMIN_PASSWORD! }), requestOwnDeletion(twin.id, { password })])
+  ok(both.filter((r) => r.status === 'fulfilled').length === 1, 'two admins deleting themselves at once: only one gets through')
+  ok((await listUsers()).filter((u) => u.role === 'admin' && !u.archivedAt).length === 1, 'one active admin remains')
+  for (const user of await listUsers()) if (user.deleteAfter && (user.id === owner.id || user.id === twin.id)) await restoreUser(user.id)
+  await updateUser(twin.id, { name: 'Lee Ver', role: 'editor' }, { canChangeRole: true })
+  for (const other of otherAdmins) await updateUser(other.id, { name: other.name, role: 'admin' }, { canChangeRole: true })
+  const asked = await requestOwnDeletion(id, { password })
+  const days = (asked.deleteAfter.getTime() - Date.now()) / 86_400_000
+  ok(days > DELETION_GRACE_DAYS - 0.01 && days <= DELETION_GRACE_DAYS, `deleted in ${DELETION_GRACE_DAYS} days`)
+  const listed = (await listUsers()).find((u) => u.id === id)!
+  ok(listed.archivedAt && listed.deleteAfter, 'closed now, with its date')
+  ok(!(await auth.api.getSession({ headers: signedIn })), 'signed out everywhere')
+  ok((await authCode(auth.api.signInEmail({ body: { email, password }, headers: ip(99) }))) === 'ACCOUNT_ARCHIVED', 'cannot sign in')
+
+  // An admin can restore it (cancelling the deletion), and the person can ask again.
+  await restoreUser(id)
+  ok(!(await listUsers()).find((u) => u.id === id)?.deleteAfter, 'restoring cancels the deletion')
+  await requestOwnDeletion(id, { password })
+  ok((await purgeDueDeletions()) === 0 && (await listUsers()).some((u) => u.id === id), 'nothing is deleted before its date')
+
+  // After the 30 days: deleted, and the log is anonymised.
+  ok((await purgeDueDeletions(new Date(Date.now() + (DELETION_GRACE_DAYS + 1) * 86_400_000))) === 1, 'deleted on its date')
+  ok(!(await listUsers()).some((u) => u.id === id), 'the account is gone')
+  ok(!(await getStorage().then((s) => s.exists(picture.replace('/media/', '')))), 'its picture is gone')
+  ok((await db.select().from(t.rateLimits).where(like(t.rateLimits.key, `%${id}%`))).length === 0, 'its attempt counters are gone')
+  const log = await db.select().from(t.activityLog)
+  const mentions = (row: (typeof log)[number]) => [row.actorName, row.subjectLabel, row.summary].some((text) => text?.includes('Lee Renamed'))
+  ok(!log.some((row) => row.actorId === id || row.subjectId === id), 'no entry points at the account any more')
+  ok(!log.some(mentions), 'their newer name is nowhere in the log')
+  // Earlier checks deleted accounts too: find this person's label from their own entry.
+  const label = log.find((row) => row.action === 'pet.update' && row.summary === 'Updated the pet “Rex”' && row.actorName?.startsWith('Deleted user'))?.actorName
+  const theirs = log.filter((row) => label && (row.actorName === label || row.subjectLabel === label))
+  ok(label && theirs.length === 5, `their entries carry one anonymous label: ${label} (${theirs.length} entries)`)
+  ok(new Set(theirs.map((row) => (row.actorName === label ? row.actorId : row.subjectId))).size === 1, 'and one id that links to nothing, so they still group together')
+  ok(theirs.every((row) => row.client === null), 'their client addresses are cleared')
+  ok(theirs.some((row) => row.action === 'pet.update' && row.summary === 'Updated the pet “Rex”' && (row.fields ?? []).includes('name')), 'what was done stays')
+  ok(theirs.some((row) => row.action === 'user.create' && row.summary === `Added the account “${label}” as Editor`), 'names inside summaries are replaced')
+  ok(theirs.some((row) => row.action === 'auth.sign-in-failed' && !row.summary.includes('Lee Ver')), 'including under their older name')
+  ok(theirs.some((row) => row.action === 'user.delete' && row.actorId === null && row.summary.includes(label!)), 'the automatic deletion is logged without the name')
+  const twinRows = log.filter((row) => row.actorId === twin.id)
+  ok(twinRows.length === 1 && twinRows[0].actorName === 'Lee Ver' && twinRows[0].summary === 'Updated the pet “Lee Ver”', 'someone else with the same name is untouched')
+
+  // An admin's deletion anonymises the same way.
+  await archiveUser(twin.id, { by: owner.id })
+  const ghost = await deleteUser(twin.id)
+  const after = await db.select().from(t.activityLog).where(eq(t.activityLog.actorId, ghost.id))
+  ok(after.length === 1 && after[0].actorName === ghost.label && !after[0].summary.includes('Lee Ver'), 'an admin deletion anonymises too')
+
+  ok(validateTemplate(DEFAULT_TEMPLATES['account-deletion'], 'account-deletion').ok, 'the Account deletion email is valid')
 })
 
 // FK enforcement is on (SQLite needs a pragma)

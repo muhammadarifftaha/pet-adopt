@@ -48,8 +48,9 @@ export function ArchivedAccounts({ users }: { users: UserListItem[] }) {
   return (
     <div className="flex max-w-3xl flex-col gap-3">
       <p className="text-sm text-muted-foreground">
-        Archived accounts cannot sign in. Their names stay on what they made and in the activity log. Restore brings an account back as it was: same
-        role, password and two-factor. Accounts are archived from the Users screen.
+        Archived accounts cannot sign in. Their names stay on what they made and in the activity log until they are deleted; deleting anonymises the
+        log. Restore brings an account back as it was: same role, password and two-factor. Accounts are archived from the Users screen, or by people
+        deleting their own account, which is deleted on its date unless restored.
       </p>
       <div ref={messageRef} tabIndex={-1} aria-live="polite" className="min-h-6 text-sm outline-none">
         {message && !message.isError ? <p key={message.id}>{message.text}</p> : null}
@@ -73,6 +74,11 @@ export function ArchivedAccounts({ users }: { users: UserListItem[] }) {
                 <span className="text-sm break-all text-muted-foreground">
                   {user.email} · archived {when.format(new Date(user.archivedAt as Date))}
                 </span>
+                {user.deleteAfter ? (
+                  <span className="text-sm text-destructive">
+                    Asked to be deleted · deletes on {when.format(new Date(user.deleteAfter))} unless restored
+                  </span>
+                ) : null}
               </span>
               {viewOnly ? null : (
                 <span className="flex flex-wrap gap-2">
@@ -130,15 +136,15 @@ function DeleteUser({ user, announce, onDeleted }: { user: UserListItem; announc
       {/* The dialog's own trigger, so closing it ("Keep", Escape) returns focus here. */}
       <AlertDialogTrigger render={<Button variant="destructive" size="sm" aria-disabled={pending || undefined} />}>
         <FiTrash2 aria-hidden />
-        Delete
+        {user.deleteAfter ? "Delete now" : "Delete"}
         <span className="sr-only">{user.name}</span>
       </AlertDialogTrigger>
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>Delete {user.name} for good?</AlertDialogTitle>
+          <AlertDialogTitle>Delete {user.name} for good{user.deleteAfter ? " now" : ""}?</AlertDialogTitle>
           <AlertDialogDescription>
-            The account cannot be restored after this. The activity log keeps their name; page versions and email templates they made will show no
-            creator. Pets, pages and images stay.
+            The account cannot be restored after this. Their activity log entries are kept as “Deleted user”, without their name; page versions and email
+            templates they made show no creator. Pets, pages and images stay.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>

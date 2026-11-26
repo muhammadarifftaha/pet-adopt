@@ -135,14 +135,16 @@ export async function restoreUserAction(id: string): Promise<ActionResult> {
   })
 }
 
-/** Deletes an archived account for good (archive it first). */
+/**
+ * Deletes an archived account for good (archive it first). Its activity entries are anonymised, so
+ * this entry names the anonymous label, not the person.
+ */
 export async function deleteUserAction(id: string): Promise<ActionResult> {
   return run(async () => {
     const actor = await requirePermission('users:edit')
     const target = userId(id)
-    const before = await findUser(target)
-    await deleteUser(target)
-    await record(actor, 'user.delete', before, target, `Deleted the account ${quoted(before?.name)}`)
+    const ghost = await deleteUser(target)
+    await recordActivity({ actor, action: 'user.delete', area: 'users', summary: `Deleted the account ${quoted(ghost.label)} and anonymised its history`, subject: ghost })
   })
 }
 

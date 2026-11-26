@@ -148,6 +148,13 @@
       "when": 1795685683288,
       "tag": "0020_worthless_zodiak",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1795690078904,
+      "tag": "0021_adorable_squadron_supreme",
+      "breakpoints": true
     }
   ]
 }

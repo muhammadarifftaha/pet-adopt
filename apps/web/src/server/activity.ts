@@ -12,11 +12,13 @@
 // joins the open transaction, so code that needs the change and its entry to commit together can
 // call it there.
 import { asRole, csvCell, type Role } from '@pet-adopt/plugin-sdk'
+import { randomBytes } from 'node:crypto'
+
 import { and, desc, eq, gte, lt, max, or, sql, type SQL } from 'drizzle-orm'
 import { isEqual } from 'es-toolkit'
 import { headers } from 'next/headers'
 
-import { getDatabase } from '@/db/client'
+import { getDatabase, type Db, type Schema } from '@/db/client'
 import { isActivityArea, type ActivityArea } from '@/lib/activity'
 
 import { getPageById } from './pages'
@@ -248,6 +250,8 @@ export async function purgeOldActivitySometimes(): Promise<void> {
   if (Date.now() - purgeState.last < PURGE_EVERY_MS) return
   purgeState.last = Date.now()
   await purgeOldActivity().catch((error) => logError(error, 'could not purge old activity'))
+  // Accounts whose owners asked to delete them, after their 30 days (users.ts).
+  await import('./users').then((users) => users.purgeDueDeletionsSometimes()).catch((error) => logError(error, 'could not delete accounts that are due'))
 }
 
 // --- Helpers for the actions ---------------------------------------------------------------
@@ -341,4 +345,37 @@ export async function recordFailedSignIn(email: string, client?: string | null):
   } catch (error) {
     logError(error, 'could not record a failed sign-in')
   }
+}
+
+/**
+ * Anonymises a deleted account's entries (agreed with the owner): what was done and when stays (action,
+ * area, time, role, field names); who did it does not. On every entry the person made or that is
+ * about them, their id becomes a new random id that links to nothing (so their entries still group
+ * together), their name becomes "Deleted user <tag>" (also inside summaries, under every name the
+ * entries recorded), and the client address is cleared. Runs inside the deletion's transaction.
+ */
+export async function anonymiseActivity(tx: Db, t: Schema, userId: string, currentName: string): Promise<{ id: string; label: string }> {
+  const label = `Deleted user ${randomBytes(2).toString('hex')}`
+  const ghostId = `deleted-${randomBytes(12).toString('hex')}`
+  const theirs = or(eq(t.activityLog.actorId, userId), eq(t.activityLog.subjectId, userId))
+  // Entries keep the name as it was, so a renamed person appears under older names too.
+  const recorded = await tx
+    .selectDistinct({ actor: t.activityLog.actorName, subject: t.activityLog.subjectLabel, actorId: t.activityLog.actorId })
+    .from(t.activityLog)
+    .where(theirs)
+  const names = new Set<string>([currentName])
+  for (const row of recorded) {
+    if (row.actorId === userId && row.actor) names.add(row.actor)
+    if (row.actorId !== userId && row.subject) names.add(row.subject)
+  }
+  for (const name of names) {
+    if (!name) continue
+    await tx
+      .update(t.activityLog)
+      .set({ summary: sql`replace(${t.activityLog.summary}, ${quoted(name)}, ${quoted(label)})` })
+      .where(theirs)
+  }
+  await tx.update(t.activityLog).set({ actorId: ghostId, actorName: label, client: null }).where(eq(t.activityLog.actorId, userId))
+  await tx.update(t.activityLog).set({ subjectId: ghostId, subjectLabel: label, client: null }).where(eq(t.activityLog.subjectId, userId))
+  return { id: ghostId, label }
 }

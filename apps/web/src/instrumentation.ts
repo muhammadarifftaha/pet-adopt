@@ -56,6 +56,9 @@ export async function register() {
   // most hourly while someone reads the log.
   const { purgeOldActivitySometimes } = await import('@/server/activity')
   await purgeOldActivitySometimes()
+  // Accounts whose owners asked to delete them, once their 30 days are over.
+  const { purgeDueDeletionsSometimes } = await import('@/server/users')
+  await purgeDueDeletionsSometimes()
 
   // Plugins' default email templates (Email > Templates), created if missing. Never throws.
   const { ensurePluginTemplates } = await import('@/server/email-templates')

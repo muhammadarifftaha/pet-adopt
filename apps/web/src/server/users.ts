@@ -13,14 +13,14 @@ import { asRole } from '@pet-adopt/plugin-sdk'
 // Better Auth will check them at sign-in.
 import { randomUUID } from 'node:crypto'
 
-import { and, count, eq, isNull, like } from 'drizzle-orm'
+import { and, count, eq, isNotNull, isNull, like, lte } from 'drizzle-orm'
 
 import { getDatabase, type Db, type Schema } from '@/db/client'
 import { ROLES } from '@/lib/options'
 
 import { getAuth, MIN_PASSWORD_LENGTH } from './auth'
 import { deleteAvatarFile } from './avatars'
-import { asRecord, Fields, isUniqueViolation, UserError, ValidationError } from './result'
+import { asRecord, Fields, isUniqueViolation, logError, UserError, ValidationError } from './result'
 import type { Role } from './types'
 
 export type UserListItem = {
@@ -30,6 +30,8 @@ export type UserListItem = {
   role: Role
   /** When the account was archived, or null for an active account. */
   archivedAt: Date | null
+  /** The person asked to delete their account: it is deleted then (null otherwise). */
+  deleteAfter: Date | null
   /** Profile picture address (/media/avatar-….webp), or null for initials. */
   image: string | null
   /** Invited and not accepted yet: the account has no password (src/server/invites.ts). */
@@ -73,6 +75,7 @@ export async function listUsers(): Promise<UserListItem[]> {
     name: u.name,
     role: asRole(u.role),
     archivedAt: u.archivedAt ?? null,
+    deleteAfter: u.deleteAfter ?? null,
     image: u.image ?? null,
     invited: !withPassword.has(u.id),
     inviteExpiresAt: withPassword.has(u.id) ? null : (inviteExpiry.get(u.id) ?? null),
@@ -243,6 +246,22 @@ export async function resetPassword(id: string, raw: unknown): Promise<void> {
  */
 export async function archiveUser(id: string, opts: { by: string }): Promise<void> {
   if (id === opts.by) throw new UserError('You cannot archive your own account. Ask another admin.')
+  await archive(id, null)
+}
+
+/** Whether this account is the only active admin (it then cannot be demoted, archived or deleted). */
+export async function isLastActiveAdmin(userId: string): Promise<boolean> {
+  const { db, t } = await getDatabase()
+  const [user] = await db.select({ role: t.users.role, archivedAt: t.users.archivedAt }).from(t.users).where(eq(t.users.id, userId)).limit(1)
+  if (user?.role !== 'admin' || user.archivedAt) return false
+  return (await countAdmins(db, t)) <= 1
+}
+
+/** Days between asking to delete your own account and its deletion (agreed with the owner). */
+export const DELETION_GRACE_DAYS = 30
+
+/** Archives an account; `deleteAfter` set when the person asked to delete it themselves. */
+async function archive(id: string, deleteAfter: Date | null): Promise<void> {
   const { t, withTransaction } = await getDatabase()
   await withTransaction(
     async (tx) => {
@@ -250,16 +269,50 @@ export async function archiveUser(id: string, opts: { by: string }): Promise<voi
       if (!target) throw new UserError('User not found.')
       if (target.archivedAt) throw new UserError('This account is already archived.')
       if (target.role === 'admin' && (await countAdmins(tx, t)) <= 1) {
-        throw new UserError('The last admin account cannot be archived. Make someone else an admin first.')
+        throw new UserError(
+          deleteAfter
+            ? 'You are the last admin, so your account cannot be deleted. Make someone else an admin first.'
+            : 'The last admin account cannot be archived. Make someone else an admin first.',
+        )
       }
-      await tx.update(t.users).set({ archivedAt: new Date(), updatedAt: new Date() }).where(eq(t.users.id, id))
+      await tx.update(t.users).set({ archivedAt: new Date(), deleteAfter, updatedAt: new Date() }).where(eq(t.users.id, id))
       await tx.delete(t.sessions).where(eq(t.sessions.userId, id))
       // Reset links are `pwreset:<hash>` valued with the user id (src/server/password-reset.ts).
       await tx.delete(t.verifications).where(and(like(t.verifications.identifier, 'pwreset:%'), eq(t.verifications.value, id)))
       await tx.delete(t.verifications).where(and(like(t.verifications.identifier, 'invite:%'), eq(t.verifications.value, id)))
+      // A pending email change (src/server/email-change.ts) is JSON starting with the user id.
+      await tx.delete(t.verifications).where(and(like(t.verifications.identifier, 'email-change:%'), like(t.verifications.value, `{"userId":${JSON.stringify(id)},%`)))
     },
     { lock: ADMIN_LOCK },
   )
+}
+
+/**
+ * The person asks to delete their own account (agreed with the owner): `{ password }`. The account
+ * is archived at once (signed out everywhere, cannot sign in) and deleted DELETION_GRACE_DAYS later
+ * by purgeDueDeletions; until then an admin can restore it, or delete it at once. Not for the last
+ * active admin. Returns when it will be deleted.
+ */
+export async function requestOwnDeletion(userId: string, raw: unknown): Promise<{ deleteAfter: Date; name: string; email: string }> {
+  const password = asRecord(raw).password
+  if (typeof password !== 'string' || !password) throw new ValidationError({ password: 'Enter your password.' })
+  const { db, t } = await getDatabase()
+  const [user] = await db.select({ name: t.users.name, email: t.users.email }).from(t.users).where(eq(t.users.id, userId)).limit(1)
+  if (!user) throw new UserError('You need to be signed in.')
+  // A guessing oracle for a stolen session: limited like a password change.
+  const { clearAttempts, guardPasswordChange } = await import('./throttle')
+  const { keys } = await guardPasswordChange(userId)
+  const [credential] = await db
+    .select({ hash: t.accounts.password })
+    .from(t.accounts)
+    .where(and(eq(t.accounts.userId, userId), eq(t.accounts.providerId, 'credential')))
+    .limit(1)
+  const ctx = await (await getAuth()).$context
+  if (!credential?.hash || !(await ctx.password.verify({ hash: credential.hash, password }))) throw new ValidationError({ password: 'That is not your password.' })
+  await clearAttempts(keys)
+  const deleteAfter = new Date(Date.now() + DELETION_GRACE_DAYS * 24 * 60 * 60 * 1000)
+  await archive(userId, deleteAfter)
+  return { deleteAfter, ...user }
 }
 
 /** Brings an archived account back as it was: same role, password and two-factor. */
@@ -269,29 +322,74 @@ export async function restoreUser(id: string): Promise<void> {
     const [target] = await tx.select({ archivedAt: t.users.archivedAt }).from(t.users).where(eq(t.users.id, id)).limit(1)
     if (!target) throw new UserError('User not found.')
     if (!target.archivedAt) throw new UserError('This account is not archived.')
-    await tx.update(t.users).set({ archivedAt: null, updatedAt: new Date() }).where(eq(t.users.id, id))
+    // Also cancels a deletion the person asked for.
+    await tx.update(t.users).set({ archivedAt: null, deleteAfter: null, updatedAt: new Date() }).where(eq(t.users.id, id))
   })
 }
 
 /**
- * Deletes an archived account for good. Its activity log entries keep its name; page versions and
- * email templates it made show no creator.
+ * Deletes an archived account for good, and everything about the person (agreed with the owner):
+ * the account, its sessions, password, two-factor, provider connections and pending links (by
+ * cascade or here), its attempt counters and picture. The activity log keeps what was done and
+ * when, anonymised (anonymiseActivity). Page versions and email templates they made show no
+ * creator. Returns the anonymous label their entries now carry.
  */
-export async function deleteUser(id: string): Promise<void> {
+export async function deleteUser(id: string): Promise<{ id: string; label: string }> {
   const { t, withTransaction } = await getDatabase()
-  const image = await withTransaction(
+  const { anonymiseActivity } = await import('./activity')
+  const removed = await withTransaction(
     async (tx) => {
-      const [target] = await tx.select({ archivedAt: t.users.archivedAt, image: t.users.image }).from(t.users).where(eq(t.users.id, id)).limit(1)
+      const [target] = await tx.select().from(t.users).where(eq(t.users.id, id)).limit(1)
       if (!target) throw new UserError('User not found.')
       // Archived accounts are not admins that count, so the last active admin is never deleted.
       if (!target.archivedAt) throw new UserError('Archive the account before deleting it.')
+      const ghost = await anonymiseActivity(tx, t, id, target.name)
+      await tx.delete(t.verifications).where(eq(t.verifications.value, id))
+      await tx.delete(t.verifications).where(and(like(t.verifications.identifier, 'email-change:%'), like(t.verifications.value, `{"userId":${JSON.stringify(id)},%`)))
       await tx.delete(t.users).where(eq(t.users.id, id))
-      return target.image
+      return { ghost, image: target.image, email: target.email }
     },
     { lock: ADMIN_LOCK },
   )
-  // The profile picture's file goes with the account (outside the transaction: it is storage).
-  await deleteAvatarFile(image)
+  // Outside the transaction: storage and counters.
+  await deleteAvatarFile(removed.image)
+  const { forgetAttemptsOf } = await import('./throttle')
+  await forgetAttemptsOf(id, removed.email).catch(() => undefined)
+  return removed.ghost
+}
+
+/**
+ * Deletes the accounts whose owners asked for it and whose DELETION_GRACE_DAYS are over. Runs at
+ * server start and at most hourly after that (purgeDueDeletionsSometimes). Returns how many.
+ */
+export async function purgeDueDeletions(now = new Date()): Promise<number> {
+  const { db, t } = await getDatabase()
+  const due = await db
+    .select({ id: t.users.id })
+    .from(t.users)
+    .where(and(isNotNull(t.users.archivedAt), isNotNull(t.users.deleteAfter), lte(t.users.deleteAfter, now)))
+  const { quoted, recordActivity } = await import('./activity')
+  for (const { id } of due) {
+    const ghost = await deleteUser(id)
+    await recordActivity({
+      actor: null,
+      action: 'user.delete',
+      area: 'users',
+      summary: `Deleted the account ${quoted(ghost.label)}, as its owner asked ${DELETION_GRACE_DAYS} days earlier`,
+      subject: ghost,
+      client: null,
+    })
+  }
+  return due.length
+}
+
+const purgeHolder = ((globalThis as { __petAdoptDeletionPurge?: { at: number } }).__petAdoptDeletionPurge ??= { at: 0 })
+
+/** purgeDueDeletions at most once an hour per server; never throws. */
+export async function purgeDueDeletionsSometimes(): Promise<void> {
+  if (Date.now() - purgeHolder.at < 60 * 60 * 1000) return
+  purgeHolder.at = Date.now()
+  await purgeDueDeletions().catch((error) => logError(error, 'could not delete accounts that are due'))
 }
 
 /**

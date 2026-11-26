@@ -16,7 +16,9 @@ import { getSessionUser, requireUser } from '../session'
 import { clearAttempts, guardPasswordChange, guardSignIn } from '../throttle'
 import { rememberPendingSignIn } from '../two-factor'
 import type { SessionUser, SignInResult } from '../types'
-import { listUsers, updateUser } from '../users'
+import { DELETION_GRACE_DAYS, listUsers, requestOwnDeletion, updateUser } from '../users'
+import { getEmailSender } from '../email'
+import { renderPurposeEmail } from '../email-templates'
 
 const MAX_PASSWORD_LENGTH = 128
 
@@ -177,5 +179,35 @@ export async function removeAvatarAction(): Promise<ActionResult> {
   return run(async () => {
     const user = await requireUser()
     if (await removeAvatar(user.id)) await recordActivity({ actor: user, action: 'account.avatar', area: 'account', summary: 'Removed their profile picture' })
+  })
+}
+
+/**
+ * Deletes your own account (agreed with the owner): `{ password }`. It is closed at once (you are
+ * signed out everywhere and cannot sign in) and deleted for good DELETION_GRACE_DAYS later, when
+ * your name also leaves the activity log; until then an admin can restore it. You get an email
+ * with the date when the site can send email.
+ */
+export async function requestAccountDeletionAction(input: { password: string }): Promise<ActionResult<{ deleteAfter: Date }>> {
+  return run(async () => {
+    const user = await requireUser()
+    const { deleteAfter, name, email } = await requestOwnDeletion(user.id, input)
+    await recordActivity({
+      actor: user,
+      action: 'account.delete-request',
+      area: 'account',
+      summary: `Asked to delete their own account (closed now, deleted after ${DELETION_GRACE_DAYS} days unless an admin restores it)`,
+    })
+    const sender = await getEmailSender()
+    if (sender) {
+      try {
+        const date = new Intl.DateTimeFormat('en-GB', { dateStyle: 'long' }).format(deleteAfter)
+        const message = await renderPurposeEmail({ purpose: 'account-deletion', values: { name, date, days: String(DELETION_GRACE_DAYS) } })
+        await sender.send({ to: email, subject: message.subject, text: message.text, html: message.html })
+      } catch (error) {
+        logError(error, 'account deletion email failed')
+      }
+    }
+    return { deleteAfter }
   })
 }

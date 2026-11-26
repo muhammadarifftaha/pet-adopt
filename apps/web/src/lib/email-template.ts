@@ -15,7 +15,7 @@
 // what is designed is what is sent. Stored data is rebuilt by `validateTemplate` from allowed
 // blocks and props only, and everything a person typed is escaped when it is rendered.
 
-export const EMAIL_PURPOSES = ['password-reset', 'invite', 'email-change', 'email-changed', 'test', 'team-notification', 'visitor-message'] as const
+export const EMAIL_PURPOSES = ['password-reset', 'invite', 'email-change', 'email-changed', 'account-deletion', 'test', 'team-notification', 'visitor-message'] as const
 export type EmailPurpose = (typeof EMAIL_PURPOSES)[number]
 
 /** Placeholders every template can use. */
@@ -68,6 +68,14 @@ export const PURPOSE_INFO: Record<
     details: false,
     sample: { name: 'Alex Rivera', oldEmail: 'alex@old.example', newEmail: 'alex@new.example', changedBy: 'you' },
   },
+  'account-deletion': {
+    label: 'Account deletion',
+    description: 'Sent when someone asks to delete their own account: it is closed at once and deleted after 30 days.',
+    placeholders: { name: 'The person’s name', date: 'The day it will be deleted', days: 'How many days until then' },
+    required: [],
+    details: false,
+    sample: { name: 'Alex Rivera', date: '26 December 2026', days: '30' },
+  },
   test: {
     label: 'Test email',
     description: 'Sent by “Send a test email” in Email > Sending.',
@@ -101,7 +109,7 @@ export const isEmailPurpose = (value: unknown): value is EmailPurpose => (EMAIL_
  * edited in place, and "Restore default" brings it back. Form emails keep a library instead,
  * so each form can pick its own.
  */
-export const SYSTEM_PURPOSES = ['password-reset', 'invite', 'email-change', 'email-changed', 'test'] as const satisfies readonly EmailPurpose[]
+export const SYSTEM_PURPOSES = ['password-reset', 'invite', 'email-change', 'email-changed', 'account-deletion', 'test'] as const satisfies readonly EmailPurpose[]
 export type SystemPurpose = (typeof SYSTEM_PURPOSES)[number]
 export const isSystemPurpose = (value: unknown): value is SystemPurpose => (SYSTEM_PURPOSES as readonly unknown[]).includes(value)
 export const LIBRARY_PURPOSES = EMAIL_PURPOSES.filter((purpose) => !isSystemPurpose(purpose))
@@ -634,6 +642,14 @@ export const DEFAULT_TEMPLATES: Record<EmailPurpose, TemplateData> = {
       heading('heading-1', 'Your sign-in email is changing'),
       text('text-1', 'Hello {{name}},\n\nA change of the email you sign in to {{siteName}} with, from {{oldEmail}} to {{newEmail}}, was asked for by {{changedBy}}.'),
       text('text-2', 'If you did not expect this, contact an admin of {{siteName}} straight away and change your password.', 'small'),
+    ],
+  },
+  'account-deletion': {
+    root: { props: { subject: 'Your {{siteName}} account will be deleted', preheader: 'It is closed now and will be deleted on {{date}}.', ...LOGO_DEFAULTS, footer: FOOTER } },
+    content: [
+      heading('heading-1', 'Your account is closed'),
+      text('text-1', 'Hello {{name}},\n\nAs you asked, your {{siteName}} account is closed: you are signed out and cannot sign in. It will be deleted for good on {{date}}, in {{days}} days. Your name will then be removed from the site’s activity log too.'),
+      text('text-2', 'Changed your mind? Ask an admin of {{siteName}} to restore your account before {{date}}.', 'small'),
     ],
   },
   test: {
