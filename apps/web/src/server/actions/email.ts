@@ -8,7 +8,7 @@ import { describeError, run, UserError, ValidationError, type ActionResult } fro
 import { requirePermission } from '../session'
 import { consumeAttempt } from '../throttle'
 
-// "Send a test email" (Settings > Email, and an email plugin's page). Whoever can change the settings
+// "Send a test email" (Email > Sending, and an email plugin's page). Whoever can change the settings
 // (admins and developers), a few per person at a time (the same
 // counter table as sign-in), and the message names nothing private: just the site and who sent it.
 
@@ -26,7 +26,7 @@ export async function sendTestEmailAction(to: string): Promise<ActionResult<{ to
     await consumeAttempt(`emailtest:${user.id}`, TEST_EMAIL_RULE)
 
     try {
-      // Settings > Templates: the default "Test email" template, or the built-in one.
+      // Email > Templates: the default "Test email" template, or the built-in one.
       const email = await renderPurposeEmail({ purpose: 'test', values: { senderName: user.name } })
       await sender.send({ to: address, subject: email.subject, text: email.text, html: email.html })
     } catch (error) {
@@ -37,7 +37,7 @@ export async function sendTestEmailAction(to: string): Promise<ActionResult<{ to
   })
 }
 
-/** Settings > Email: the SMTP settings in effect, which fields the environment sets, and whether it is ready. Never the password. */
+/** Email > Sending: the SMTP settings in effect, which fields the environment sets, and whether it is ready. Never the password. */
 export async function getEmailSettingsAction(): Promise<ActionResult<EmailSettingsView>> {
   return run(async () => {
     await requirePermission('settings:view')

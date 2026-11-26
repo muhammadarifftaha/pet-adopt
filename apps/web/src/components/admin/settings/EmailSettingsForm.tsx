@@ -14,7 +14,7 @@ import { useViewOnly, ViewOnlyFieldset } from '@/components/admin/view-only'
 import { saveEmailSettingsAction } from '@/server/actions/email'
 import type { EmailField, EmailSettingsView } from '@/server/email'
 
-// Settings > Email: the built-in SMTP sender. Fields an environment variable sets are read-only and
+// Email > Sending: the built-in SMTP sender. Fields an environment variable sets are read-only and
 // say which variable. The password is write-only: the form only knows whether one is saved, and an
 // empty box keeps it. Errors: one summary (focused) plus plain text under each field, since several
 // can show at once.

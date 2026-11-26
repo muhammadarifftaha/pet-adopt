@@ -42,7 +42,7 @@ import { BASE, responsesHref } from './paths'
 // tied with aria-describedby; a failed save shows one error summary that takes focus and links to
 // each field; moves are announced in a polite live region; Save uses aria-disabled, not disabled.
 
-/** The site's email templates the form can pick from (Settings > Templates). */
+/** The site's email templates the form can pick from (Email > Templates). */
 export type TemplateChoices = { notification: Array<{ id: number; name: string; seedKey: string | null }>; confirmation: Array<{ id: number; name: string; seedKey: string | null }> }
 
 export type EditorForm = {
@@ -498,7 +498,7 @@ export function FormEditor({
             <Label htmlFor="fb-settings-notifyEmail">Email new responses to</Label>
             <Input id="fb-settings-notifyEmail" type="email" autoComplete="email" value={settings.notifyEmail ?? ''} onChange={(e) => setSettings({ ...settings, notifyEmail: e.target.value })} aria-describedby={described('fb-settings-notifyEmail-hint', errors['settings.notifyEmail'] && 'fb-settings-notifyEmail-error')} aria-invalid={errors['settings.notifyEmail'] ? true : undefined} />
             <p id="fb-settings-notifyEmail-hint" className="text-sm text-muted-foreground">
-              Optional. Needs the site&apos;s email to be set up (Settings, Email).
+              Optional. Needs the site&apos;s email to be set up (Email, Sending).
             </p>
             {errorText('fb-settings-notifyEmail-error', errors['settings.notifyEmail'])}
           </div>
@@ -506,7 +506,7 @@ export function FormEditor({
             <Label htmlFor="fb-settings-notifyTemplateId">Notification template</Label>
             {templateSelect('notifyTemplateId', templates.notification)}
             <p id="fb-settings-notifyTemplateId-hint" className="text-sm text-muted-foreground">
-              How the email to the address above looks. Make templates in Settings, Email templates.
+              How the email to the address above looks. Make templates in Email, Templates.
             </p>
             {errorText('fb-settings-notifyTemplateId-error', errors['settings.notifyTemplateId'])}
           </div>
@@ -548,7 +548,7 @@ export function FormEditor({
               <Label htmlFor="fb-settings-confirmationTemplateId">Confirmation template</Label>
               {templateSelect('confirmationTemplateId', templates.confirmation)}
               <p id="fb-settings-confirmationTemplateId-hint" className="text-sm text-muted-foreground">
-                What the visitor receives. Make templates in Settings, Email templates.
+                What the visitor receives. Make templates in Email, Templates.
               </p>
               {errorText('fb-settings-confirmationTemplateId-error', errors['settings.confirmationTemplateId'])}
             </div>

@@ -17,7 +17,7 @@
 # mailpit: a mail server that delivers nothing; every email the site sends lands in its inbox at
 # http://localhost:8025. Messages survive restarts and `down`/`up` (volume pet_adopt_mailpit; the
 # oldest go past 500); `down -v` wipes them, or delete them in the inbox. Point the site at it in
-# Settings > Email (server localhost, port 1025, encryption None) or with:
+# Email > Sending (server localhost, port 1025, encryption None) or with:
 #   SMTP_HOST=localhost
 #   SMTP_PORT=1025
 #   SMTP_SECURITY=none

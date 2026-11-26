@@ -76,7 +76,7 @@ function HeaderActions() {
       <span role="status" className={message?.ok === false ? 'editor-msg editor-msg-error' : 'editor-msg'}>
         {message?.text}
       </span>
-      <Link href="/admin/settings/templates">All templates</Link>
+      <Link href="/admin/email/templates">All templates</Link>
       {readOnly ? (
         <span className="editor-msg">View only: your role cannot change email templates.</span>
       ) : (

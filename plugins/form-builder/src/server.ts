@@ -320,7 +320,7 @@ export async function notifyNewResponse(form: FormRecord, answers: FormAnswer[])
   }
 }
 
-/** Which email templates the forms use (Settings > Email templates shows it as "Used by"). */
+/** Which email templates the forms use (Email > Templates shows it as "Used by"). */
 export async function emailTemplateUsage(): Promise<EmailTemplateUse[]> {
   const { db, t } = await openFormsDatabase()
   const rows = await db.select({ id: t.forms.id, name: t.forms.name, settings: t.forms.settings }).from(t.forms).orderBy(asc(t.forms.name))

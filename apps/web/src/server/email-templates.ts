@@ -1,4 +1,4 @@
-// Email templates (Settings > Email templates, the builder at /edit/email/…) and the one place that
+// Email templates (Email > Templates, the builder at /edit/email/…) and the one place that
 // turns a purpose into a sent email. The format, the blocks and the rules (placeholders per purpose,
 // nothing a visitor typed in a message to a visitor) are in src/lib/email-template.ts. Agreed with the owner:
 //  - The site's own emails (password reset, test; SYSTEM_PURPOSES) have no library: the built-in

@@ -22,7 +22,7 @@ import { assertId, describeError, run, UserError, ValidationError, type ActionRe
 import { requirePermission } from '../session'
 import { consumeAttempt } from '../throttle'
 
-// Settings > Templates and the email builder. Whoever can change the settings (admins and
+// Email > Templates and the email builder. Whoever can change the settings (admins and
 // developers) builds templates; audit can look. Every change is in the activity log.
 
 const TEST_RULE = { max: 5, windowMs: 15 * 60 * 1000 }
@@ -132,7 +132,7 @@ export async function sendEmailTemplateTestAction(purpose: EmailPurpose, data: u
     if (!address || address.length > 254 || !EMAIL.test(address)) throw new ValidationError({ to: 'Enter an email address, like name@example.com.' })
     const email = await renderTemplatePreview(purpose, data)
     const sender = await getEmailSender()
-    if (!sender) throw new UserError('Email is not set up yet, so nothing can be sent. Set it up in Settings, Email.')
+    if (!sender) throw new UserError('Email is not set up yet, so nothing can be sent. Set it up on the Email page.')
     await consumeAttempt(`emailtest:${user.id}`, TEST_RULE)
     try {
       await sender.send({ to: address, subject: `[Test] ${email.subject}`, text: email.text, html: email.html })

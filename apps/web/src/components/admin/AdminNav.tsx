@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { createElement, type ReactNode } from 'react'
 import type { IconType } from 'react-icons'
-import { FiActivity, FiDroplet, FiFileText, FiGrid, FiHeart, FiHome, FiImage, FiPackage, FiSettings, FiUsers } from 'react-icons/fi'
+import { FiActivity, FiDroplet, FiMail, FiFileText, FiGrid, FiHeart, FiHome, FiImage, FiPackage, FiSettings, FiUsers } from 'react-icons/fi'
 
 import {
   SidebarGroup,
@@ -53,6 +53,7 @@ const ICONS: Record<string, IconType> = {
   '/admin/media': FiImage,
   '/admin/theme': FiDroplet,
   '/admin/settings': FiSettings,
+  '/admin/email': FiMail,
   '/admin/users': FiUsers,
   '/admin/activity': FiActivity,
   '/admin/plugins': FiGrid,
@@ -61,7 +62,8 @@ const ICONS: Record<string, IconType> = {
 // A named nav landmark holding the sidebar's menus. Links keep `aria-current="page"` and a non-colour
 // cue (underline) next to the highlight. Nested screens (/admin/pets/3) keep their section current;
 // when two entries match (a plugin's home /admin/plugins/x and its /admin/plugins/x/reports) the
-// longest href wins. Plugin screens from pet-adopt.config.ts get their own "Plugins" group.
+// longest href wins. Sections, in order: Content, Plugins (screens from pet-adopt.config.ts and All
+// plugins), Settings; Dashboard sits above them.
 export function AdminNav({
   items,
   pluginItems = [],
@@ -101,21 +103,34 @@ export function AdminNav({
       )
     })
 
+  // Dashboard on its own, then the sections in a fixed order: Content, Plugins, Settings. A section
+  // the person's role has nothing in is left out (its heading too).
+  const top = core.filter((item) => !item.section)
+  const sections: Array<{ label: string; items: AdminNavItem[]; fallback?: IconType }> = [
+    { label: 'Content', items: core.filter((item) => item.section === 'content') },
+    { label: 'Plugins', items: plugins, fallback: FiPackage },
+    { label: 'Settings', items: core.filter((item) => item.section === 'settings') },
+  ]
+
   return (
     <nav aria-label="Admin">
-      <SidebarGroup>
-        <SidebarGroupContent>
-          <SidebarMenu>{renderItems(core)}</SidebarMenu>
-        </SidebarGroupContent>
-      </SidebarGroup>
-      {plugins.length > 0 ? (
+      {top.length ? (
         <SidebarGroup>
-          <SidebarGroupLabel>Plugins</SidebarGroupLabel>
           <SidebarGroupContent>
-            <SidebarMenu>{renderItems(plugins, FiPackage)}</SidebarMenu>
+            <SidebarMenu>{renderItems(top)}</SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
       ) : null}
+      {sections.map(({ label, items: list, fallback }) =>
+        list.length ? (
+          <SidebarGroup key={label}>
+            <SidebarGroupLabel>{label}</SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>{renderItems(list, fallback)}</SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        ) : null,
+      )}
     </nav>
   )
 }
