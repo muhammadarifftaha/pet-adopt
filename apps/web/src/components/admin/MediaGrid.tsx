@@ -1,5 +1,6 @@
 'use client'
 
+import { useViewOnly } from '@/components/admin/view-only'
 import Link from 'next/link'
 import React from 'react'
 import { FiCheckSquare, FiTrash2, FiX } from 'react-icons/fi'
@@ -53,6 +54,7 @@ export function MediaGrid({
   busy?: boolean
 }) {
   const invalidateMedia = useInvalidateMedia()
+  const viewOnly = useViewOnly()
   const [selecting, setSelecting] = React.useState(false)
   const [anchor, setAnchor] = React.useState<number | null>(null)
   const [chosen, setChosen] = React.useState<Set<number>>(() => new Set())
@@ -119,7 +121,7 @@ export function MediaGrid({
   return (
     <div className={cn('flex flex-col gap-4', selecting && 'pb-28')}>
       <div className="flex flex-wrap items-center gap-3">
-        {toolbarStart ? (
+        {toolbarStart && !viewOnly ? (
           <>
             {toolbarStart}
             {/* Decorative: it only separates the upload from the selection tools. */}
@@ -127,10 +129,13 @@ export function MediaGrid({
           </>
         ) : null}
         {/* The label says what pressing it does next. Base UI's Toggle also reports aria-pressed. */}
-        <Toggle variant="outline" pressed={selecting} onPressedChange={(on) => setSelectMode(on)}>
-          {selecting ? <FiX aria-hidden /> : <FiCheckSquare aria-hidden />}
-          {selecting ? 'Cancel' : 'Select images'}
-        </Toggle>
+        {/* Selecting is only for deleting: view-only roles get the plain grid of links. */}
+        {viewOnly ? null : (
+          <Toggle variant="outline" pressed={selecting} onPressedChange={(on) => setSelectMode(on)}>
+            {selecting ? <FiX aria-hidden /> : <FiCheckSquare aria-hidden />}
+            {selecting ? 'Cancel' : 'Select images'}
+          </Toggle>
+        )}
         <p className="hidden text-sm text-muted-foreground xl:block">
           {selecting ? 'Pick images with their checkbox or a click. Shift selects a range.' : 'Open an image to see where it is used.'}
         </p>

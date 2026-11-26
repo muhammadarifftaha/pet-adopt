@@ -1,5 +1,6 @@
 "use client";
 
+import { useViewOnly } from "@/components/admin/view-only";
 import React from "react";
 import { Controller } from "react-hook-form";
 import { EditorContent, useEditor, useEditorState, type Editor } from "@tiptap/react";
@@ -136,8 +137,11 @@ function RichTextEditorField({
     class: "min-h-32 px-3 py-2 text-sm outline-none",
   };
 
+  const viewOnly = useViewOnly();
   const editor = useEditor({
     extensions: richTextExtensions,
+    // A disabled fieldset cannot reach a contenteditable: view-only roles get a read-only editor.
+    editable: !viewOnly,
     content: value ?? undefined,
     // The editor draws in the browser only, so the first server render has no editor to mismatch.
     immediatelyRender: false,
@@ -145,6 +149,10 @@ function RichTextEditorField({
     onUpdate: ({ editor: current }) => onChange(valueOf(current)),
     onBlur: () => onBlur(),
   });
+
+  React.useEffect(() => {
+    editor?.setEditable(!viewOnly);
+  }, [editor, viewOnly]);
 
   // The error and description can change after the editor exists: keep its attributes in step.
   React.useEffect(() => {

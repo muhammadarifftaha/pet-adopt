@@ -1,9 +1,10 @@
 'use client'
 
+import { useViewOnly } from '@/components/admin/view-only'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import React from 'react'
-import { FiCheck, FiCopy, FiEdit2, FiPlus, FiTrash2 } from 'react-icons/fi'
+import { FiCheck, FiCopy, FiEdit2, FiEye, FiPlus, FiTrash2 } from 'react-icons/fi'
 
 import {
   AlertDialog,
@@ -57,6 +58,8 @@ export function ThemeLibrary({
   preset: string
 }) {
   const router = useRouter()
+  // View-only roles (audit) see every theme and which one is in use; nothing here changes it.
+  const viewOnly = useViewOnly()
   const [message, setMessage] = React.useState<{ text: string; isError: boolean; id: number } | null>(null)
   const [pending, startTransition] = React.useTransition()
   const names = themes.map((theme) => theme.name)
@@ -98,7 +101,7 @@ export function ThemeLibrary({
           <h2 id="my-themes-heading" className="text-lg font-semibold">
             Your themes
           </h2>
-          <NewThemeDialog themes={themes} pending={pending} onCreate={copyInto} />
+          {viewOnly ? null : <NewThemeDialog themes={themes} pending={pending} onCreate={copyInto} />}
         </div>
         {themes.length === 0 ? (
           <p className="text-sm text-muted-foreground">
@@ -122,7 +125,7 @@ export function ThemeLibrary({
                       <ThemeSwatches base={theme.base} settings={theme.settings} />
                     </CardContent>
                     <CardFooter className="flex flex-wrap items-center gap-2">
-                      {!active ? (
+                      {!active && !viewOnly ? (
                         <Button
                           size="sm"
                           aria-disabled={pending}
@@ -134,10 +137,11 @@ export function ThemeLibrary({
                         </Button>
                       ) : null}
                       <Link href={`/admin/theme/${theme.id}`} className={buttonVariants({ variant: 'outline', size: 'sm' })}>
-                        <FiEdit2 aria-hidden />
-                        Edit
+                        {viewOnly ? <FiEye aria-hidden /> : <FiEdit2 aria-hidden />}
+                        {viewOnly ? 'View' : 'Edit'}
                         <span className="sr-only">{theme.name}</span>
                       </Link>
+                      {viewOnly ? null : (
                       <Button
                         variant="outline"
                         size="sm"
@@ -148,7 +152,8 @@ export function ThemeLibrary({
                         Duplicate
                         <span className="sr-only">{theme.name}</span>
                       </Button>
-                      {active ? null : (
+                      )}
+                      {active || viewOnly ? null : (
                         <DeleteTheme theme={theme} pending={pending} onDelete={() => run(() => deleteThemeAction(theme.id), `“${theme.name}” deleted.`)} />
                       )}
                     </CardFooter>
@@ -184,7 +189,7 @@ export function ThemeLibrary({
                     <ThemeSwatches base={key} />
                   </CardContent>
                   <CardFooter className="flex flex-wrap items-center gap-2">
-                    {!active ? (
+                    {!active && !viewOnly ? (
                       <Button
                         size="sm"
                         variant="outline"
@@ -196,16 +201,18 @@ export function ThemeLibrary({
                         <span className="sr-only">{PRESETS[key].label}</span>
                       </Button>
                     ) : null}
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      aria-disabled={pending}
-                      onClick={() => !pending && copyInto({ name: uniqueName(`My ${PRESETS[key].label}`, names), preset: key })}
-                    >
-                      <FiEdit2 aria-hidden />
-                      Customise
-                      <span className="sr-only">a copy of {PRESETS[key].label}</span>
-                    </Button>
+                    {viewOnly ? null : (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        aria-disabled={pending}
+                        onClick={() => !pending && copyInto({ name: uniqueName(`My ${PRESETS[key].label}`, names), preset: key })}
+                      >
+                        <FiEdit2 aria-hidden />
+                        Customise
+                        <span className="sr-only">a copy of {PRESETS[key].label}</span>
+                      </Button>
+                    )}
                   </CardFooter>
                 </Card>
               </li>

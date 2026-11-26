@@ -4,7 +4,9 @@ import { FiArrowLeft } from 'react-icons/fi'
 import { MediaDetails } from '@/components/admin/MediaDetails'
 import { PageHeader } from '@/components/admin/PageHeader'
 import { buttonVariants } from '@pet-adopt/ui/components/button'
-import { parseId, unwrapOrNotFound } from '@/lib/admin/unwrap'
+import { ViewOnly, ViewOnlyNotice } from '@/components/admin/view-only'
+import { parseId, requirePermissionPage, unwrapOrNotFound } from '@/lib/admin/unwrap'
+import { can } from '@pet-adopt/plugin-sdk'
 import { extensionOf } from '@/lib/media-name'
 import { getMediaAction } from '@/server/actions/media'
 
@@ -16,6 +18,7 @@ export const metadata = { title: 'Image' }
 const sizeLabel = (bytes: number) => (bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024))} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`)
 
 export default async function MediaImagePage({ params }: { params: Promise<{ id: string }> }) {
+  const user = await requirePermissionPage('media:view')
   const { id } = await params
   const { media, usage } = unwrapOrNotFound(await getMediaAction(parseId(id)))
 
@@ -77,7 +80,10 @@ export default async function MediaImagePage({ params }: { params: Promise<{ id:
               <p className="text-sm text-muted-foreground">Not used anywhere yet.</p>
             )}
           </section>
-          <MediaDetails id={media.id} name={media.name} alt={media.alt} extension={extensionOf(media.filename)} inUse={uses.length > 0} />
+          <ViewOnly value={!can(user.role, 'media:edit')}>
+            <ViewOnlyNotice role={user.role} what="this image" />
+            <MediaDetails id={media.id} name={media.name} alt={media.alt} extension={extensionOf(media.filename)} inUse={uses.length > 0} />
+          </ViewOnly>
         </div>
       </div>
     </>

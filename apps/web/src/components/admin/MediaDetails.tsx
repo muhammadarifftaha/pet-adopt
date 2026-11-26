@@ -1,5 +1,6 @@
 'use client'
 
+import { useViewOnly, ViewOnlyFieldset } from '@/components/admin/view-only'
 import { useRouter } from 'next/navigation'
 import React from 'react'
 import { FiTrash2 } from 'react-icons/fi'
@@ -43,6 +44,8 @@ export function MediaDetails({
   extension: string
   inUse: boolean
 }) {
+  // View-only roles see the details but cannot rename, describe or delete (the server refuses too).
+  const viewOnly = useViewOnly()
   const router = useRouter()
   const invalidateMedia = useInvalidateMedia()
   const [name, setName] = React.useState(savedName ?? '')
@@ -104,6 +107,7 @@ export function MediaDetails({
         <h2 id="media-alt-heading" className="font-semibold">
           Details
         </h2>
+        <ViewOnlyFieldset className="flex flex-col gap-3">
         <Field data-invalid={nameError ? true : undefined}>
           <FieldLabel htmlFor="media-name">
             File name<span className="font-normal text-muted-foreground"> (required)</span>
@@ -152,16 +156,20 @@ export function MediaDetails({
           />
           <FieldError id="media-alt-error" errors={error ? [{ message: error }] : []} />
         </Field>
+        </ViewOnlyFieldset>
         <div className="flex flex-wrap items-center gap-3">
-          <Button type="submit" aria-disabled={saving || !changed}>
-            {saving ? 'Saving…' : 'Save details'}
-          </Button>
+          {viewOnly ? null : (
+            <Button type="submit" aria-disabled={saving || !changed}>
+              {saving ? 'Saving…' : 'Save details'}
+            </Button>
+          )}
           <p role="status" aria-live="polite" className="text-sm">
             {status}
           </p>
         </div>
       </form>
 
+      {viewOnly ? null : (
       <section aria-labelledby="media-delete-heading" className="flex flex-col gap-2 border-t pt-4">
         <h2 id="media-delete-heading" className="font-semibold">
           Delete
@@ -189,6 +197,7 @@ export function MediaDetails({
           </p>
         ) : null}
       </section>
+      )}
 
       <AlertDialog open={confirming} onOpenChange={setConfirming}>
         <AlertDialogContent>

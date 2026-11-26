@@ -5,7 +5,7 @@ import { EmptyState } from '@/components/admin/EmptyState'
 import { PageHeader } from '@/components/admin/PageHeader'
 import { Badge } from '@pet-adopt/ui/components/badge'
 import { Card, CardDescription, CardHeader, CardTitle } from '@pet-adopt/ui/components/card'
-import { requireAdminPage } from '@/lib/admin/unwrap'
+import { requirePermissionPage } from '@/lib/admin/unwrap'
 import { getEmailPlugin, getPluginInfos } from '@/plugins/registry'
 import { getPluginStorageStatus } from '@/plugins/storage'
 
@@ -14,7 +14,7 @@ export const metadata = { title: 'Plugins' }
 // Every plugin registered in pet-adopt.config.ts, each linking to its page (its own home screen,
 // or the built-in overview). Admins only, like the overview pages.
 export default async function PluginsPage() {
-  await requireAdminPage()
+  await requirePermissionPage('plugins:view')
   const plugins = getPluginInfos()
   const emailStatus = getEmailPlugin()?.sender.status?.() ?? null
   const notReady = new Set((await getPluginStorageStatus()).filter((s) => !s.ready).map((s) => s.plugin))

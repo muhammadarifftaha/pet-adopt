@@ -32,9 +32,15 @@ const when = new Intl.DateTimeFormat('en-GB', { dateStyle: 'medium', timeStyle: 
 export function ResponsesView({
   form,
   list,
+  canEdit = true,
+  canExport = true,
 }: {
   form: { id: number; name: string }
   list: { items: FormResponse[]; total: number; page: number; totalPages: number }
+  /** Mark as read and delete (personalData:edit). Off for view-only roles (audit). */
+  canEdit?: boolean
+  /** Download as CSV (personalData:export). Audit may read responses but not take a copy. */
+  canExport?: boolean
 }) {
   const router = useRouter()
   const [selected, setSelected] = useState<number[]>([])
@@ -90,18 +96,22 @@ export function ResponsesView({
         <p className="mr-auto text-sm text-muted-foreground">
           {plural(list.total)} to “{form.name}”
         </p>
-        <Button type="button" variant="outline" size="sm" onClick={exportCsv} aria-disabled={pending || list.total === 0 || undefined}>
-          Download CSV
-        </Button>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={() => list.total > 0 && act(() => markResponsesReadAction(form.id), (n) => (n ? `${plural(n)} marked as read.` : 'Everything was already read.'))}
-          aria-disabled={pending || list.total === 0 || undefined}
-        >
-          Mark all as read
-        </Button>
+        {canExport ? (
+          <Button type="button" variant="outline" size="sm" onClick={exportCsv} aria-disabled={pending || list.total === 0 || undefined}>
+            Download CSV
+          </Button>
+        ) : null}
+        {canEdit ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => list.total > 0 && act(() => markResponsesReadAction(form.id), (n) => (n ? `${plural(n)} marked as read.` : 'Everything was already read.'))}
+            aria-disabled={pending || list.total === 0 || undefined}
+          >
+            Mark all as read
+          </Button>
+        ) : null}
       </div>
 
       {list.items.length === 0 ? (
@@ -113,6 +123,7 @@ export function ResponsesView({
         </Card>
       ) : (
         <>
+          {canEdit ? (
           <div className="flex flex-wrap items-center gap-3 rounded-lg border p-3">
             <div className="flex items-center gap-2">
               <Checkbox id="fb-select-all" checked={allSelected} onCheckedChange={(checked) => setSelected(checked === true ? allIds : [])} />
@@ -153,16 +164,27 @@ export function ResponsesView({
               </AlertDialogContent>
             </AlertDialog>
           </div>
+          ) : (
+            <p className="rounded-md border bg-muted px-3 py-2 text-sm">
+              <span className="font-medium">View only.</span> Your role can read these responses but not change{canExport ? '' : ' or download'} them.
+            </p>
+          )}
 
           <ol className="flex flex-col gap-3">
             {list.items.map((item) => (
               <li key={item.id}>
                 <Card>
                   <CardHeader className="flex flex-row flex-wrap items-center gap-3">
-                    <Checkbox id={`fb-response-${item.id}`} checked={selected.includes(item.id)} onCheckedChange={(checked) => toggle(item.id, checked === true)} />
-                    <Label htmlFor={`fb-response-${item.id}`} className="font-medium">
-                      Response from {when.format(new Date(item.createdAt))}
-                    </Label>
+                    {canEdit ? (
+                      <>
+                        <Checkbox id={`fb-response-${item.id}`} checked={selected.includes(item.id)} onCheckedChange={(checked) => toggle(item.id, checked === true)} />
+                        <Label htmlFor={`fb-response-${item.id}`} className="font-medium">
+                          Response from {when.format(new Date(item.createdAt))}
+                        </Label>
+                      </>
+                    ) : (
+                      <span className="font-medium">Response from {when.format(new Date(item.createdAt))}</span>
+                    )}
                     {!item.readAt && <Badge>New</Badge>}
                   </CardHeader>
                   <CardContent>

@@ -1,5 +1,6 @@
 "use client";
 
+import { useViewOnly } from "@/components/admin/view-only";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -349,6 +350,8 @@ export function PageForm({ page }: { page: PageFormPage | null }) {
   }
 
   const archived = page?.archived ?? false;
+  // View-only roles (audit) see the settings and status but change nothing (the server refuses too).
+  const viewOnly = useViewOnly();
   // The homepage keeps its address and is never archived (the server refuses both too).
   const isHome = page?.slug === "home";
   // The homepage and the Pets page keep their address and are never archived.
@@ -375,20 +378,22 @@ export function PageForm({ page }: { page: PageFormPage | null }) {
             <span className="font-medium">This page is archived.</span> It is off the site and cannot be changed until it
             is restored.
           </p>
-          <Button
-            type="button"
-            variant="outline"
-            aria-disabled={busy !== null}
-            onClick={() => run("restore", () => restorePageAction(page!.id), "Page restored.")}
-          >
-            {busy === "restore" ? "Restoring…" : "Restore page"}
-          </Button>
+          {viewOnly ? null : (
+            <Button
+              type="button"
+              variant="outline"
+              aria-disabled={busy !== null}
+              onClick={() => run("restore", () => restorePageAction(page!.id), "Page restored.")}
+            >
+              {busy === "restore" ? "Restoring…" : "Restore page"}
+            </Button>
+          )}
         </div>
       ) : null}
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]">
         {/* disabled on the fieldset: an archived page is read-only (the server refuses changes too). */}
-        <fieldset disabled={archived} className="m-0 min-w-0 border-0 p-0">
+        <fieldset disabled={archived || viewOnly} className="m-0 min-w-0 border-0 p-0">
           <FieldGroup>
             <TextInputField control={control} name="title" label="Title" required />
             <TextInputField
@@ -410,7 +415,7 @@ export function PageForm({ page }: { page: PageFormPage | null }) {
                 slugTouched.current = true;
               }}
             />
-            {!archived ? (
+            {!archived && !viewOnly ? (
               // The page's blocks are made in the page builder. With unsaved changes here (or on a
               // new page) the button saves first, so nothing typed above is lost.
               <div role="group" aria-labelledby="page-builder-label" className="flex flex-col gap-2">
@@ -498,7 +503,7 @@ export function PageForm({ page }: { page: PageFormPage | null }) {
                   <p className="text-muted-foreground">No layout yet. Open the page builder to add blocks before publishing.</p>
                 ) : null}
 
-                {!archived ? (
+                {!archived && !viewOnly ? (
                   <div className="flex flex-wrap items-center gap-2">
                     {page.hasLayout && (page.status !== "published" || page.hasUnpublishedChanges) ? (
                       <Button
@@ -544,7 +549,7 @@ export function PageForm({ page }: { page: PageFormPage | null }) {
 
       {/* The form's actions: save, and back to the list. (The page builder is opened from the form.) */}
       <div className="mt-6 flex flex-wrap items-center gap-3 border-t pt-4">
-        {!archived ? (
+        {!archived && !viewOnly ? (
           // aria-disabled, not disabled: a disabled button would drop keyboard focus mid-save.
           <Button type="submit" data-intent="save" aria-disabled={saving} className={cn(saving && "opacity-50")}>
             {page ? "Save changes" : "Create page"}
