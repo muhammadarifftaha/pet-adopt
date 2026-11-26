@@ -47,8 +47,9 @@ jobs:
       - run: pnpm check:schemas
 
       # The same S3-compatible server docker-compose.yml runs for development; it creates its key
-      # and bucket on start, and --wait returns once it is healthy.
-      - run: docker compose up -d --wait garage
+      # and bucket on start, and --wait returns once it is healthy. Mailpit catches the emails
+      # check:backend sends through the built-in SMTP sender.
+      - run: docker compose up -d --wait garage mailpit
       - run: pnpm --filter @pet-adopt/web storage:check
       - run: pnpm check:backend
       - run: pnpm build

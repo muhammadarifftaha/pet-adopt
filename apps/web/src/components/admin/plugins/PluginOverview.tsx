@@ -80,7 +80,7 @@ export function PluginOverview({ info, user }: { info: PluginInfo; user: Session
               </div>
             ) : null}
             {/* Sending is a change of sorts (it uses the provider): admins and developers, not audit. */}
-            {can(user.role, 'plugins:edit') ? <SendTestEmail defaultTo={user.email} disabled={!ready} /> : null}
+            {can(user.role, 'settings:edit') ? <SendTestEmail defaultTo={user.email} disabled={!ready} /> : null}
           </CardContent>
         </Card>
       ) : null}

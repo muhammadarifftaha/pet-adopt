@@ -5,7 +5,7 @@ import {
   RequestResetForm,
   ResetUnavailable,
 } from "@/components/auth/ResetPasswordForm";
-import { getEmailSender } from "@/plugins/registry";
+import { getEmailSender } from "@/server/email";
 import { MIN_PASSWORD_LENGTH } from "@/server/auth";
 import { isResetTokenValid } from "@/server/password-reset";
 import { getSettings } from "@/server/settings";
@@ -24,7 +24,7 @@ export default async function ResetPasswordPage({
   searchParams: Promise<{ token?: string | string[] }>;
 }) {
   const [settings, { token }] = await Promise.all([getSettings(), searchParams]);
-  const canEmail = getEmailSender() !== null;
+  const canEmail = (await getEmailSender()) !== null;
 
   let content: React.ReactNode;
   if (token === undefined) {

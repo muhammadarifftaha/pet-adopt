@@ -296,7 +296,7 @@ export async function submitResponse(
 /** Emails a new response to the form's notify address, when the site can send email. Never throws. */
 export async function notifyNewResponse(form: FormRecord, answers: FormAnswer[]): Promise<void> {
   const to = form.settings.notifyEmail
-  const sender = to ? host().emailSender() : null
+  const sender = to ? await host().emailSender() : null
   if (!to || !sender) return
   const lines = answers.map((answer) => `${answer.label}: ${answerToText(answer) || '(blank)'}`)
   try {

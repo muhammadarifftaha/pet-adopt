@@ -395,7 +395,7 @@ export type PluginHost = {
    */
   choices(source: ChoiceSource): Promise<Choice[]>
   /** The site's email sender, or null while no email plugin is set up. */
-  emailSender(): EmailSender | null
+  emailSender(): Promise<EmailSender | null>
   /** Logs an error without the values a failed database query carries. Never log error objects yourself. */
   logError(error: unknown, context?: string): void
   /**

@@ -13,7 +13,9 @@ import { listPetChoices } from '@/server/pets'
 import { getSessionUser, requirePermission } from '@/server/session'
 import { clientAddress, consumeAttempt } from '@/server/throttle'
 
-import { getEmailSender, getPluginInfo } from './registry'
+import { getEmailSender } from '@/server/email'
+
+import { getPluginInfo } from './registry'
 
 /** `<plugin>.<thing>.<verb>`: lower-case words, starting with the name of a plugin in the config. */
 const PLUGIN_ACTION = /^([a-z0-9-]+)(\.[a-z0-9-]+)+$/
