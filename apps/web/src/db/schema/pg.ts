@@ -327,6 +327,9 @@ export const siteSettings = pgTable('site_settings', {
   socials: jsonb('socials').$type<Array<{ platform: string; url: string }>>().notNull().default(sql`'[]'::jsonb`),
   nav: jsonb('nav').$type<Array<{ label: string; href: string }>>().notNull().default(sql`'[]'::jsonb`),
   footerText: text('footer_text'),
+  // The page holding the privacy policy (Site settings > Navigation). While it is live, the footer
+  // and every form link to it, and the form builder stops warning about it.
+  privacyPageId: integer('privacy_page_id').references(() => pages.id, { onDelete: 'set null', onUpdate: 'cascade' }),
   // First-time setup (src/server/setup.ts): the setup link's key, sealed, while no account exists;
   // and when the guided setup was finished or skipped.
   setupKeyEncrypted: text('setup_key_encrypted'),

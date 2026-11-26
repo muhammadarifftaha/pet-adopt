@@ -54,6 +54,7 @@ import { Fields, ValidationError, UserError, assertId, describeError } from '../
 import { getStorage, s3Settings } from '../src/server/storage'
 import { StripError, stripMetadata } from '../src/server/strip-metadata'
 import { getSettings, updateSettings } from '../src/server/settings'
+import { getPrivacyPolicy } from '../src/server/privacy'
 import {
   PAIR_RULE,
   PASSWORD_CHANGE_RULE,
@@ -1076,6 +1077,27 @@ await check('more pets like this: available, listed pets of the same species fir
 })
 
 // --- settings -----------------------------------------------------------------------------
+await check('privacy policy: one of your own pages, linked only while live; built-in, archived and missing pages refused; deleting the page clears it', async () => {
+  const page = await savePageDetails(null, { title: 'Privacy policy', slug: 'privacy-check' })
+  await saveDraft(page.id, { root: { props: {} }, zones: {}, content: [{ type: 'TextSection', props: { id: 'p', heading: 'Your data' } }] })
+  ok((await fieldErrors(updateSettings({ privacyPageId: 1 }))).privacyPageId, 'the homepage is refused')
+  ok((await fieldErrors(updateSettings({ privacyPageId: 2_000_000 }))).privacyPageId, 'a missing page is refused')
+  await updateSettings({ privacyPageId: page.id })
+  ok((await getSettings()).privacyPageId === page.id, 'a draft page can be chosen')
+  ok((await getPrivacyPolicy()) === null, 'but it is not linked until it is live')
+  await publishPage(page.id)
+  const live = await getPrivacyPolicy()
+  ok(live?.id === page.id && live.href === '/privacy-check' && live.title === 'Privacy policy', `linked once live: ${JSON.stringify(live)}`)
+  await unpublishPage(page.id)
+  ok((await getPrivacyPolicy()) === null, 'unpublished: not linked')
+  await archivePage(page.id)
+  ok((await getPrivacyPolicy()) === null, 'archived: not linked')
+  ok((await fieldErrors(updateSettings({ privacyPageId: page.id }))).privacyPageId, 'an archived page cannot be chosen again')
+  await deletePage(page.id)
+  ok((await getSettings()).privacyPageId === null, 'deleting the page clears the setting')
+  await updateSettings({ privacyPageId: null })
+})
+
 await check('settings: invalid values give nested field errors; valid update is saved', async () => {
   const errs = await fieldErrors(
     updateSettings({

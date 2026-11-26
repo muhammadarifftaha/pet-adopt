@@ -218,7 +218,19 @@ function RowButtons({
   )
 }
 
-export function SettingsForm({ settings }: { settings: SiteSetting }) {
+/** A page that can be the privacy policy: the owners' own pages that are not archived. */
+export type PrivacyPageChoice = { id: number; title: string; live: boolean }
+
+export function SettingsForm({
+  settings,
+  privacyPages = [],
+  initialTab = 'brand',
+}: {
+  settings: SiteSetting
+  privacyPages?: PrivacyPageChoice[]
+  /** The tab to open on (`?tab=` in the address: the form builder links to Navigation). */
+  initialTab?: SettingsTab
+}) {
   // View-only roles (audit) can read every tab; the fields are off and there is no Save.
   const viewOnly = useViewOnly()
   const router = useRouter()
@@ -235,7 +247,7 @@ export function SettingsForm({ settings }: { settings: SiteSetting }) {
   const nav = useFieldArray({ control, name: 'nav' })
   const { dialog: leaveDialog } = useUnsavedChanges(formState.isDirty)
 
-  const [tab, setTab] = React.useState<SettingsTab>('brand')
+  const [tab, setTab] = React.useState<SettingsTab>(initialTab)
   const [saving, setSaving] = React.useState(false)
   const [saved, setSaved] = React.useState(false)
   const [general, setGeneral] = React.useState<string | null>(null)
@@ -549,6 +561,43 @@ export function SettingsForm({ settings }: { settings: SiteSetting }) {
               </div>
             </FieldSet>
             <TextField control={control} name="footerText" label="Footer text" multiline description="A short line at the bottom of every page." />
+            <Controller
+              control={control}
+              name="privacyPageId"
+              render={({ field, fieldState }) => {
+                const id = fieldId('privacyPageId')
+                const chosen = privacyPages.find((page) => String(page.id) === field.value)
+                const items = [{ value: '', label: 'None' }, ...privacyPages.map((page) => ({ value: String(page.id), label: page.live ? page.title : `${page.title} (not published)` }))]
+                return (
+                  <Field data-invalid={fieldState.invalid || undefined}>
+                    <FieldLabel htmlFor={id}>Privacy policy page</FieldLabel>
+                    <Select items={items} value={field.value} onValueChange={(value) => field.onChange(value ?? '')}>
+                      <SelectTrigger
+                        id={id}
+                        ref={field.ref}
+                        className="w-full"
+                        aria-invalid={fieldState.invalid}
+                        aria-describedby={`${id}-description${fieldState.error ? ` ${id}-error` : ''}`}
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {items.map((item) => (
+                          <SelectItem key={item.value || 'none'} value={item.value}>
+                            {item.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FieldDescription id={`${id}-description`}>
+                      Forms collect personal data, so visitors must be told how you use it. While this page is live, the footer and every form link to it.
+                      {chosen && !chosen.live ? ' This page is not published yet: it is linked once it is live.' : ''}
+                    </FieldDescription>
+                    <FieldError id={`${id}-error`} errors={[fieldState.error]} />
+                  </Field>
+                )
+              }}
+            />
           </FieldGroup>
           </ViewOnlyFieldset>
         </TabsContent>

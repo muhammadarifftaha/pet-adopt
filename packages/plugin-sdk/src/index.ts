@@ -441,6 +441,12 @@ export type PluginHost = {
    * Never throws (a failure is logged). See PluginActivity.
    */
   recordActivity(entry: PluginActivity): Promise<void>
+  /**
+   * The site's privacy policy while it is live (`href` is a site path), or null when none is chosen
+   * or its page is not published. A plugin that collects personal data should warn while it is null
+   * and link to it where visitors type. `settingsHref` is where an admin chooses it.
+   */
+  privacyPolicy(): Promise<{ policy: { title: string; href: string } | null; settingsHref: string }>
 }
 
 /** Kinds of email a plugin may send through the site's templates (see `sendTemplatedEmail`). */

@@ -86,6 +86,8 @@ p { margin: 0 0 1em; }
 .nav a:not(.btn) { color: var(--ink); text-decoration: none; font-weight: 500; }
 .nav a:not(.btn):hover { color: var(--primary-text); }
 .site-footer { margin-top: 64px; border-top: 1px solid var(--line); padding: 32px 0; background: var(--surface-alt); color: var(--muted); }
+.footer-links { margin: 8px 0 0; }
+.footer-links a { color: inherit; }
 .footer-inner { display: flex; justify-content: space-between; gap: 24px; flex-wrap: wrap; }
 .social-links { list-style: none; padding: 0; margin: 0; display: flex; gap: 16px; flex-wrap: wrap; }
 .social-links-large a { font-size: 1.1rem; font-weight: 600; }
@@ -419,6 +421,8 @@ p { margin: 0 0 1em; }
 .form-summary { padding: 14px 16px; border-radius: var(--radius-sm); background: var(--warn-bg); color: var(--warn-ink); }
 .form-summary p { margin: 0 0 6px; font-weight: 600; }
 .form-summary ul { margin: 0; padding-left: 1.2em; }
+.form-privacy { margin: 12px 0 0; font-size: 0.875rem; color: var(--muted); }
+.form-privacy a { color: inherit; }
 .form-summary a { color: inherit; text-decoration: underline; }
 .form-success { padding: 16px 18px; border-radius: var(--radius-sm); background: var(--ok-bg); color: var(--ok-ink); font-weight: 600; }
 .form-closed, .form-note { padding: 12px 14px; border-radius: var(--radius-sm); background: var(--surface-alt); color: var(--muted); }

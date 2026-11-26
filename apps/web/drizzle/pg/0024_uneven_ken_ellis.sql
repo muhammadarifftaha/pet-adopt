@@ -1,0 +1,2 @@
+ALTER TABLE "site_settings" ADD COLUMN "privacy_page_id" integer;--> statement-breakpoint
+ALTER TABLE "site_settings" ADD CONSTRAINT "site_settings_privacy_page_id_pages_id_fk" FOREIGN KEY ("privacy_page_id") REFERENCES "public"."pages"("id") ON DELETE set null ON UPDATE cascade;

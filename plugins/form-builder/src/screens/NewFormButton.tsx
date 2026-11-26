@@ -11,7 +11,7 @@ import { createFormAction } from '../actions'
 import { editHref } from './paths'
 
 // "New form": asks only for a name, then opens the editor for the fields.
-export function NewFormButton() {
+export function NewFormButton({ warning = null }: { warning?: React.ReactNode }) {
   const router = useRouter()
   const [open, setOpen] = useState(false)
   const [name, setName] = useState('')
@@ -48,6 +48,8 @@ export function NewFormButton() {
             <DialogTitle>New form</DialogTitle>
             <DialogDescription>Name it for yourself, such as “Adoption application”. You add the questions next.</DialogDescription>
           </DialogHeader>
+          {/* No live privacy policy yet: the same warning as on the forms screen (a form can still be made). */}
+          {warning}
           <Field data-invalid={error ? true : undefined}>
             <FieldLabel htmlFor="new-form-name">Name (required)</FieldLabel>
             <Input

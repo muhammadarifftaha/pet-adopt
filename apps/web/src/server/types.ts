@@ -155,6 +155,8 @@ export type SiteSetting = {
   socials: Array<{ platform: string; url: string }>
   nav: Array<{ label: string; href: string }>
   footerText: string | null
+  /** The privacy policy's page (any state; see getPrivacyPolicy for the live one), or null. */
+  privacyPageId: number | null
   updatedAt: Date | null
 }
 

@@ -15,7 +15,16 @@ import React, { useId, useRef, useState } from 'react'
 
 type Errors = Record<string, string>
 
-export function PublicForm({ form, preview = false }: { form: PublicFormData; preview?: boolean }) {
+export function PublicForm({
+  form,
+  preview = false,
+  privacy = null,
+}: {
+  form: PublicFormData
+  preview?: boolean
+  /** The live privacy policy, linked under the button (notice at the point of collection). */
+  privacy?: { title: string; href: string } | null
+}) {
   const base = `form-${form.id}-${useId().replace(/:/g, '')}`
   const [errors, setErrors] = useState<Errors>({})
   const [formError, setFormError] = useState<string | null>(null)
@@ -110,6 +119,11 @@ export function PublicForm({ form, preview = false }: { form: PublicFormData; pr
           {sending ? 'Sending…' : form.submitLabel}
         </button>
       </div>
+      {privacy ? (
+        <p className="form-privacy">
+          We use your answers as described in our <a href={privacy.href}>{privacy.title}</a>.
+        </p>
+      ) : null}
     </form>
   )
 }

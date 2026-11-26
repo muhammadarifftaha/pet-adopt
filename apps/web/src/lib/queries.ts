@@ -20,6 +20,7 @@ import {
 } from '@/lib/options'
 import { richTextToPlain, type RichTextDoc } from '@/lib/rich-text'
 import { getPublishedPage as loadPublishedPage } from '@/server/pages'
+import { getPrivacyPolicy as loadPrivacyPolicy, type PrivacyPolicy } from '@/server/privacy'
 import * as pets from '@/server/pets'
 import { describeError } from '@/server/result'
 import type { PetFilters } from '@/server/pets'
@@ -75,6 +76,9 @@ function publicFilters(filters: PetFilters): PetFilters {
 // Memoised per request (React `cache`): a layout, its nested layouts and the page can all ask for
 // the settings and the database is read once. Outside a render it is a plain call.
 export const getSettings = cache(async (): Promise<SiteSetting> => safely(loadSettings, DEFAULT_SETTINGS))
+
+/** The live privacy policy page (footer and forms link to it), or null. One read per request. */
+export const getPrivacyPolicy = cache(async (): Promise<PrivacyPolicy | null> => safely(loadPrivacyPolicy, null))
 
 /** Plain, serialisable shape used by pet cards (safe to send through server actions). */
 export type PetCardData = {

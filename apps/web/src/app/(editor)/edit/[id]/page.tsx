@@ -4,7 +4,7 @@ import type { Metadata } from 'next'
 import { notFound, redirect } from 'next/navigation'
 import React from 'react'
 
-import { getPetPagePreview, getSettings, type PetPageData } from '@/lib/queries'
+import { getPetPagePreview, getPrivacyPolicy, getSettings, type PetPageData } from '@/lib/queries'
 import { forcedModeCss, resolveTheme } from '@/lib/theme'
 import { listPetChoicesAction, type PetChoice } from '@/puck/actions'
 import { EMPTY_DATA, isPuckData, PET_PAGE_SLUG } from '@/puck/data'
@@ -60,7 +60,7 @@ export default async function EditPage({ params }: { params: Promise<{ id: strin
       // What is live, and whether page settings wait for a publish: so Publish knows when there is nothing to publish.
       publishedData={page.status === 'published' && isPuckData(page.puckPublished) ? page.puckPublished : null}
       detailsPending={page.draftDetails != null}
-      site={toSiteMeta(settings)}
+      site={toSiteMeta(settings, await getPrivacyPolicy())}
       darkCss={darkCss}
       readOnly={readOnly}
       petPreview={petPreview}

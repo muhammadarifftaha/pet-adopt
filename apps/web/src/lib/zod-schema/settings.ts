@@ -60,6 +60,8 @@ export const settingsFormSchema = z.object({
     )
     .max(MAX_LIST_ITEMS, `Use at most ${MAX_LIST_ITEMS} menu links.`),
   footerText: z.string().max(500, "Use at most 500 characters."),
+  /** The privacy policy's page id as text ("" for none), for the select. */
+  privacyPageId: z.string(),
 });
 
 export type SettingsFormValues = z.infer<typeof settingsFormSchema>;
@@ -78,6 +80,7 @@ export function settingsToFormValues(settings: SiteSetting): SettingsFormValues 
     socials: (settings.socials ?? []).map((item) => ({ platform: item.platform, url: item.url })),
     nav: (settings.nav ?? []).map((item) => ({ label: item.label, href: item.href })),
     footerText: settings.footerText ?? "",
+    privacyPageId: settings.privacyPageId ? String(settings.privacyPageId) : "",
   };
 }
 
@@ -98,6 +101,7 @@ export function toSettingsInput(values: SettingsFormValues) {
     socials: values.socials.map((item) => ({ platform: item.platform, url: item.url.trim() })),
     nav: values.nav.map((item) => ({ label: item.label.trim(), href: item.href.trim() })),
     footerText: orNull(values.footerText),
+    privacyPageId: values.privacyPageId ? Number(values.privacyPageId) : null,
   };
 }
 
@@ -134,6 +138,8 @@ export function settingsFieldInfo(name: string): { tab: SettingsTab; label: stri
       return { tab: "navigation", label: `Menu link${row}${sub === "label" ? ", text" : sub === "href" ? ", address" : ""}` };
     case "footerText":
       return { tab: "navigation", label: "Footer text" };
+    case "privacyPageId":
+      return { tab: "navigation", label: "Privacy policy page" };
     default:
       return { tab: "brand", label: name };
   }
