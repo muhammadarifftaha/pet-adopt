@@ -30,6 +30,8 @@ export type UserListItem = {
   role: Role
   /** When the account was archived, or null for an active account. */
   archivedAt: Date | null
+  /** The person confirmed they read this email (an invite, a confirmation link). */
+  emailVerified: boolean
   /** The person asked to delete their account: it is deleted then (null otherwise). */
   deleteAfter: Date | null
   /** Profile picture address (/media/avatar-….webp), or null for initials. */
@@ -76,6 +78,7 @@ export async function listUsers(): Promise<UserListItem[]> {
     role: asRole(u.role),
     archivedAt: u.archivedAt ?? null,
     deleteAfter: u.deleteAfter ?? null,
+    emailVerified: u.emailVerified,
     image: u.image ?? null,
     invited: !withPassword.has(u.id),
     inviteExpiresAt: withPassword.has(u.id) ? null : (inviteExpiry.get(u.id) ?? null),
@@ -110,7 +113,9 @@ async function createAccount(input: { email: string; name: string; password: str
   const ctx = await (await getAuth()).$context
   const hash = input.password === null ? null : await ctx.password.hash(input.password)
   const user = await ctx.internalAdapter.createUser(
-    { email: input.email, name: input.name, emailVerified: true, role: input.role },
+    // Not confirmed until the person proves they read it: accepting an invite or the confirmation
+    // link (src/server/email-change.ts). Accounts from before this rule were left confirmed.
+    { email: input.email, name: input.name, emailVerified: false, role: input.role },
     { method: 'admin' },
   )
   try {
@@ -203,7 +208,8 @@ export async function updateUser(id: string, raw: unknown, opts: { canChangeRole
         }
         await tx
           .update(t.users)
-          .set({ ...(name ? { name } : {}), ...(role ? { role } : {}), ...(changesEmail ? { email: address } : {}), updatedAt: new Date() })
+          // A new address from an admin is not confirmed: the person confirms it themselves.
+          .set({ ...(name ? { name } : {}), ...(role ? { role } : {}), ...(changesEmail ? { email: address, emailVerified: false } : {}), updatedAt: new Date() })
           .where(eq(t.users.id, id))
         return { email: changesEmail ? { from: existing.email, to: address } : null }
       },

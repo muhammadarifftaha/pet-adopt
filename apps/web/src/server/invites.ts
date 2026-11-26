@@ -124,6 +124,8 @@ export async function acceptInvite(raw: unknown): Promise<{ id: string; name: st
       .limit(1)
     if (!user || user.archivedAt) throw new UserError(EXPIRED)
     await writeCredential(tx, t, user.id, hash)
+    // The invite reached them: that confirms the address.
+    await tx.update(t.users).set({ emailVerified: true, updatedAt: new Date() }).where(eq(t.users.id, user.id))
     return { id: user.id, name: user.name, role: asRole(user.role) }
   })
 }

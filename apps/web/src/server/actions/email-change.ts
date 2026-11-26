@@ -6,7 +6,7 @@ import { asRole } from '@pet-adopt/plugin-sdk'
 
 import { recordActivity } from '../activity'
 import { getEmailSender } from '../email'
-import { cancelEmailChange, confirmEmailChange, pendingEmailChange, requestEmailChange } from '../email-change'
+import { cancelEmailChange, confirmEmailChange, pendingEmailChange, requestEmailChange, requestEmailVerification } from '../email-change'
 import { run, type ActionResult } from '../result'
 import { requireUser } from '../session'
 
@@ -53,10 +53,18 @@ export async function confirmEmailChangeAction(input: { token: string }): Promis
       actor: { id: changed.id, name: changed.name, role: asRole(changed.role) },
       action: 'account.email',
       area: 'account',
-      summary: 'Confirmed a new email for signing in',
+      summary: changed.from === changed.to ? 'Confirmed their email' : 'Confirmed a new email for signing in',
       subject: { id: changed.id, label: changed.name },
       fields: ['email'],
     })
     return { email: changed.to }
+  })
+}
+
+/** Emails a link to confirm your current address; until confirmed you can look but not change. */
+export async function requestEmailVerificationAction(): Promise<ActionResult<{ email: string; expiresAt: Date }>> {
+  return run(async () => {
+    const user = await requireUser()
+    return requestEmailVerification(user.id)
   })
 }

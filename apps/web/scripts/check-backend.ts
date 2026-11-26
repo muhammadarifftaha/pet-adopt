@@ -86,7 +86,7 @@ import {
 import { getEmailSender, getEmailSettingsView, isLoopbackHost, parseFrom, resolveSmtp, saveEmailSettings, sendsToLocalServer } from '../src/server/email'
 import { open, seal } from '../src/server/secret-box'
 import { acceptInvite, isInviteTokenValid, sendInvite } from '../src/server/invites'
-import { cancelEmailChange, confirmEmailChange, emailChangeFor, pendingEmailChange, requestEmailChange, sendEmailChangeNotice } from '../src/server/email-change'
+import { cancelEmailChange, confirmEmailChange, emailChangeFor, needsEmailConfirmation, pendingEmailChange, requestEmailChange, requestEmailVerification, sendEmailChangeNotice } from '../src/server/email-change'
 import { adoptProviderPicture, AVATAR_SIZE, isPrivateAddress, pictureFromIdToken, removeAvatar, saveAvatar } from '../src/server/avatars'
 import { backupCodesLeft, forgetTrustedDevices, needsTwoFactorSetup, resetTwoFactor, saveTwoFactorRoles } from '../src/server/two-factor'
 import { BACKUP_CODE_ALPHABET, normalizeBackupCode, normalizeTotpCode } from '../src/server/two-factor-codes'
@@ -1766,7 +1766,7 @@ await check('roles: the permission table is as agreed, every action checks a per
     'startProviderSignInAction', 'getMyProvidersAction', 'connectProviderAction', 'disconnectProviderAction',
     'uploadAvatarAction', 'removeAvatarAction',
     'getEmailChangeStatusAction', 'requestEmailChangeAction', 'cancelEmailChangeAction', 'confirmEmailChangeAction',
-    'requestAccountDeletionAction',
+    'requestAccountDeletionAction', 'requestEmailVerificationAction',
     'requestPasswordResetAction', 'resetPasswordWithTokenAction', 'acceptInviteAction', 'submitFormAction',
     'fetchPetSpotlightAction', 'fetchCatalogAction', 'fetchPetProfilesAction', 'fetchPetsAction', 'fetchFormAction',
   ])
@@ -2886,6 +2886,50 @@ await check('deleting accounts: your own request closes it at once and deletes i
   ok(after.length === 1 && after[0].actorName === ghost.label && !after[0].summary.includes('Lee Ver'), 'an admin deletion anonymises too')
 
   ok(validateTemplate(DEFAULT_TEMPLATES['account-deletion'], 'account-deletion').ok, 'the Account deletion email is valid')
+})
+
+await check('confirmed emails: new accounts start unconfirmed and cannot change anything until they confirm (only while the site can send email); the link, an accepted invite or a confirmed change confirm; an admin email change unconfirms', async () => {
+  const inbox: EmailMessage[] = []
+  const sender = { send: async (message: EmailMessage) => void inbox.push(message) }
+  const tokenIn = (message: EmailMessage) => /token=([A-Za-z0-9_-]{43})/.exec(message.text)?.[1] ?? ''
+  const verified = async (id: string) => (await listUsers()).find((u) => u.id === id)!.emailVerified
+
+  const { id } = await createUser({ email: 'confirmme@example.test', name: 'Con Firm', password: 'confirm-password-1', role: 'editor' })
+  ok(!(await verified(id)), 'a new account starts unconfirmed')
+  ok(await needsEmailConfirmation({ emailVerified: false }, true), 'unconfirmed and the site can email: changes wait')
+  ok(!(await needsEmailConfirmation({ emailVerified: false }, false)), 'without email the rule is paused (nobody could confirm)')
+  ok(!(await needsEmailConfirmation({ emailVerified: true }, true)), 'confirmed: nothing waits')
+  ok(!(await needsEmailConfirmation({}, true)), 'sessions without the field count as confirmed')
+
+  // The link: to the current address, once.
+  ok(/cannot send email/.test(await userError(requestEmailVerification(id, null))), 'no link without email')
+  const asked = await requestEmailVerification(id, sender)
+  ok(asked.email === 'confirmme@example.test' && inbox.at(-1)?.to === 'confirmme@example.test' && /Confirm your email/.test(inbox.at(-1)!.subject), 'a "Confirm your email" link to their address')
+  const token = tokenIn(inbox.at(-1)!)
+  const page = await emailChangeFor(token)
+  ok(page?.email === 'confirmme@example.test' && page.isChange === false, 'the page knows it is a confirmation, not a change')
+  const done = await confirmEmailChange(token)
+  ok(done.from === done.to && (await verified(id)), 'confirmed, same address')
+  ok(/expired or was already used/.test(await userError(confirmEmailChange(token))), 'a link works once')
+  ok(/already confirmed/.test(await userError(requestEmailVerification(id, sender))), 'nothing to confirm twice')
+
+  // An admin's new address is not confirmed; confirming a change confirms it.
+  await updateUser(id, { name: 'Con Firm', email: 'confirm.admin@example.test' }, { canChangeRole: true })
+  ok(!(await verified(id)), 'an admin email change unconfirms')
+  await requestEmailChange(id, { email: 'confirm.self@example.test', password: 'confirm-password-1' }, sender)
+  const changeToken = tokenIn(inbox.find((m) => m.to === 'confirm.self@example.test')!)
+  await confirmEmailChange(changeToken)
+  ok(await verified(id), 'confirming a change confirms the new address')
+
+  // An accepted invite confirms.
+  const invited = await createUser({ email: 'confirm.invite@example.test', name: 'In Vite', role: 'editor', invite: true })
+  const invite = await sendInvite(invited.id, 'Ad Min', null)
+  await acceptInvite({ token: new URL(invite.url).searchParams.get('token')!, password: 'invited-password-9' })
+  ok(await verified(invited.id), 'accepting an invite confirms the address')
+
+  ok(validateTemplate(DEFAULT_TEMPLATES['email-verify'], 'email-verify').ok, 'the Confirm your email email is valid')
+  await removeAccount(id)
+  await removeAccount(invited.id)
 })
 
 // FK enforcement is on (SQLite needs a pragma)

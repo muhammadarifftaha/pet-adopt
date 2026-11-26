@@ -50,6 +50,7 @@ type Announce = (text: string, isError?: boolean) => void
 const TYPE_LABELS: Record<EmailPurpose, string> = {
   'password-reset': 'System email',
   invite: 'System email',
+  'email-verify': 'System email',
   'email-change': 'System email',
   'email-changed': 'System email',
   'account-deletion': 'System email',
@@ -60,6 +61,7 @@ const TYPE_LABELS: Record<EmailPurpose, string> = {
 const TYPE_HINTS: Record<EmailPurpose, string> = {
   'password-reset': '',
   invite: '',
+  'email-verify': '',
   'email-change': '',
   'email-changed': '',
   'account-deletion': '',

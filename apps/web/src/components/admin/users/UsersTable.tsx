@@ -85,6 +85,11 @@ export function UsersTable({ users, meId, minPasswordLength }: { users: UserList
   const badges = (user: UserListItem) => (
     <>
       {user.id === meId ? <Badge variant="outline">You</Badge> : null}
+      {!user.invited && !user.emailVerified ? (
+        <Badge variant="outline" title="They have not confirmed their email yet, so they cannot make changes">
+          Email not confirmed
+        </Badge>
+      ) : null}
       {user.invited ? (
         <Badge variant="outline">{user.inviteActive ? "Invited" : "Invite expired"}</Badge>
       ) : null}

@@ -19,7 +19,7 @@ export default async function ConfirmEmailPage({ searchParams }: { searchParams:
   return (
     <div className="w-full h-full flex flex-col items-center justify-center gap-6 p-4">
       {change && typeof token === "string" ? (
-        <ConfirmEmailForm token={token} name={change.name} email={change.email} />
+        <ConfirmEmailForm token={token} name={change.name} email={change.email} isChange={change.isChange} />
       ) : (
         <ResetUnavailable title="This link no longer works">
           Confirmation links work once, for 24 hours. Ask for the change again on your Account page.

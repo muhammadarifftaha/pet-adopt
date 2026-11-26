@@ -15,7 +15,7 @@
 // what is designed is what is sent. Stored data is rebuilt by `validateTemplate` from allowed
 // blocks and props only, and everything a person typed is escaped when it is rendered.
 
-export const EMAIL_PURPOSES = ['password-reset', 'invite', 'email-change', 'email-changed', 'account-deletion', 'test', 'team-notification', 'visitor-message'] as const
+export const EMAIL_PURPOSES = ['password-reset', 'invite', 'email-verify', 'email-change', 'email-changed', 'account-deletion', 'test', 'team-notification', 'visitor-message'] as const
 export type EmailPurpose = (typeof EMAIL_PURPOSES)[number]
 
 /** Placeholders every template can use. */
@@ -46,6 +46,14 @@ export const PURPOSE_INFO: Record<
     required: ['inviteLink'],
     details: false,
     sample: { name: 'Alex Rivera', inviteLink: 'https://example.com/admin/invite?token=sample', inviterName: 'Sam Lee', role: 'Editor', days: '7' },
+  },
+  'email-verify': {
+    label: 'Confirm your email',
+    description: 'Sent when someone asks to confirm their email (the admin shows a banner until they do). Until then they can look around but not change anything.',
+    placeholders: { name: 'The person’s name', confirmLink: 'The one-time confirmation link (required)', hours: 'How long the link works, in hours' },
+    required: ['confirmLink'],
+    details: false,
+    sample: { name: 'Alex Rivera', confirmLink: 'https://example.com/admin/confirm-email?token=sample', hours: '24' },
   },
   'email-change': {
     label: 'Confirm new email',
@@ -109,7 +117,7 @@ export const isEmailPurpose = (value: unknown): value is EmailPurpose => (EMAIL_
  * edited in place, and "Restore default" brings it back. Form emails keep a library instead,
  * so each form can pick its own.
  */
-export const SYSTEM_PURPOSES = ['password-reset', 'invite', 'email-change', 'email-changed', 'account-deletion', 'test'] as const satisfies readonly EmailPurpose[]
+export const SYSTEM_PURPOSES = ['password-reset', 'invite', 'email-verify', 'email-change', 'email-changed', 'account-deletion', 'test'] as const satisfies readonly EmailPurpose[]
 export type SystemPurpose = (typeof SYSTEM_PURPOSES)[number]
 export const isSystemPurpose = (value: unknown): value is SystemPurpose => (SYSTEM_PURPOSES as readonly unknown[]).includes(value)
 export const LIBRARY_PURPOSES = EMAIL_PURPOSES.filter((purpose) => !isSystemPurpose(purpose))
@@ -625,6 +633,15 @@ export const DEFAULT_TEMPLATES: Record<EmailPurpose, TemplateData> = {
       text('text-1', 'Hello {{name}},\n\n{{inviterName}} added you to the {{siteName}} admin as {{role}}. To start, choose your password with this link within {{days}} days:'),
       button('button-1', 'Choose your password', '{{inviteLink}}'),
       text('text-2', 'The link works once. If you were not expecting this, you can ignore this email.', 'small'),
+    ],
+  },
+  'email-verify': {
+    root: { props: { subject: 'Confirm your email for {{siteName}}', preheader: 'One click, within {{hours}} hours.', ...LOGO_DEFAULTS, footer: FOOTER } },
+    content: [
+      heading('heading-1', 'Confirm your email'),
+      text('text-1', 'Hello {{name}},\n\nTo make changes in the {{siteName}} admin, confirm that this is your email address. Use this link within {{hours}} hours:'),
+      button('button-1', 'Confirm my email', '{{confirmLink}}'),
+      text('text-2', 'If you did not ask for this, ignore this email.', 'small'),
     ],
   },
   'email-change': {

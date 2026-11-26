@@ -9,12 +9,19 @@
 //    Only when the site can send email; otherwise an admin changes it.
 //  - An admin (Users > Edit): at once; both addresses get the notice, a pending self-service change
 //    is cancelled, and a pending invite is sent again to the new address (actions/users.ts).
+//  - Confirming your email (agreed with the owner): every account must have confirmed its address
+//    before it can change anything (requirePermission refuses `:edit` and `:export`), while the site
+//    can send email. The same link and page carry the current address then ("Confirm your email");
+//    accepting an invite or confirming a change also confirms. Accounts from before the rule stayed
+//    confirmed. Without email on the site the rule is paused (nobody could confirm).
 //  - Stored like reset links: only sha256(token), in `verifications` (identifier
 //    `email-change:<hash>`, value = JSON { userId, email }).
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
 
 import type { EmailSender } from '@pet-adopt/plugin-sdk'
+import type { SessionUser } from './types'
 import { and, eq, gt, like, lt } from 'drizzle-orm'
+import { cache } from 'react'
 
 import { getDatabase } from '@/db/client'
 
@@ -140,6 +147,57 @@ export async function requestEmailChange(userId: string, raw: unknown, sender?: 
   return { email: address, expiresAt }
 }
 
+/** Whether the site can send email now, read once per request (the confirmation rule needs it). */
+const canSendEmail = cache(async (): Promise<boolean> => (await getEmailSender()) !== null)
+
+/**
+ * True when this person must confirm their email before changing anything: their address is not
+ * confirmed and the site can send the link. `sendable` is for the checks.
+ */
+export async function needsEmailConfirmation(user: Pick<SessionUser, 'emailVerified'>, sendable?: boolean): Promise<boolean> {
+  // Only an explicit false waits: a user built without the field (older code paths) is not blocked.
+  if (user.emailVerified !== false) return false
+  return sendable ?? (await canSendEmail())
+}
+
+/** Emails a link to confirm the person's current address ("Confirm your email"). */
+export async function requestEmailVerification(userId: string, sender?: EmailSender | null): Promise<{ email: string; expiresAt: Date }> {
+  const via = sender === undefined ? await getEmailSender() : sender
+  if (!via) throw new UserError('This site cannot send email yet, so there is nothing to confirm with.')
+  const { db, t, withTransaction } = await getDatabase()
+  const [user] = await db.select({ name: t.users.name, email: t.users.email, emailVerified: t.users.emailVerified }).from(t.users).where(eq(t.users.id, userId)).limit(1)
+  if (!user) throw new UserError('You need to be signed in.')
+  if (user.emailVerified) throw new UserError('Your email is already confirmed.')
+  await consumeAttempt(`emailchange:${userId}`, REQUEST_RULE)
+
+  const token = randomBytes(32).toString('base64url')
+  const now = new Date()
+  const expiresAt = new Date(now.getTime() + EMAIL_CHANGE_TTL_MS)
+  await withTransaction(async (tx) => {
+    await tx.delete(t.verifications).where(and(like(t.verifications.identifier, `${PREFIX}%`), like(t.verifications.value, `{"userId":${JSON.stringify(userId)},%`)))
+    await tx.insert(t.verifications).values({
+      id: randomUUID(),
+      identifier: identifierFor(token),
+      value: JSON.stringify({ userId, email: user.email } satisfies Pending),
+      expiresAt,
+      createdAt: now,
+      updatedAt: now,
+    })
+  })
+  const message = await renderPurposeEmail({
+    purpose: 'email-verify',
+    values: { name: user.name, confirmLink: confirmEmailUrl(token), hours: String(Math.round(EMAIL_CHANGE_TTL_MS / 3_600_000)) },
+  })
+  try {
+    await via.send({ to: user.email, subject: message.subject, text: message.text, html: message.html })
+  } catch (error) {
+    logError(error, 'email confirmation failed')
+    await cancelEmailChange(userId)
+    throw new UserError('The confirmation email could not be sent. Try again later, or ask an admin to check Email > Sending.')
+  }
+  return { email: user.email, expiresAt }
+}
+
 /** The pending change of this account, if any: the new address and when the link stops working. */
 export async function pendingEmailChange(userId: string): Promise<{ email: string; expiresAt: Date } | null> {
   const { db, t } = await getDatabase()
@@ -161,7 +219,7 @@ export async function cancelEmailChange(userId: string): Promise<void> {
 }
 
 /** Whether a confirmation token still works, for the page: whose account and which address. */
-export async function emailChangeFor(token: unknown): Promise<{ name: string; email: string } | null> {
+export async function emailChangeFor(token: unknown): Promise<{ name: string; email: string; isChange: boolean } | null> {
   if (typeof token !== 'string' || !TOKEN.test(token)) return null
   const { db, t } = await getDatabase()
   const [row] = await db
@@ -171,8 +229,8 @@ export async function emailChangeFor(token: unknown): Promise<{ name: string; em
     .limit(1)
   const pending = row ? parse(row.value) : null
   if (!pending) return null
-  const [user] = await db.select({ name: t.users.name, archivedAt: t.users.archivedAt }).from(t.users).where(eq(t.users.id, pending.userId)).limit(1)
-  return user && !user.archivedAt ? { name: user.name, email: pending.email } : null
+  const [user] = await db.select({ name: t.users.name, email: t.users.email, archivedAt: t.users.archivedAt }).from(t.users).where(eq(t.users.id, pending.userId)).limit(1)
+  return user && !user.archivedAt ? { name: user.name, email: pending.email, isChange: pending.email !== user.email } : null
 }
 
 /** Confirms a change: the account signs in with the new address from now on. Works once. */
@@ -191,9 +249,12 @@ export async function confirmEmailChange(token: unknown): Promise<{ id: string; 
         if (!pending) throw new UserError(EXPIRED)
         const [user] = await tx.select().from(t.users).where(eq(t.users.id, pending.userId)).limit(1)
         if (!user || user.archivedAt) throw new UserError(EXPIRED)
-        const [taken] = await tx.select({ id: t.users.id }).from(t.users).where(eq(t.users.email, pending.email)).limit(1)
-        if (taken) throw new UserError('Another account started using that email in the meantime. Ask an admin.')
-        await tx.update(t.users).set({ email: pending.email, updatedAt: new Date() }).where(eq(t.users.id, user.id))
+        // The link proves they read this address: it is confirmed, and becomes theirs if it is new.
+        if (pending.email !== user.email) {
+          const [taken] = await tx.select({ id: t.users.id }).from(t.users).where(eq(t.users.email, pending.email)).limit(1)
+          if (taken) throw new UserError('Another account started using that email in the meantime. Ask an admin.')
+        }
+        await tx.update(t.users).set({ email: pending.email, emailVerified: true, updatedAt: new Date() }).where(eq(t.users.id, user.id))
         return { id: user.id, name: user.name, role: user.role, from: user.email, to: pending.email }
       },
       { lock: 'users:admins' },
