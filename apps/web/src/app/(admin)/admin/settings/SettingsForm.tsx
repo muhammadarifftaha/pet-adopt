@@ -325,12 +325,18 @@ export function SettingsForm({ settings }: { settings: SiteSetting }) {
         {listMessage}
       </p>
 
-      <Tabs value={tab} onValueChange={(value) => setTab(value as SettingsTab)}>
-        <TabsList className="h-auto w-full flex-wrap justify-start group-data-horizontal/tabs:h-auto">
+      {/* A second sidebar, not a row of tabs: the sections in a fixed column on the left (from md up,
+          it stays in view while the form scrolls), stacked above the form on phones. Still tabs to
+          assistive tech, with arrow keys between them. */}
+      <Tabs orientation="vertical" value={tab} onValueChange={(value) => setTab(value as SettingsTab)} className="flex-col gap-6 md:flex-row md:items-start">
+        <TabsList
+          aria-label="Site settings sections"
+          className="w-full items-stretch gap-1 rounded-lg border bg-transparent p-1.5 md:sticky md:top-4 md:w-52 md:shrink-0"
+        >
           {TABS.map(({ id, label }) => {
             const count = errorsByTab.get(id) ?? 0
             return (
-              <TabsTrigger key={id} value={id} className="h-auto flex-none px-3 py-1.5">
+              <TabsTrigger key={id} value={id} className="h-auto w-full flex-none justify-between px-3 py-2 data-active:bg-muted">
                 {label}
                 {count > 0 ? (
                   <>
@@ -345,7 +351,7 @@ export function SettingsForm({ settings }: { settings: SiteSetting }) {
           })}
         </TabsList>
 
-        <TabsContent value="brand" className="pt-4">
+        <TabsContent value="brand" className="min-w-0">
           <ViewOnlyFieldset>
           <FieldGroup className="max-w-2xl">
             <TextField control={control} name="siteName" label="Site name" required description="Shown in the site header, the browser tab, search results and the admin sidebar." />
@@ -396,7 +402,7 @@ export function SettingsForm({ settings }: { settings: SiteSetting }) {
           </ViewOnlyFieldset>
         </TabsContent>
 
-        <TabsContent value="contact" className="pt-4">
+        <TabsContent value="contact" className="min-w-0">
           <ViewOnlyFieldset>
           <FieldGroup className="max-w-2xl">
             <Controller
@@ -500,7 +506,7 @@ export function SettingsForm({ settings }: { settings: SiteSetting }) {
           </ViewOnlyFieldset>
         </TabsContent>
 
-        <TabsContent value="navigation" className="pt-4">
+        <TabsContent value="navigation" className="min-w-0">
           <ViewOnlyFieldset>
           <FieldGroup className="max-w-2xl">
             <FieldSet>
