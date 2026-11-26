@@ -18,7 +18,16 @@ export const getSessionUser = cache(async (): Promise<SessionUser | null> => {
   const auth = await getAuth()
   const session = await auth.api.getSession({ headers: requestHeaders })
   if (!session?.user) return null
-  const { id, email, name, role, twoFactorEnabled } = session.user as { id: string; email: string; name: string; role?: string | null; twoFactorEnabled?: boolean | null }
+  const { id, email, name, role, twoFactorEnabled, archivedAt } = session.user as {
+    id: string
+    email: string
+    name: string
+    role?: string | null
+    twoFactorEnabled?: boolean | null
+    archivedAt?: Date | string | null
+  }
+  // Archiving deletes the account's sessions; this also covers one made at that same moment.
+  if (archivedAt) return null
   return { id, email, name, role: asRole(role), twoFactorEnabled: Boolean(twoFactorEnabled) }
 })
 

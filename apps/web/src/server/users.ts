@@ -2,14 +2,18 @@ import { asRole } from '@pet-adopt/plugin-sdk'
 // The people who sign in. Authorisation (who may call what) is done by the actions; the rules about
 // the data itself live here:
 //  - the first account is always an admin, whatever role it is given;
-//  - the last admin cannot be demoted or deleted, so someone can always manage the site. The check
-//    and the write happen in one transaction that holds a lock, so two admins demoting or deleting
-//    each other at the same moment cannot both pass the check.
+//  - the last admin cannot be demoted or archived, so someone can always manage the site. Only
+//    active (not archived) admins count. The check and the write happen in one transaction that
+//    holds a lock, so two admins demoting or archiving each other at the same moment cannot both
+//    pass the check;
+//  - removing someone is two steps, like pages (agreed with the owner): archive (cannot sign in,
+//    signed out everywhere, pending reset links cancelled, name kept on what they made; restorable),
+//    then delete, which is only possible for an archived account. Nobody archives themselves.
 // Accounts are created through Better Auth's internal adapter, so passwords are hashed exactly as
 // Better Auth will check them at sign-in.
 import { randomUUID } from 'node:crypto'
 
-import { and, count, eq } from 'drizzle-orm'
+import { and, count, eq, isNull, like } from 'drizzle-orm'
 
 import { getDatabase, type Db, type Schema } from '@/db/client'
 import { ROLES } from '@/lib/options'
@@ -23,7 +27,8 @@ export type UserListItem = {
   email: string
   name: string
   role: Role
-  banned: boolean
+  /** When the account was archived, or null for an active account. */
+  archivedAt: Date | null
   /** Two-factor sign-in is set up. */
   twoFactorEnabled: boolean
   createdAt: Date
@@ -50,14 +55,14 @@ export async function listUsers(): Promise<UserListItem[]> {
     email: u.email,
     name: u.name,
     role: asRole(u.role),
-    banned: Boolean(u.banned),
+    archivedAt: u.archivedAt ?? null,
     twoFactorEnabled: Boolean(u.twoFactorEnabled),
     createdAt: u.createdAt,
   }))
 }
 
 async function countAdmins(tx: Db, t: Schema) {
-  const [row] = await tx.select({ n: count() }).from(t.users).where(eq(t.users.role, 'admin'))
+  const [row] = await tx.select({ n: count() }).from(t.users).where(and(eq(t.users.role, 'admin'), isNull(t.users.archivedAt)))
   return row?.n ?? 0
 }
 
@@ -110,7 +115,13 @@ export async function createUser(raw: unknown): Promise<{ id: string }> {
   const address = (email as string).toLowerCase()
   const taken = new ValidationError({ email: 'An account with this email already exists.' })
   const ctx = await (await getAuth()).$context
-  if (await ctx.internalAdapter.findUserByEmail(address)) throw taken
+  const existing = await ctx.internalAdapter.findUserByEmail(address)
+  if (existing) {
+    if ((existing.user as { archivedAt?: Date | null }).archivedAt) {
+      throw new ValidationError({ email: 'An archived account has this email. Restore it from the archived accounts instead.' })
+    }
+    throw taken
+  }
 
   const { db, t } = await getDatabase()
   const [{ n }] = await db.select({ n: count() }).from(t.users)
@@ -143,6 +154,7 @@ export async function updateUser(id: string, raw: unknown, opts: { canChangeRole
     async (tx) => {
       const [existing] = await tx.select().from(t.users).where(eq(t.users.id, id)).limit(1)
       if (!existing) throw new UserError('User not found.')
+      if (existing.archivedAt) throw new UserError('This account is archived. Restore it before changing it.')
       if (role && role !== 'admin' && existing.role === 'admin' && (await countAdmins(tx, t)) <= 1) {
         throw new UserError('The last admin cannot be made an editor.')
       }
@@ -166,8 +178,9 @@ export async function resetPassword(id: string, raw: unknown): Promise<void> {
   const hash = await ctx.password.hash(pass as string)
   const { t, withTransaction } = await getDatabase()
   await withTransaction(async (tx) => {
-    const [user] = await tx.select({ id: t.users.id }).from(t.users).where(eq(t.users.id, id)).limit(1)
+    const [user] = await tx.select({ id: t.users.id, archivedAt: t.users.archivedAt }).from(t.users).where(eq(t.users.id, id)).limit(1)
     if (!user) throw new UserError('User not found.')
+    if (user.archivedAt) throw new UserError('This account is archived. Restore it before setting a password.')
     // Also repairs an account that was left without a password. Changing the password and ending
     // every session happen together, so a reset used to evict a stolen session cannot half-apply.
     await writeCredential(tx, t, id, hash)
@@ -175,14 +188,54 @@ export async function resetPassword(id: string, raw: unknown): Promise<void> {
   })
 }
 
-export async function deleteUser(id: string): Promise<void> {
+/**
+ * Archives an account: it cannot sign in (the session hook in auth.ts), is signed out everywhere,
+ * and its pending reset links stop working. Its name stays on everything it made. `by` is the admin
+ * doing it: nobody archives themselves, and the last active admin stays.
+ */
+export async function archiveUser(id: string, opts: { by: string }): Promise<void> {
+  if (id === opts.by) throw new UserError('You cannot archive your own account. Ask another admin.')
   const { t, withTransaction } = await getDatabase()
   await withTransaction(
     async (tx) => {
       const [target] = await tx.select().from(t.users).where(eq(t.users.id, id)).limit(1)
       if (!target) throw new UserError('User not found.')
-      // The last admin cannot be deleted. (That also means the site always has a user.)
-      if (target.role === 'admin' && (await countAdmins(tx, t)) <= 1) throw new UserError('The last admin account cannot be deleted.')
+      if (target.archivedAt) throw new UserError('This account is already archived.')
+      if (target.role === 'admin' && (await countAdmins(tx, t)) <= 1) {
+        throw new UserError('The last admin account cannot be archived. Make someone else an admin first.')
+      }
+      await tx.update(t.users).set({ archivedAt: new Date(), updatedAt: new Date() }).where(eq(t.users.id, id))
+      await tx.delete(t.sessions).where(eq(t.sessions.userId, id))
+      // Reset links are `pwreset:<hash>` valued with the user id (src/server/password-reset.ts).
+      await tx.delete(t.verifications).where(and(like(t.verifications.identifier, 'pwreset:%'), eq(t.verifications.value, id)))
+    },
+    { lock: ADMIN_LOCK },
+  )
+}
+
+/** Brings an archived account back as it was: same role, password and two-factor. */
+export async function restoreUser(id: string): Promise<void> {
+  const { t, withTransaction } = await getDatabase()
+  await withTransaction(async (tx) => {
+    const [target] = await tx.select({ archivedAt: t.users.archivedAt }).from(t.users).where(eq(t.users.id, id)).limit(1)
+    if (!target) throw new UserError('User not found.')
+    if (!target.archivedAt) throw new UserError('This account is not archived.')
+    await tx.update(t.users).set({ archivedAt: null, updatedAt: new Date() }).where(eq(t.users.id, id))
+  })
+}
+
+/**
+ * Deletes an archived account for good. Its activity log entries keep its name; page versions and
+ * email templates it made show no creator.
+ */
+export async function deleteUser(id: string): Promise<void> {
+  const { t, withTransaction } = await getDatabase()
+  await withTransaction(
+    async (tx) => {
+      const [target] = await tx.select({ archivedAt: t.users.archivedAt }).from(t.users).where(eq(t.users.id, id)).limit(1)
+      if (!target) throw new UserError('User not found.')
+      // Archived accounts are not admins that count, so the last active admin is never deleted.
+      if (!target.archivedAt) throw new UserError('Archive the account before deleting it.')
       await tx.delete(t.users).where(eq(t.users.id, id))
     },
     { lock: ADMIN_LOCK },

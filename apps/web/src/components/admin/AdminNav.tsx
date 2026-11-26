@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { createElement, type ReactNode } from 'react'
 import type { IconType } from 'react-icons'
-import { FiActivity, FiDroplet, FiMail, FiFileText, FiHeart, FiHome, FiImage, FiPackage, FiSettings, FiUsers } from 'react-icons/fi'
+import { FiActivity, FiDroplet, FiMail, FiFileText, FiHeart, FiHome, FiImage, FiLock, FiPackage, FiSettings, FiUsers } from 'react-icons/fi'
 
 import {
   SidebarGroup,
@@ -56,6 +56,7 @@ const ICONS: Record<string, IconType> = {
   '/admin/settings': FiSettings,
   '/admin/email': FiMail,
   '/admin/users': FiUsers,
+  '/admin/authentication': FiLock,
   '/admin/activity': FiActivity,
 }
 

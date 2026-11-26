@@ -9,7 +9,8 @@
 //
 // The first five tables belong to Better Auth (src/server/auth.ts). They match what
 // `npx @better-auth/cli generate` produces for the Drizzle adapter with `usePlural` and the
-// admin plugin; regenerate and compare if you upgrade Better Auth or add a plugin.
+// two-factor plugin, plus our own `role` and `archived_at` on users; regenerate and compare if you
+// upgrade Better Auth or add a plugin.
 import { sql } from 'drizzle-orm'
 import { index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
 
@@ -37,12 +38,13 @@ export const users = sqliteTable('users', {
     .default(nowMs)
     .$onUpdate(() => new Date())
     .notNull(),
+  // Ours, not a plugin's: declared to Better Auth as additional fields in src/server/auth.ts.
   role: text('role'),
-  banned: integer('banned', { mode: 'boolean' }).default(false),
-  banReason: text('ban_reason'),
-  banExpires: timestamp('ban_expires'),
   // Better Auth's two-factor plugin: true once an authenticator app is set up and confirmed.
   twoFactorEnabled: integer('two_factor_enabled', { mode: 'boolean' }).default(false),
+  // Set when an admin archives the account (src/server/users.ts): it cannot sign in, keeps its name
+  // on what it made, and can be restored, or then deleted.
+  archivedAt: timestamp('archived_at'),
 })
 
 export const sessions = sqliteTable(
@@ -60,7 +62,6 @@ export const sessions = sqliteTable(
     userId: text('user_id')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
-    impersonatedBy: text('impersonated_by'),
   },
   (t) => [index('sessions_userId_idx').on(t.userId)],
 )

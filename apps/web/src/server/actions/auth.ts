@@ -7,9 +7,9 @@ import { headers } from 'next/headers'
 
 import { getDatabase } from '@/db/client'
 
-import { recordActivity, recordFailedSignIn } from '../activity'
-import { getAuth, MIN_PASSWORD_LENGTH } from '../auth'
-import { isAuthError } from '../auth-errors'
+import { recordActivity, recordArchivedSignIn, recordFailedSignIn } from '../activity'
+import { ACCOUNT_ARCHIVED, getAuth, MIN_PASSWORD_LENGTH } from '../auth'
+import { authErrorCode, isAuthError } from '../auth-errors'
 import { asRecord, Fields, logError, run, UserError, ValidationError, type ActionResult } from '../result'
 import { getSessionUser, requireUser } from '../session'
 import { clearAttempts, guardPasswordChange, guardSignIn } from '../throttle'
@@ -60,7 +60,13 @@ export async function signInAction(input: { email: string; password: string }): 
       return { twoFactor: false, user: signedIn }
     } catch (error) {
       if (isAuthError(error)) {
-        // A wrong password, an unknown email and a disabled account all look the same.
+        // The password was right but the account is archived (the session hook in auth.ts). Only
+        // someone who knows the password learns this, so it can say so.
+        if (authErrorCode(error) === ACCOUNT_ARCHIVED) {
+          await recordArchivedSignIn(normalized)
+          throw new UserError('This account is archived. Ask an admin to restore it.')
+        }
+        // A wrong password and an unknown email look the same.
         if (error.status === 401 || error.status === 'UNAUTHORIZED') {
           await recordFailedSignIn(normalized)
           throw new UserError('Incorrect email or password.')

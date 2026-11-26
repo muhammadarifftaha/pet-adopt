@@ -283,6 +283,24 @@ export async function recordPageActivity(
 }
 
 /** A failed sign-in. The typed email is never stored; it only finds the account it was meant for. */
+/** A sign-in with the right password to an archived account (refused). */
+export async function recordArchivedSignIn(email: string): Promise<void> {
+  try {
+    const { db, t } = await getDatabase()
+    const [account] = await db.select({ id: t.users.id, name: t.users.name }).from(t.users).where(eq(t.users.email, email.trim().toLowerCase().slice(0, 200))).limit(1)
+    if (!account) return
+    await recordActivity({
+      actor: null,
+      action: 'auth.sign-in-archived',
+      area: 'sign-in',
+      summary: `Refused a sign-in to the archived account ${quoted(account.name)} (the password was right)`,
+      subject: { id: account.id, label: account.name },
+    })
+  } catch (error) {
+    logError(error, 'could not record a sign-in to an archived account')
+  }
+}
+
 export async function recordFailedSignIn(email: string, client?: string | null): Promise<void> {
   try {
     const { db, t } = await getDatabase()

@@ -39,12 +39,13 @@ export const users = pgTable('users', {
     .defaultNow()
     .$onUpdate(() => new Date())
     .notNull(),
+  // Ours, not a plugin's: declared to Better Auth as additional fields in src/server/auth.ts.
   role: text('role'),
-  banned: boolean('banned').default(false),
-  banReason: text('ban_reason'),
-  banExpires: timestamp('ban_expires'),
   // Better Auth's two-factor plugin: true once an authenticator app is set up and confirmed.
   twoFactorEnabled: boolean('two_factor_enabled').default(false),
+  // Set when an admin archives the account (src/server/users.ts): it cannot sign in, keeps its name
+  // on what it made, and can be restored, or then deleted.
+  archivedAt: timestamp('archived_at'),
 })
 
 export const sessions = pgTable(
@@ -62,7 +63,6 @@ export const sessions = pgTable(
     userId: text('user_id')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
-    impersonatedBy: text('impersonated_by'),
   },
   (t) => [index('sessions_userId_idx').on(t.userId)],
 )

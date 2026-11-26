@@ -127,6 +127,20 @@
       "when": 1795683494909,
       "tag": "0017_steep_warhawk",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1795684878847,
+      "tag": "0018_mixed_otto_octavius",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1795684879523,
+      "tag": "0019_talented_rocket_raccoon",
+      "breakpoints": true
     }
   ]
 }

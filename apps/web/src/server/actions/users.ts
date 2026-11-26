@@ -5,7 +5,7 @@ import { ROLE_INFO } from '@pet-adopt/plugin-sdk'
 import { quoted, recordActivity, type Actor } from '../activity'
 import { run, UserError, type ActionResult } from '../result'
 import { requirePermission } from '../session'
-import { createUser, deleteUser, listUsers, resetPassword, updateUser, type UserListItem } from '../users'
+import { archiveUser, createUser, deleteUser, listUsers, resetPassword, restoreUser, updateUser, type UserListItem } from '../users'
 
 // Everything here is for admins. Editors change only their own name and password
 // (updateProfileAction and changePasswordAction in ./auth).
@@ -69,7 +69,32 @@ export async function resetUserPasswordAction(id: string, input: unknown): Promi
   })
 }
 
-/** Refuses to delete the last admin. */
+/**
+ * Archives an account: it cannot sign in and is signed out everywhere; its name stays on what it
+ * made. Not your own account, and not the last active admin.
+ */
+export async function archiveUserAction(id: string): Promise<ActionResult> {
+  return run(async () => {
+    const actor = await requirePermission('users:edit')
+    const target = userId(id)
+    await archiveUser(target, { by: actor.id })
+    const user = await findUser(target)
+    await record(actor, 'user.archive', user, target, `Archived the account ${quoted(user?.name)} (signed out everywhere, cannot sign in)`)
+  })
+}
+
+/** Brings an archived account back as it was. */
+export async function restoreUserAction(id: string): Promise<ActionResult> {
+  return run(async () => {
+    const actor = await requirePermission('users:edit')
+    const target = userId(id)
+    await restoreUser(target)
+    const user = await findUser(target)
+    await record(actor, 'user.restore', user, target, `Restored the archived account ${quoted(user?.name)}`)
+  })
+}
+
+/** Deletes an archived account for good (archive it first). */
 export async function deleteUserAction(id: string): Promise<ActionResult> {
   return run(async () => {
     const actor = await requirePermission('users:edit')

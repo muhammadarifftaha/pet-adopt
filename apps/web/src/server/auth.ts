@@ -2,17 +2,23 @@
 //
 //  - Only the owners sign in; there is no public sign-up. Accounts are created by an admin
 //    (src/server/users.ts) or from SEED_ADMIN_EMAIL / SEED_ADMIN_PASSWORD on first start.
-//  - Roles: `admin` (everything, including users and site settings) or `editor` (pets, pages, media).
+//  - Roles (admin, editor, developer, audit) are our own: a `role` column Better Auth only carries
+//    (additionalFields below), and the permission table in the plugin SDK (`can`). No admin plugin.
+//  - Archived accounts (src/server/users.ts) cannot sign in: the session hook below refuses them,
+//    on every way in (password, two-factor code), and getSessionUser ignores them.
 //  - Sessions last 2 hours; five sign-in attempts per 10 minutes per client.
 //  - Two-factor sign-in (authenticator app plus backup codes) with Better Auth's twoFactor plugin,
 //    driven by the server actions in src/server/actions/two-factor.ts; its HTTP endpoints stay closed
 //    (see the route handler). Rules around it (who must use it, admin reset) are in two-factor.ts.
-//  - Better Auth's own /admin/* HTTP endpoints are switched off (see the route handler), so every
-//    role change goes through src/server/users.ts and its last-admin protection.
+//  - Every role change goes through src/server/users.ts and its last-admin protection; the route
+//    handler opens only the endpoints this app uses.
 import { betterAuth } from 'better-auth'
 import { drizzleAdapter } from 'better-auth/adapters/drizzle'
 import { nextCookies } from 'better-auth/next-js'
-import { admin, twoFactor } from 'better-auth/plugins'
+import { APIError } from 'better-auth/api'
+import { twoFactor } from 'better-auth/plugins'
+
+import { eq } from 'drizzle-orm'
 
 import { getDatabase, type Database } from '@/db/client'
 
@@ -62,6 +68,9 @@ export const MIN_PASSWORD_LENGTH = production ? 12 : 8
 /** The site's own address, for links that leave the site (reset emails). Never taken from a request. */
 export const SITE_URL = siteURL || 'http://localhost:3000'
 
+/** Better Auth's error for a sign-in to an archived account (actions/auth.ts shows it). */
+export const ACCOUNT_ARCHIVED = 'ACCOUNT_ARCHIVED'
+
 function createAuth({ db, t, dialect }: Database) {
   const baseURL = SITE_URL
   return betterAuth({
@@ -77,6 +86,26 @@ function createAuth({ db, t, dialect }: Database) {
       maxPasswordLength: 128,
     },
     session: { expiresIn: 60 * 60 * 2, updateAge: 60 * 10 },
+    // Our own columns on users, so Better Auth reads them into the session user. `input: false`: no
+    // Better Auth endpoint may set them; users.ts does.
+    user: {
+      additionalFields: {
+        role: { type: 'string', required: false, input: false },
+        archivedAt: { type: 'date', required: false, input: false },
+      },
+    },
+    databaseHooks: {
+      session: {
+        create: {
+          // Every new session, whatever the way in (password, two-factor code), checks the account
+          // is not archived. Runs after the password was checked, so it tells nothing to a guesser.
+          async before(session) {
+            const [user] = await db.select({ archivedAt: t.users.archivedAt }).from(t.users).where(eq(t.users.id, session.userId)).limit(1)
+            if (user?.archivedAt) throw new APIError('FORBIDDEN', { message: 'This account is archived.', code: ACCOUNT_ARCHIVED })
+          },
+        },
+      },
+    },
     advanced: {
       cookiePrefix: 'pet-adopt',
       useSecureCookies: production,
@@ -96,7 +125,6 @@ function createAuth({ db, t, dialect }: Database) {
       customRules: { '/sign-in/email': false, '/change-password': false },
     },
     plugins: [
-      admin({ defaultRole: 'editor', adminRoles: ['admin'] }),
       twoFactor({
         // Shown in authenticator apps; each setup passes the site's name instead (actions/two-factor.ts).
         issuer: 'Pet Adopt',

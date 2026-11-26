@@ -41,9 +41,9 @@ export async function createResetLink(userId: string): Promise<{ url: string; ex
   const now = new Date()
   const expiresAt = new Date(now.getTime() + RESET_TTL_MS)
   await withTransaction(async (tx) => {
-    const [user] = await tx.select({ id: t.users.id, banned: t.users.banned }).from(t.users).where(eq(t.users.id, userId)).limit(1)
+    const [user] = await tx.select({ id: t.users.id, archivedAt: t.users.archivedAt }).from(t.users).where(eq(t.users.id, userId)).limit(1)
     if (!user) throw new UserError('User not found.')
-    if (user.banned) throw new UserError('This account is blocked, so it cannot get a reset link.')
+    if (user.archivedAt) throw new UserError('This account is archived, so it cannot get a reset link. Restore it first.')
     await tx
       .delete(t.verifications)
       .where(and(like(t.verifications.identifier, `${PREFIX}%`), eq(t.verifications.value, userId)))
@@ -90,11 +90,11 @@ export async function resetPasswordWithToken(raw: unknown): Promise<{ id: string
       .returning({ userId: t.verifications.value })
     if (!claimed) throw new UserError(EXPIRED)
     const [user] = await tx
-      .select({ id: t.users.id, email: t.users.email, name: t.users.name, role: t.users.role, banned: t.users.banned })
+      .select({ id: t.users.id, email: t.users.email, name: t.users.name, role: t.users.role, archivedAt: t.users.archivedAt })
       .from(t.users)
       .where(eq(t.users.id, claimed.userId))
       .limit(1)
-    if (!user || user.banned) throw new UserError(EXPIRED)
+    if (!user || user.archivedAt) throw new UserError(EXPIRED)
     await writeCredential(tx, t, user.id, hash)
     await tx.delete(t.sessions).where(eq(t.sessions.userId, user.id))
     return user
@@ -124,11 +124,11 @@ export async function prepareResetEmail(
     try {
       const { db, t } = await getDatabase()
       const [user] = await db
-        .select({ id: t.users.id, name: t.users.name, banned: t.users.banned })
+        .select({ id: t.users.id, name: t.users.name, archivedAt: t.users.archivedAt })
         .from(t.users)
         .where(eq(t.users.email, address))
         .limit(1)
-      if (!user || user.banned) return
+      if (!user || user.archivedAt) return
       const { url } = await createResetLink(user.id)
       // Email > Templates: the default "Password reset" template, or the built-in one.
       const email = await renderPurposeEmail({ purpose: 'password-reset', values: { name: user.name, resetLink: url, minutes: String(Math.round(RESET_TTL_MS / 60_000)) } })

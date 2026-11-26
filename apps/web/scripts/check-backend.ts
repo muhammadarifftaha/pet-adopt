@@ -71,7 +71,7 @@ import { forgetPluginStorageStatus, getPluginStorageStatus } from '../src/plugin
 import { getEmailTemplateUsage } from '../src/plugins/registry'
 import { storageProblems } from '../src/plugins/storage-rules'
 import { applyPluginMigrations, pluginMigrationStates } from '../src/db/plugin-migrations'
-import { createUser, deleteUser, ensureOwner, listUsers, resetPassword, updateUser } from '../src/server/users'
+import { archiveUser, createUser, deleteUser, ensureOwner, listUsers, resetPassword, restoreUser, updateUser } from '../src/server/users'
 import {
   activityRetentionDays,
   changedFields,
@@ -137,6 +137,11 @@ async function userError(p: Promise<unknown>): Promise<string> {
 
 const png = await sharp({ create: { width: 40, height: 30, channels: 3, background: '#f60' } }).png().toBuffer()
 const ip = (n: number) => new Headers({ 'x-forwarded-for': `10.0.0.${n}` })
+/** Accounts are removed in two steps (archive, then delete); the checks' own clean-up does both. */
+const removeAccount = async (id: string) => {
+  await archiveUser(id, { by: 'check-backend' })
+  await deleteUser(id)
+}
 
 // Uploads have nowhere to go without the bucket settings: say so once instead of failing a dozen checks.
 try {
@@ -383,12 +388,13 @@ await check('create an editor; duplicate email refused; sign in as editor', asyn
   ok((res.user as { role?: string }).role === 'editor', 'role should be editor')
 })
 
-await check('last admin cannot be demoted or deleted; can once there are two', async () => {
+await check('last admin cannot be demoted or archived; can once there are two', async () => {
   const users = await listUsers()
   const admin = users.find((u) => u.role === 'admin')!
   const editor = users.find((u) => u.role === 'editor')!
   await userError(updateUser(admin.id, { name: admin.name, role: 'editor' }, { canChangeRole: true }))
-  await userError(deleteUser(admin.id))
+  ok(/last admin/.test(await userError(archiveUser(admin.id, { by: editor.id }))), 'the last admin cannot be archived')
+  ok(/Archive the account/.test(await userError(deleteUser(admin.id))), 'an active account cannot be deleted')
   await updateUser(editor.id, { name: 'Ed', role: 'admin' }, { canChangeRole: true })
   await updateUser(admin.id, { name: admin.name, role: 'editor' }, { canChangeRole: true })
   await updateUser(admin.id, { name: admin.name, role: 'admin' }, { canChangeRole: true })
@@ -406,26 +412,16 @@ await check('two admins demoting each other at once never leave zero admins', as
   ])
   ok(results.filter((r) => r.status === 'fulfilled').length === 1, 'exactly one demotion may succeed')
   ok((await listUsers()).filter((u) => u.role === 'admin').length === 1, 'one admin must remain')
-  // The same race with deletes: two admins deleting each other.
+  // The same race with archiving: two admins archiving each other.
   await updateUser(first.id, { name: first.name, role: 'admin' }, { canChangeRole: true })
   await updateUser(second.id, { name: second.name, role: 'admin' }, { canChangeRole: true })
-  const deletes = await Promise.allSettled([deleteUser(first.id), deleteUser(second.id)])
-  ok(deletes.filter((r) => r.status === 'fulfilled').length === 1, 'exactly one deletion may succeed')
-  ok((await listUsers()).filter((u) => u.role === 'admin').length === 1, 'one admin must remain after the deletes too')
+  const archives = await Promise.allSettled([archiveUser(first.id, { by: second.id }), archiveUser(second.id, { by: first.id })])
+  ok(archives.filter((r) => r.status === 'fulfilled').length === 1, 'exactly one archive may succeed')
+  ok((await listUsers()).filter((u) => u.role === 'admin' && !u.archivedAt).length === 1, 'one active admin must remain after the archives too')
   // Put the accounts back the way later checks expect them.
-  const survivor = (await listUsers())[0]
-  const ownerSurvived = survivor.id === first.id
-  await createUser({
-    email: ownerSurvived ? 'editor@example.test' : process.env.SEED_ADMIN_EMAIL!,
-    name: ownerSurvived ? 'Ed' : 'Owner',
-    password: 'editor-password-1',
-    role: 'editor',
-  })
-  const afterwards = await listUsers()
-  const owner = afterwards.find((u) => u.email === process.env.SEED_ADMIN_EMAIL)!
-  const editor = afterwards.find((u) => u.email === 'editor@example.test')!
-  await updateUser(owner.id, { name: owner.name, role: 'admin' }, { canChangeRole: true })
-  await updateUser(editor.id, { name: editor.name, role: 'editor' }, { canChangeRole: true })
+  for (const user of await listUsers()) if (user.archivedAt) await restoreUser(user.id)
+  await updateUser(first.id, { name: first.name, role: 'admin' }, { canChangeRole: true })
+  await updateUser(second.id, { name: second.name, role: 'editor' }, { canChangeRole: true })
 })
 
 await check('editors cannot change roles through updateUser', async () => {
@@ -1462,7 +1458,7 @@ await check('reset links: one use, hashed at rest, expire, cancel older ones, en
   ok(/expired/.test(await userError(resetPasswordWithToken({ token: tokenOf(third.url), password: 'late-password-123456' }))), 'and cannot be used')
 
   ok(/not found/.test(await userError(createResetLink('no-such-user'))), 'no link for a missing account')
-  await deleteUser(id)
+  await removeAccount(id)
 })
 
 await check('reset emails: same answer for unknown addresses, sent only to real accounts, limited per email', async () => {
@@ -1487,7 +1483,7 @@ await check('reset emails: same answer for unknown addresses, sent only to real 
   await (await prepareResetEmail(email, ip(73), sender))()
   ok(/Too many attempts/.test(await userError(prepareResetEmail(email, ip(74), sender))), 'the fourth request for one email within the hour is refused')
 
-  await deleteUser(id)
+  await removeAccount(id)
 })
 
 // --- plugins with their own tables -------------------------------------------------------
@@ -1813,8 +1809,8 @@ await check('roles: the permission table is as agreed, every action checks a per
     const message = await userError(updateUser(admins[0].id, { name: admins[0].name, role: 'audit' }, { canChangeRole: true }))
     ok(/last admin/.test(message), `the last admin cannot become audit: ${message}`)
   }
-  await deleteUser(dev.id)
-  await deleteUser(aud.id)
+  await removeAccount(dev.id)
+  await removeAccount(aud.id)
 })
 
 await check('activity log: entries name fields not values, own vs everyone, failed sign-ins keep no email, plugins prefixed, CSV safe, old entries purged', async () => {
@@ -1883,9 +1879,9 @@ await check('activity log: entries name fields not values, own vs everyone, fail
   else process.env.ACTIVITY_LOG_DAYS = saved
 
   // Entries outlive their account (no foreign key) and keep the name.
-  await deleteUser(ana.id)
+  await removeAccount(ana.id)
   ok((await listActivity({ id: ben.id, all: true }, { actor: ana.id })).entries.every((row) => row.actorName === 'Ana'), 'entries outlive the account')
-  await deleteUser(ben.id)
+  await removeAccount(ben.id)
   await db.delete(t.activityLog)
 })
 
@@ -2182,7 +2178,7 @@ await check('email templates: only allowed blocks and placeholders, no answers t
   await fetch(`${mailpit}/api/v1/search?query=${encodeURIComponent(`subject:"New: ${title}"`)}`, { method: 'DELETE' })
 
   await forms.deleteForm(formId)
-  await deleteUser(user.id)
+  await removeAccount(user.id)
   await db.delete(t.emailTemplates)
   await db.delete(t.emailSettings)
 })
@@ -2257,6 +2253,53 @@ async function authCode(p: Promise<unknown>): Promise<string> {
   }
   throw new Error('expected a Better Auth error')
 }
+
+await check('archived accounts: cannot sign in (also with two-factor), signed out, no reset links, read-only, email kept, restorable; only archived accounts can be deleted; nobody archives themselves', async () => {
+  const email = 'archive@example.test'
+  const password = 'archive-password-123'
+  const { id } = await createUser({ email, name: 'Archie Ved', password, role: 'editor' })
+  const owner = (await listUsers()).find((u) => u.role === 'admin' && !u.archivedAt)!
+  const auth = await getAuth()
+  const signIn = (pw = password) => auth.api.signInEmail({ body: { email, password: pw }, headers: ip(90), returnHeaders: true })
+
+  const before = await signIn()
+  const session = withCookies(ip(90), before.headers)
+  ok((await auth.api.getSession({ headers: session }))?.user.id === id, 'signed in before archiving')
+  await createResetLink(id)
+
+  ok(/your own account/.test(await userError(archiveUser(owner.id, { by: owner.id }))), 'nobody archives themselves')
+  ok(/Archive the account/.test(await userError(deleteUser(id))), 'an active account cannot be deleted')
+  await archiveUser(id, { by: owner.id })
+  ok((await listUsers()).find((u) => u.id === id)?.archivedAt instanceof Date, 'archived, with the time')
+  ok(/already archived/.test(await userError(archiveUser(id, { by: owner.id }))), 'archiving twice is refused')
+
+  ok((await db.select().from(t.sessions).where(eq(t.sessions.userId, id))).length === 0, 'signed out everywhere')
+  ok(!(await auth.api.getSession({ headers: session })), 'the old session no longer works')
+  ok((await db.select().from(t.verifications).where(eq(t.verifications.value, id))).every((r) => !r.identifier.startsWith('pwreset:')), 'pending reset links are cancelled')
+  ok((await authCode(signIn())) === 'ACCOUNT_ARCHIVED', 'the right password is refused')
+  ok((await authCode(signIn('wrong-password-123'))) === 'INVALID_EMAIL_OR_PASSWORD', 'a wrong password looks like any wrong password')
+  ok(/archived/.test(await userError(createResetLink(id))), 'no reset links')
+  ok(/archived/.test(await userError(updateUser(id, { name: 'New Name', role: 'admin' }, { canChangeRole: true }))), 'read-only while archived')
+  ok(/archived/.test(await userError(resetPassword(id, { password: 'another-password-123' }))), 'no new password while archived')
+  ok(/archived account has this email/.test((await fieldErrors(createUser({ email, name: 'Again', password, role: 'editor' }))).email ?? ''), 'its email cannot be reused; restore instead')
+
+  // Restored: as it was, and it signs in again.
+  ok(/not archived/.test(await userError(restoreUser(owner.id))), 'only archived accounts are restored')
+  await restoreUser(id)
+  ok(!(await listUsers()).find((u) => u.id === id)?.archivedAt, 'restored')
+  ok((await signIn()).response.user.id === id, 'signs in again')
+
+  // With two-factor on, the archive is refused before the code step (no code-step cookie either).
+  const enabled = withCookies(ip(90), (await signIn()).headers)
+  const setup = await auth.api.enableTwoFactor({ body: { password }, headers: enabled })
+  await auth.api.verifyTOTP({ body: { code: totpFrom((setup as { totpURI: string }).totpURI) }, headers: enabled })
+  ok('twoFactorRedirect' in (await signIn()).response, 'two-factor is on')
+  await archiveUser(id, { by: owner.id })
+  ok((await authCode(signIn())) === 'ACCOUNT_ARCHIVED', 'an archived account with two-factor is refused at the password')
+
+  await deleteUser(id)
+  ok(!(await listUsers()).some((u) => u.id === id), 'an archived account can be deleted')
+})
 
 await check('two-factor: setup needs the password and a code, secrets are stored encrypted, sign-in asks for a code, backup codes work once, trusted browsers, lockouts, required roles, admin reset', async () => {
   // Typed codes are tidied up; anything else is refused before Better Auth sees it.
@@ -2357,7 +2400,7 @@ await check('two-factor: setup needs the password and a code, secrets are stored
   ok(!(await resetTwoFactor(id)).wasEnabled, 'a second reset changes nothing')
   ok(/no longer exists/.test(await userError(resetTwoFactor('no-such-user'))), 'an unknown account is refused')
 
-  await deleteUser(id)
+  await removeAccount(id)
 })
 
 // FK enforcement is on (SQLite needs a pragma)
