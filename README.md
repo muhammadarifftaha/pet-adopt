@@ -2,246 +2,430 @@
 
 An open-source storefront for adoptable pets, built for rescuers, shelters and pet businesses.
 
-Visitors browse a catalog and contact you on **WhatsApp** or social media. There are no visitor accounts or checkout. The owners sign in, add pets, and design pages with a drag-and-drop **page builder**.
+Visitors browse a catalogue and contact you on **WhatsApp** or social media. There are no visitor accounts and no checkout. Your team signs in, adds pets, and designs the site with a drag-and-drop **page builder**.
 
-- **Catalog and pet pages:** filterable by species, age, sex, size, status and location. Filters live in the URL, so any search can be shared.
-- **WhatsApp-first:** every pet page has a click-to-chat button with a prefilled message.
-- **Page builder:** the homepage and any extra page (About, FAQ, Events...) are composed from built-in blocks with [Puck](https://puckeditor.com).
-- **Owner admin:** pets, photos, pages, users and site settings are managed in the built-in admin at `/admin`, backed by this project's own database and sign-in (no outside service).
-- **Fast and SEO-friendly:** server-rendered, cached pages, Open Graph previews for WhatsApp and Instagram shares.
+- **Catalogue and pet pages:** filter by species, age, sex, size, status and location. Filters live in the address, so any search can be shared. Every pet's page is drawn from one layout you design in the page builder.
+- **WhatsApp-first:** each pet page has a click-to-chat button with a prefilled message.
+- **Page builder:** the homepage and any other page (About, FAQ, Events...) are built from 20+ blocks with [Puck](https://puckeditor.com). It autosaves, previews phone and tablet widths, keeps version history, and lets you set padding on every block.
+- **Forms:** adoption applications, volunteer sign-ups or questions, with email notifications, an optional confirmation to the visitor, a spam trap and optional captcha. Responses stay in your admin.
+- **A team admin at `/admin`:** four roles (admin, editor, developer, audit), email invites, optional two-factor sign-in, sign-in with your own OAuth/OpenID Connect provider, and an activity log of who changed what.
+- **Email built in:** any SMTP server, with templates you design in a drag-and-drop email builder.
+- **Search and sharing:** server-rendered, cached pages with canonical addresses, share cards for WhatsApp, Facebook and X, `sitemap.xml`, `robots.txt` and structured data.
+- **Self-contained:** your own database (SQLite or PostgreSQL) and sign-in, uploads in any S3-compatible storage, no required outside service.
 
-Built with Next.js, Drizzle ORM, Better Auth, shadcn/ui and Puck. All MIT-licensed.
+Built with Next.js, Drizzle ORM, Better Auth, shadcn/ui and Puck. MIT-licensed.
 
 ## Quick start
 
-Requires Node.js 22.23.4 or newer (or 24.22.1+), [pnpm](https://pnpm.io), and Docker for the local S3-compatible server that holds uploads. The project is installed and run with pnpm only; there is no npm lockfile.
+Requires Node.js 22.23.4 or newer (or 24.22.1+), [pnpm](https://pnpm.io), and Docker for the local services. Install and run the project with pnpm only; there is no npm lockfile.
 
 ```bash
 git clone <your-fork-url> pet-adopt
 cd pet-adopt
 cp apps/web/.env.example apps/web/.env
-docker compose up -d garage   # upload storage; its settings are already in .env.example
+docker compose up -d garage mailpit   # upload storage and a test inbox; their settings are already in .env.example
 pnpm install
-pnpm seed      # optional: sample pets and an About page
 pnpm dev
 ```
 
-Open <http://localhost:3000>.
+Open <http://localhost:3000>, then follow the setup link in the server's log (see below).
 
-Local development uses a SQLite file (`data/pet-adopt.db` at the repo root, git-ignored), which creates and migrates its own schema on first start. Uploads always go to S3-compatible storage, never to the server's disk; in development that is the Garage server in `docker-compose.yml` (a small single-node S3 server on port 9000), and `pnpm --filter @pet-adopt/web storage:check` confirms it works. Set `BETTER_AUTH_SECRET` in `.env` to a long random string (`openssl rand -hex 32`). It is required in production and optional in development.
+- **Database:** local development uses a SQLite file (`data/pet-adopt.db` at the repo root, git-ignored). It creates and migrates its own schema on first start.
+- **Uploads:** they always go to S3-compatible storage, never to the server's disk. In development that is the Garage server in `docker-compose.yml`, a small single-node S3 server on port 9000. `pnpm --filter @pet-adopt/web storage:check` confirms it works.
+- **Email:** in development, mail goes to Mailpit. It accepts any mail on port 1025 and shows it at <http://localhost:8025>; point Admin → Email at it.
+- **Secret:** set `BETTER_AUTH_SECRET` in `.env` to a long random string (`openssl rand -hex 32`). It is required in production.
 
 ### The first account
 
-Start the server on a new site and look at its log. While no account exists it prints a **setup link** with a one-time key:
+Start the server on a new site and look at its log. While no account exists, it prints a **setup link** with a one-time key:
 
 ```
 | This site has no accounts yet. Open this link to create the first admin account: |
 | http://localhost:3000/setup?key=…                                                 |
 ```
 
-Open it to create the first admin account. Only someone who can read the server's log has the link, so nobody else can claim a fresh deployment first; it stops working once the account exists (opening `/setup` without it prints it again). A short guided setup follows: the site's name and WhatsApp number, a theme, optional sample content, and email. Every step can be skipped and changed later in the admin.
+Open it to create the first admin account.
 
-There is no public sign-up: more accounts are added by an admin in the Users screen (an email invite by default).
+- **Who can use it:** only someone who can read the server's log has the link, so nobody else can claim a fresh deployment first.
+- **When it stops working:** once the account exists. Opening `/setup` without the key prints the link again.
 
-**Unattended installs:** set `SEED_ADMIN_EMAIL` and `SEED_ADMIN_PASSWORD` instead, and the server creates that admin on startup (at least 12 characters in production; it never changes a password or brings back a deleted account). The guided setup then starts after signing in.
+A short guided setup follows:
 
-## How it works
+1. the site's name and WhatsApp number;
+2. a theme;
+3. optional sample content (six example pets and an About page);
+4. email.
+
+Every step can be skipped and changed later in the admin.
+
+There is no public sign-up. An admin adds more people in **Users**, by emailing an invite by default.
+
+**Unattended installs:** set `SEED_ADMIN_EMAIL` and `SEED_ADMIN_PASSWORD` instead, and the server creates that admin on startup. In production the password needs at least 12 characters. The server never changes a password or brings back a deleted account. The guided setup then starts after signing in.
+
+## A tour of the admin
+
+The sidebar has three sections, each showing only what your role can see:
+
+| Section | Screens |
+| --- | --- |
+| **Content** | **Pets**, **Pages** (with the page builder) and **Media** (the image library) |
+| **Plugins** | **Forms** (the form builder) and any other plugin you add |
+| **Settings** | **Email** (sending and templates), **Theme**, **Users**, **Authentication** (two-factor, sign-in providers, archived accounts), **Activity** and **Site settings** |
+
+The **Dashboard** shows recent activity and a card from each plugin.
+
+## Routes
 
 | Route | What it is |
 | --- | --- |
-| `/` | Homepage: the page with the slug `home`, or a sensible default until you publish one |
-| `/pets` | Catalog with filters and pagination (fixed route) |
-| `/pets/[slug]` | Pet page with photos, details and WhatsApp button (fixed route) |
+| `/` | The homepage: the page with the address `home`, or a built-in layout until you publish one |
+| `/pets` | The Pets page: the catalogue with filters and paging, inside a layout you can edit |
+| `/pets/[slug]` | A pet's page, drawn from the **Pet page template** |
 | `/[slug]` | Any page you build, such as `/about` |
-| `/admin` | Owner admin: Pets, Pages, Media, Theme, Site settings, Users, Plugins |
-| `/media/[file]` | Uploaded images, served from local disk or S3 |
-| `/api/auth/*` | Sign-in endpoints (Better Auth). Sign-up and its admin endpoints are switched off |
-| `/edit/[id]` | Puck page builder for one page (owners only) |
+| `/admin` | The team admin |
+| `/edit/[id]` | The page builder for one page (signed in only) |
+| `/setup` | First-time setup (only while it isn't finished) |
+| `/media/[file]` | Uploaded images, served from your S3 bucket |
+| `/sitemap.xml`, `/robots.txt` | For search engines |
+| `/api/auth/*` | Sign-in endpoints (Better Auth). Sign-up and everything else Better Auth ships return 404 |
 | `/health` | Liveness check for hosting platforms |
-
-> **Status:** the backend (database, sign-in, uploads, data rules) is finished and tested, and most
-> admin screens under `/admin` are built. Account and Users are still being finished; their files
-> carry `TODO(ui)` notes naming the server action each form calls.
 
 ## Project structure
 
+A pnpm workspace with Turborepo:
+
 ```
-src/
-├── app/                    Next.js routes (App Router). Each route group has its own layout
-│   ├── (frontend)/         Public site: /, /pets, /pets/[slug], /[slug]; plain CSS driven by theme variables
-│   ├── (editor)/           Puck page builder at /edit/[id] (signed-in only)
-│   ├── (auth)/             Signed-out screens: /admin/login, /admin/reset-password
-│   ├── (admin)/            Signed-in owner admin under /admin (guarded layout + screens)
-│   ├── api/auth/           Better Auth HTTP endpoints (an allowlist: sign-in, sign-out, session, change-password)
-│   ├── media/              Serves uploaded images from disk or S3
-│   ├── health/             Liveness probe
-│   └── globals.css         Tailwind and the shadcn/ui tokens, mapped onto the site theme
-├── components/
-│   ├── site/               Public-site components (pet card, theme toggle, WhatsApp button...)
-│   ├── admin/              Admin shell, navigation, shared admin pieces
-│   ├── auth/               Sign-in form and nav
-│   └── ui/                 shadcn/ui components (Base UI based), generated by the shadcn CLI
-├── db/
-│   ├── schema/             sqlite.ts and pg.ts: the same tables, once per database
-│   ├── client.ts           Picks SQLite or PostgreSQL from DATABASE_URL; transactions
-│   └── migrate.ts          Runs the generated migrations
-├── server/                 The backend. Plain TypeScript, no UI
-│   ├── pets.ts pages.ts media.ts settings.ts users.ts   The data rules (one file per area)
-│   ├── actions/            'use server' functions the UI calls; each checks the signed-in user first
-│   ├── auth.ts session.ts throttle.ts                    Sign-in, sessions, brute-force limits
-│   ├── uploads.ts strip-metadata.ts storage.ts           Image validation, lossless metadata removal, disk/S3
-│   └── result.ts types.ts                                Result and error types shared by everything
-├── puck/                   Page-builder blocks (config.tsx) and layout validation (data.ts)
-├── lib/                    Shared helpers: theme, links, options, WhatsApp numbers, cached public queries
-└── instrumentation.ts      On server start: checks production settings, creates the first owner (unattended installs) or prints the setup link
-drizzle/                    Generated SQL migrations (sqlite/ and pg/), committed
-scripts/                    seed, migrate, check-schemas, check-backend, reset-password
+apps/web/                 The Next.js app, backend included
+├── src/
+│   ├── app/              Routes (App Router). Each route group has its own layout
+│   │   ├── (frontend)/   The public site; plain CSS driven by theme variables
+│   │   ├── (admin)/      The team admin under /admin
+│   │   ├── (auth)/       Signed-out screens: sign-in, reset password, invites, confirm email
+│   │   ├── (editor)/     The page builder (/edit/[id]) and the email template builder
+│   │   ├── (setup)/      First-time setup
+│   │   ├── sitemap.ts robots.ts
+│   │   └── api/ media/ health/
+│   ├── server/           The backend: plain TypeScript, no UI
+│   │   ├── pets.ts pages.ts media.ts settings.ts users.ts ...   The data rules, one file per area
+│   │   ├── actions/      'use server' functions the UI calls; each checks permission first
+│   │   └── auth.ts session.ts throttle.ts two-factor.ts ...     Sign-in, sessions, limits
+│   ├── db/               schema/sqlite.ts and schema/pg.ts (the same tables twice), client.ts
+│   ├── puck/             Page builder blocks (config.tsx, pet-page-config.tsx, email-config.tsx)
+│   ├── plugins/          The plugin runtime: registry, storage, host services
+│   ├── components/       Public site and admin components
+│   └── lib/              Shared helpers: theme, links, SEO, cached public queries
+├── drizzle/              Generated SQL migrations (sqlite/ and pg/), committed
+├── scripts/              seed, migrate, check-schemas, check-backend, reset-password, ...
+└── pet-adopt.config.ts   Which plugins the site uses
+packages/ui/              shadcn/ui components (Base UI), shared by the app and plugins
+packages/plugin-sdk/      What plugins import (definePlugin, host(), types). Imports nothing from the app
+plugins/form-builder/     The form builder plugin
+plugins/adoption-tips/    A small example plugin
 ```
 
 ### How the pieces fit
 
-- **No separate API.** The admin calls the functions in `src/server/actions/` directly (Next.js server
-  actions). Every action starts by checking who is signed in, and returns
-  `{ ok: true, data }` or `{ ok: false, error, fieldErrors }`. The public site reads through
-  `src/lib/queries.ts`, which only ever returns published pages and listed pets.
-- **One data layer, two databases.** `src/server` is written once. Drizzle's SQLite and PostgreSQL table
-  types differ, so the schema exists twice (`src/db/schema/`); `pnpm check:schemas` fails if the two
-  drift apart. Keep columns portable (integer ids, JSON for lists, plain text for options).
-- **Authentication** is [Better Auth](https://better-auth.com) on the same database, with two roles
-  (admin, editor) and no public sign-up. Sign-in attempts are rate limited in our own table.
-- **Uploads** are checked, stripped of metadata without recompressing, and stored under random names.
-  Files go to local disk by default, or to S3-compatible storage when `S3_BUCKET` is set.
-- **Theming** is data: a preset plus optional custom colours produce CSS variables, and both the public
-  CSS and the shadcn components read those variables.
+- **No separate API.** The admin calls the functions in `apps/web/src/server/actions/` directly (Next.js server actions). Each one checks the signed-in person's permission first, and returns `{ ok: true, data }` or `{ ok: false, error, fieldErrors }`. The public site reads through `src/lib/queries.ts`, which only ever returns published pages and listed pets.
+- **One data layer, two databases.** `src/server` is written once.
+  - Drizzle's SQLite and PostgreSQL table types differ, so the schema exists twice (`src/db/schema/`). `pnpm check:schemas` fails if the two drift apart.
+  - Keep columns portable: integer ids, JSON for lists, plain text for options.
+- **Sign-in** is [Better Auth](https://better-auth.com) on the same database.
+  - Roles and permissions are this project's own (see Users and roles).
+  - Sign-in attempts are rate limited in a table of our own.
+- **Uploads** are checked, stripped of metadata without recompressing, and stored under random names in S3-compatible storage.
+- **Theming** is data: a preset plus optional customisations produce CSS variables, and both the public CSS and the shadcn components read those variables.
+- **Plugins** add admin screens, dashboard cards, their own database tables and email templates. They reach the app only through `host()` from the plugin SDK. The form builder is one.
+
+## Using it
 
 ### Adding pets
 
-In **Admin → Pets**, add a name, photos and details. The form is split into tabs: Basics (species, age, size, colour, and city and state, which fill in the location text shown to visitors; spell cities and states the same way every time so filters group them), Health and behaviour (vaccinated, microchipped, house-trained, special needs, temperament, who they get along with, health notes), Photos and story (up to 10 photos, description, video link) Adoption (fee, rescue date, and an optional WhatsApp number for pets with a foster) and SEO (an optional search and share title, description and image; empty fields fall back to a generated title, a summary and the first photo). Tick **Urgent** in the sidebar for pets that need a home soon. Tick **Unlisted** to keep a pet out of the catalog, pet grids, the public API and search engines while still letting anyone with the direct link open its page, which suits a pet you are not ready to promote. The first photo is the cover. Mark a pet **Adopted** when it finds a home; it stays visible with an "Adopted" badge, which doubles as social proof. Tick **Featured** to include it in "featured" pet grids.
+In **Pets**, add a name, photos and details. The form is split into tabs:
+
+| Tab | Holds |
+| --- | --- |
+| **Basics** | Species, breed, sex, age, size, colour, and city and state (they fill in the location visitors see; spell them the same way every time so filters group them) |
+| **Health and behaviour** | Vaccinated, neutered, microchipped, house-trained, special needs, health notes, temperament, who they get along with, personality notes |
+| **Photos and story** | Up to 10 photos (the first is the cover), the description, a video link |
+| **Adoption** | Fee, rescue date, and an optional WhatsApp number for pets with a foster |
+| **Search and sharing** | An optional title, description and image for search results and shares. Empty fields fall back to a generated title, a summary and the first photo |
+
+The notes and the description are rich text: bold, italic, underline, lists and links.
+
+In the sidebar:
+
+- **Urgent:** marks a pet that needs a home soon.
+- **Featured:** includes the pet in "featured" pet grids.
+- **Unlisted:** keeps a pet out of the catalogue, pet grids and search engines, while anyone with the direct link can still open its page.
+- **Adopted:** use it once the pet finds a home. Its page stays up with an "Adopted" notice and no WhatsApp button, which doubles as social proof.
 
 ### Building pages
 
-1. **Admin → Pages → Create new**, give it a title and slug (use `home` for the homepage).
-2. Save, then click **Open page builder**.
-3. Drag blocks into the page, edit them in the sidebar, and press **Save draft** or **Publish**. Visitors only ever see published pages.
+1. In **Pages**, choose **New page**, and give it a title and an address.
+2. Open the **page builder**, drag blocks onto the page, and edit each one in the right sidebar.
+3. **Publish.** Visitors only ever see published pages.
 
-Built-in blocks: Hero banner, Text, Image gallery, Pet grid (live data, filterable), Call to action, Adopter stories, FAQ, Contact and map, Social links.
+The builder:
+
+- **Autosaves your draft** a few seconds after you stop editing.
+  - **Save draft** shows "Saved" when there's nothing to save.
+  - **Publish** is unavailable when the live page already matches.
+- **Previews** the page at phone, tablet and laptop widths, and in dark mode.
+- **Keeps a version history** for each page (in its settings), so you can restore an earlier version as a draft or straight to live.
+- **Changing pages:** a page can be archived and restored. Its title, address and search settings wait for the next publish, like its layout does.
+
+**Blocks:**
+
+| Group | Blocks |
+| --- | --- |
+| Headers and text | Hero banner, Text, Image + text, Features with icons, Call to action |
+| Pets | Pet catalogue, Pet grid, Pet spotlight |
+| Media | Image grid, Image carousel, Video (YouTube, Vimeo) |
+| Adoption | Adoption steps, Numbers, Adopter stories, Team, Ways to help, Cost table, FAQ |
+| Contact | Form, Contact & map, Social links |
+| Layout | Spacer, Divider |
+
+Every block except Spacer has a **Padding** option for the space above and below it.
+
+**The homepage and the Pets page** are pages too. Edit them like any other. Until you publish your own, they show a built-in layout.
+
+**The Pet page template** (Pages → *Pet page*) is one layout that draws every pet's page.
+
+- **Pet blocks:**
+  - **Pet gallery:** a large photo with thumbnails.
+  - **Pet summary:** the name, status and facts, with an optional photo beside them.
+  - **Pet description:** with the WhatsApp button, whose label can use `{pet}`, `{species}`, `{breed}`, `{age}`, `{sex}` and `{location}`.
+  - **Pet health** and **Pet personality.**
+  - **More pets like this:** the same species first, then the same area.
+- **Ordinary blocks:** a few of the usual ones are also available.
+- **Preview:** in the builder, **Preview with** picks which pet to show while designing.
+
+### Forms
+
+**Forms** (a plugin) builds forms for the Form block.
+
+- **Questions:** short and long answers, email, phone number, number, date, one choice, several choices, a tick box, and a choice from site data ("Which pet?": the pets on offer).
+- **Responses:** stored in the admin, with CSV download.
+- **Each form can also:**
+  - email new responses to your team;
+  - send the visitor a confirmation;
+  - use your own email templates.
+
+**Privacy.** Forms collect personal data, so publish a **privacy policy** page and choose it in **Site settings → Navigation**. While it's live, every form and the footer link to it. The form builder warns you until there is one.
+
+**Spam.**
+
+- **The spam trap:** every form has a hidden box that only bots fill in. Their answers are dropped quietly. You can switch it off per form, under **Spam trap**.
+- **Captcha:** for stronger protection, add one in **Forms → Spam protection**, using Cloudflare Turnstile, Google reCAPTCHA v3 or v2, or hCaptcha, with your own keys.
+  - **Keys must pass a check first.** Saved keys only protect forms after **Check these keys** verifies them.
+  - **If the service can't be reached,** forms are refused with an explanation.
+  - Mention the service in your privacy policy.
 
 ### Users and roles
 
-**Admin → Users** lists the people who can sign in. Each has a role:
+**Users** lists the people who can sign in. Only admins manage users. Each person has a role:
 
 | Role | Can do |
 | --- | --- |
-| **Admin** | Everything: pets, pages, media, site settings, and adding or removing users and changing roles. |
-| **Editor** | Pets, pages (including publishing) and media. Cannot change site settings or other accounts, can change only their own name and password, and cannot change their own role. |
+| **Admin** | Everything, including users, sign-in settings and the whole activity log |
+| **Editor** | Pets, pages, media, plugin content, and form responses (with CSV download) |
+| **Developer** | Pets, pages, media, plugin content, theme, site settings, email and plugins. No users and no form responses |
+| **Audit** | Sees everything, changes nothing, cannot download data |
 
-The first account is always an admin, and new accounts default to editor. The last admin cannot be deleted or demoted, so someone can always manage users. Accounts that existed before roles were added became admins.
+**Safeguards:**
 
-### Site settings
+- The first account is always an admin.
+- The last active admin can't be demoted, archived or deleted.
 
-**Admin → Site settings** holds the site name, logo, brand colour, WhatsApp number and message, address, opening hours, social links and header menu. Numbers starting with `0` get the country code from `NEXT_PUBLIC_DEFAULT_COUNTRY_CODE` (default `60`, Malaysia). In the WhatsApp message, `{pet}` is replaced with the pet's name.
+**Adding people:** new people get an **email invite**. If the site can't send email yet, you get a link to copy. Every account must confirm its email address before it can change anything, while the site can send email.
 
-### Themes
+**Removing people** works like pages:
 
-**Admin → Site settings → Theme** sets the look of the whole site. Only admins can change it.
+- **Archive** first: the person is signed out and can't sign in, but their name stays in the history.
+- **Restore** brings an archived account back as it was.
+- **Delete** removes the account for good, and anonymises their activity log entries.
 
-- **Theme:** pick a preset. Each one bundles light and dark colours, fonts, corner radius, button shape, shadow style, spacing and text size.
+People can delete their own account from **Account**. It closes at once, and is deleted after 30 days unless an admin restores it.
+
+**Signing in:**
+
+- **Two-factor:** with an authenticator app and backup codes. It's optional, and admins can require it for chosen roles (**Authentication**).
+- **Your own sign-in provider:** add one under **Authentication → Sign-in providers** (OAuth 2 or OpenID Connect). Each person connects it from **Account**. Providers never create accounts.
+- **Your own account:** everyone manages their picture, name, password, email address, two-factor and connected providers under **Account**.
+
+### Email
+
+**Email → Sending** connects any SMTP server; the password is stored encrypted. Environment variables (`SMTP_*`, `EMAIL_FROM`) can set or override any field.
+
+**Email → Templates:**
+
+- **System emails** (password reset, invite, email confirmation and notices) are edited in place, with **Restore default**.
+- **Templates of your own** can be used wherever a plugin lets you pick one, for example a form's notifications.
+
+Both are designed in a drag-and-drop email builder and sent as email-safe HTML, including for older Outlook.
+
+### Site settings and themes
+
+**Site settings:**
+
+- **Brand:** name, tagline, logo, site icon, and the light/dark switch.
+- **Contact:** the WhatsApp number and message (`{pet}` becomes the pet's name), address, opening hours and social links.
+- **Navigation:** the menu, footer text and privacy policy page.
+
+Numbers without a country code use `NEXT_PUBLIC_DEFAULT_COUNTRY_CODE` (default `60`, Malaysia).
+
+**Theme** sets the look of the whole site. Admins and developers can change it.
+
+- **Presets:** each bundles light and dark colours, fonts, corner radius, button shape, shadows, spacing and text size.
 
   | Preset | Feel |
   | --- | --- |
-  | Sunrise | Warm orange and familiar. The original look. |
-  | Meadow | Fresh green, rounded Nunito type, soft shadows. |
-  | Ocean | Calm blue, DM Sans, tighter corners. |
-  | Heritage | Deep red, Lora serif headings, square corners, generous space. |
-  | Studio | Black and white, Playfair headings, bold hard-edged shadows. |
+  | Sunrise | Warm orange and familiar. The original look |
+  | Meadow | Fresh green, rounded Nunito type, soft shadows |
+  | Ocean | Calm blue, DM Sans, tighter corners |
+  | Heritage | Deep red, Lora serif headings, square corners, generous space |
+  | Studio | Black and white, Playfair headings, bold hard-edged shadows |
 
-- **Light and dark:** visitors get a light/dark button in the header. It follows their device until they choose, and their choice is remembered in their browser only. Untick *Let visitors switch between light and dark* to keep the site light only.
-- **Brand colour (optional)**, in the Brand tab, replaces the theme's colour. Pale colours are adjusted automatically so links and buttons stay readable, and the colour is brightened in dark mode if it would disappear.
-- **Customise this theme:** tick it to adjust fonts, corners, button shape, shadows, spacing, text size and the light and dark colours (brand, page background, cards, text, highlight) on top of the preset. Anything left empty follows the preset. Colours that would make text hard to read are rejected when you save.
+- **Your own themes:** start from a preset or a copy, adjust fonts, corners, buttons, shadows, spacing, text size and colours, and save as many as you like.
+  - A live preview shows real blocks as you edit.
+  - Colours that would make text hard to read are refused.
+- **Light and dark:** visitors get a light/dark switch that follows their device until they choose. Turn it off in Site settings to keep the site light only.
 
-Fonts are bundled with the site (served from your own domain, not from Google), so there is no external request and the Content-Security-Policy stays strict.
+Fonts are served from your own domain (not from Google), so pages make no outside requests for them.
 
-#### Changing or adding a theme (developers)
+### Search engines and sharing
 
-Everything lives in [`src/lib/theme.ts`](src/lib/theme.ts). A preset is four base colours per mode plus its shape settings; every other colour (muted text, borders, highlights, badges, link colour) is derived from those, so a new preset is one entry in `PRESETS`. The result is written into the page as CSS variables by `ThemeStyle`, and [`styles.css`](src/app/(frontend)/styles.css) only reads those variables, so components never hard-code colours, radii or shadows. Use the variables in new CSS (`var(--surface)`, `var(--radius)`, `var(--shadow-card)`, `var(--primary-text)` for text in the brand colour, and so on).
+- **Every public page has:**
+  - a canonical address;
+  - a share card, using the page's or pet's own title, description and image from their settings.
+- **The homepage** also tells search engines who you are (name, logo, contact, social profiles), and pet pages show their place in the site (Home › Pets › pet).
+- **`/sitemap.xml`** lists your live pages and every listed pet that isn't adopted, with its photo.
+- **`/robots.txt`** keeps search engines out of the admin.
+- **Previews and staging:** Vercel previews are never indexed. Set `SEARCH_INDEXING=off` on a staging server to keep it out of search too.
 
-To add a font: `pnpm add @fontsource-variable/<name>`, import its `index.css` in [`fonts.ts`](src/app/(frontend)/fonts.ts), and add an entry to `FONTS`. After adding a settings field, add the column to both schema files and run `pnpm db:generate` (see Production).
+## Extending
 
-## Adding your own block
+### Adding a block
 
-Blocks live in [`src/puck/config.tsx`](src/puck/config.tsx). Add a props type, then an entry under `components` with `fields`, `defaultProps` and a `render` function, and list it in a `categories` group so it shows up in the editor.
+Blocks live in [`apps/web/src/puck/config.tsx`](apps/web/src/puck/config.tsx); the Pet page template's own blocks are in `pet-page-config.tsx`. To add one:
 
-Keep `render` functions free of hooks and browser-only code: the same components render on the server for visitors and inside the editor. Site settings arrive through `puck.metadata.site`, and live pets through `metadata.fetchPets`.
+1. Add a props type.
+2. Add an entry under `components` with `fields`, `defaultProps` and a `render` function.
+3. List it in a `categories` group so it shows up in the editor.
+
+The Padding option is added to every block automatically.
+
+**Rules for `render` functions:**
+
+- **No hooks or browser-only code.** The same components render on the server for visitors and inside the editor. For anything interactive, render a client component, like the Image carousel does.
+- **Data comes through `puck.metadata`:** site settings through `puck.metadata.site`, and live data through its fetch functions.
+- **Headings** go through the heading helpers, so each page keeps exactly one `<h1>`.
+
+### Adding a plugin
+
+A plugin is an npm package or a local folder that depends only on `@pet-adopt/plugin-sdk`.
+
+- **What it can add:** admin screens, dashboard cards, its own database tables (with migrations), and default email templates.
+- **How it reaches the site:** through `host()`, for permissions, rate limits, email, the activity log, encrypted secrets and the privacy policy.
+
+To add a workspace plugin, run `pnpm --filter @pet-adopt/web add <name>@workspace:*` and list it in `apps/web/pet-adopt.config.ts`. After changing a plugin's tables, run `pnpm plugin:generate <folder> <change_name>`. [`plugins/adoption-tips`](plugins/adoption-tips) is a small example, and [`plugins/form-builder`](plugins/form-builder) a full one.
 
 ## Production
 
-1. **Use PostgreSQL.** Set `DATABASE_URL=postgres://...` (Neon, Supabase, your own server). `docker compose up -d` starts a local one for testing; it only listens on `127.0.0.1`, and you can change its password with `POSTGRES_PASSWORD`. SQLite needs a persistent disk, so it only suits a single VPS. On a pooled connection (Neon, Supabase), use the pooler URL and set `DB_POOL_MAX` low (1 to 3) on serverless hosts.
-2. **Migrations run as part of `pnpm build`.** For PostgreSQL and hosted libSQL, the build migrates the database first and fails if it cannot, so new code never ships against an older schema; a local SQLite file migrates itself when the app opens it instead. The migration step is part of the app's own build script (not cached), so it runs however your host starts the build, including one that builds `apps/web` directly.
+1. **Use PostgreSQL.**
+   - Set `DATABASE_URL=postgres://...` (Neon, Supabase, your own server).
+   - `docker compose up -d postgres` starts a local one for testing. It only listens on `127.0.0.1`, and `POSTGRES_PASSWORD` changes its password.
+   - SQLite needs a persistent disk, so it only suits a single server.
+   - On a pooled connection (Neon, Supabase), use the pooler URL and set `DB_POOL_MAX` low (1 to 3) on serverless hosts.
+   - Hosted libSQL (Turso) is also supported, as an option.
+2. **Migrations run as part of `pnpm build`.** For PostgreSQL and hosted libSQL, the build migrates the database first (the site's tables, then each plugin's) and fails if it can't, so new code never ships against an older schema. A local SQLite file migrates itself when the app opens it.
    ```bash
-   pnpm db:generate      # after changing the schema; commit the new files in drizzle/
+   pnpm db:generate      # after changing the schema; commit the new files in apps/web/drizzle/
    pnpm build            # migrates (PostgreSQL, hosted libSQL), then builds
    pnpm migrate          # the same migrations on their own, any time
    ```
-   - **Preview builds** on Vercel (`VERCEL_ENV` other than `production`) skip migrations, because a preview usually shares the production database and a branch must not change it before it is merged. Set `MIGRATE_ON_PREVIEW=1` when previews have their own database.
-   - **Builds that cannot reach the database** (a Docker image built without it): set `SKIP_BUILD_MIGRATE=1` and run `pnpm migrate` before starting the server.
-   There are two schema files, [`src/db/schema/sqlite.ts`](src/db/schema/sqlite.ts) and [`src/db/schema/pg.ts`](src/db/schema/pg.ts), because Drizzle's SQLite and Postgres table types differ. Change both, run `pnpm db:generate` (it writes `drizzle/sqlite` and `drizzle/pg`), and `pnpm check:schemas` fails if they drift apart. The data code in `src/server` is written once and runs on both databases; `pnpm check:backend` runs it end to end against a throwaway database, on SQLite or Postgres (instructions in the script header). A new database only needs `pnpm migrate`.
+   - **Preview builds** on Vercel (`VERCEL_ENV` other than `production`) skip migrations, because a preview usually shares the production database. Set `MIGRATE_ON_PREVIEW=1` when previews have their own database.
+   - **Builds that can't reach the database** (a Docker image built without it): set `SKIP_BUILD_MIGRATE=1`, and run `pnpm migrate` before starting the server.
 3. **Set the required variables.** In production the server refuses to start without them:
-   - `BETTER_AUTH_SECRET`: at least 32 random characters (`openssl rand -hex 32`).
-   - `NEXT_PUBLIC_SERVER_URL`: your public URL, such as `https://adopt.example.com`. It is also the only origin allowed to make signed-in requests, so use the exact address visitors and owners use.
-   - The first account: open the setup link the server prints to its log on first start (see above), or set `SEED_ADMIN_EMAIL` and `SEED_ADMIN_PASSWORD` for an unattended install.
-4. **Set up upload storage.** Uploads live only in S3-compatible object storage: AWS S3, another provider with an S3 API (through `S3_ENDPOINT`), or an S3-compatible server you run yourself. Set the `S3_*` variables (`apps/web/.env.example` explains each one); production refuses to start without them. The bucket can stay private, because visitors load images through this site's `/media` route. Then run `pnpm --filter @pet-adopt/web storage:check`, which writes, reads and deletes a test file and says which permission or setting is wrong if a step fails. A site from before this change kept uploads on disk (`data/media` by default): `pnpm --filter @pet-adopt/web storage:copy-local` copies them into the bucket (`--from <folder>` for another folder, `--dry-run` to list first; files already there are skipped, local files are left alone).
-5. `pnpm build && pnpm start`
+   - `BETTER_AUTH_SECRET`: at least 32 random characters (`openssl rand -hex 32`). Stored secrets (the SMTP password, provider and captcha keys) are encrypted with a key derived from it. Changing it means entering those secrets again.
+   - `NEXT_PUBLIC_SERVER_URL`: your public address, such as `https://adopt.example.com`. Links in emails and share cards are built from it, and it is the only origin allowed to make signed-in requests.
+   - **The first account:** use the setup link the server prints on first start, or set `SEED_ADMIN_EMAIL` and `SEED_ADMIN_PASSWORD`.
+4. **Set up upload storage.**
+   - **Where:** AWS S3, another provider with an S3 API (through `S3_ENDPOINT`), or an S3-compatible server you run yourself.
+   - **Settings:** the `S3_*` variables. `apps/web/.env.example` explains each one, and production refuses to start without them.
+   - **Access:** the bucket can stay private, because visitors load images through this site's `/media` route.
+   - **Check:** `pnpm --filter @pet-adopt/web storage:check` writes, reads and deletes a test file, and says which setting is wrong if a step fails.
+5. **Set up email** in Admin → Email (or with the `SMTP_*` variables), so invites, password resets and form notifications can go out.
+6. `pnpm build && pnpm start`, behind a reverse proxy you control (see Security defaults).
 
-Pages are cached and refresh immediately when you publish; they also revalidate every 60 seconds.
+**Caching:** pages refresh as soon as you publish, and also every 60 seconds.
 
-### Security defaults
+## Security defaults
 
-- Visitors can only read published pages and listed pets. Everything else needs a login, with a five-attempt lockout per email (ten minutes) and two-hour sessions. Editors cannot touch users or site settings (see Users and roles). Session cookies are HTTP-only, and HTTPS-only in production. Sign-in requests from other origins are refused.
-- There is no public API: the admin talks to the server through server actions. Of Better Auth's endpoints only sign-in, sign-out, session and change-password are reachable; sign-up, user management and everything else return 404.
-- Uploads must be JPEG, PNG, WebP or GIF, up to 10 MB, 12000 px on a side and 40 megapixels. SVG is blocked because it can carry script. Every image has its metadata removed before it is stored (the GPS position and device of a phone photo, comments, embedded thumbnails, anything hidden after the image data). This is done by cutting the metadata out of the file, not by recompressing it, so the picture, its colours and any animation are byte-for-byte what was uploaded and image quality never drops. AVIF and HEIC (the default format of iPhone photos) are not accepted, because their metadata cannot be removed without recompressing them; the upload says to save the photo as a JPEG, PNG or WebP instead.
-- Social and menu links are checked when saved, and rendered through a safe-link filter that blocks `javascript:` and `data:` URLs.
-- The last admin account cannot be deleted or demoted, and an image still used by a pet or page cannot be deleted.
-- Sign-in attempts are limited three ways, counted atomically before the password is checked, on both the admin and the HTTP sign-in route: 30 per client address, 5 per email from one client (then ten minutes locked, not extended while locked), and 100 per hour per email overall. Because the lock is per email *and* client, someone typing an owner's email from their own machine locks only themselves out. If an owner does get locked out, `NEW_PASSWORD='...' pnpm admin:reset-password owner@example.com` sets a new password, signs them out everywhere and lifts the lockout. The client address comes from `X-Forwarded-For` (or `CLIENT_IP_HEADER`), counting `TRUSTED_PROXY_HOPS` entries from the end (default 1); only a proxy you control can be trusted to add it, so run the site behind one. Changing your password is limited the same way (5 tries per 10 minutes per user, in the admin and on the HTTP route). IPv6 clients are counted per /64 network, because one person usually controls a whole /64 and can hop between its addresses. For heavier protection add rate limiting at your reverse proxy or CDN.
-- Security headers are set in `next.config.ts`: `nosniff`, no framing by other sites, a strict referrer policy and a Content-Security-Policy. The policy only allows scripts, styles, images and connections from your own site, plus a Google Maps embed, and blocks plugins and eval in production. Inline scripts stay allowed because Next.js needs them and a nonce would end page caching. If you add an embed, analytics script or external image, extend the policy in `next.config.ts`; set `CSP_REPORT_ONLY=1` first to see what it would block without breaking anything.
+- **Access:**
+  - Visitors can only read published pages and listed pets. Everything else needs a sign-in.
+  - Sessions last two hours, and cookies are HTTP-only (HTTPS-only in production).
+  - Each server action checks the person's role.
+- **Sign-in protection:**
+  - **Attempt limits,** counted before the password is checked: 30 per client address, 5 per email from one client (then ten minutes locked), and 100 per hour per email overall. Someone typing an owner's email from their own machine only locks themselves out.
+  - **Recovery:** a locked-out owner can run `NEW_PASSWORD='...' pnpm admin:reset-password owner@example.com`, and `pnpm --filter @pet-adopt/web admin:reset-2fa <email>` turns off two-factor for the last admin.
+  - **Client addresses:** they come from `X-Forwarded-For` (or `CLIENT_IP_HEADER`), counting `TRUSTED_PROXY_HOPS` entries from the end. Only a proxy you control can be trusted to add it.
+- **No public API:** of Better Auth's endpoints, only sign-in, sign-out, session, change-password and sign-in provider callbacks are reachable. Everything else returns 404.
+- **Uploads:**
+  - **Allowed:** JPEG, PNG, WebP or GIF, up to 10 MB, 12000 px on a side and 40 megapixels.
+  - **Refused:** SVG, because it can carry script.
+  - **Metadata:** every image has its metadata (GPS position, device, comments, embedded thumbnails) cut out without recompressing, so the picture is byte-for-byte what was uploaded.
+  - **AVIF and HEIC:** refused, because their metadata can't be removed without recompressing.
+- **Links** typed into blocks and settings are checked when saved, and rendered through a filter that blocks `javascript:` and `data:` addresses.
+- **Encrypted secrets:** the SMTP password, sign-in provider secrets, captcha secret keys and two-factor secrets are stored encrypted. Password reset, invite and email change links are stored only as hashes and work once.
+- **The activity log** records changes, sign-ins and failed sign-ins, naming fields but never their values. It is kept for 365 days (`ACTIVITY_LOG_DAYS`).
+- **Headers** are set in `apps/web/next.config.ts`: `nosniff`, no framing by other sites, a strict referrer policy, and a Content-Security-Policy.
+  - **What the policy allows:** your own site, plus Google Maps, YouTube (no-cookie) and Vimeo embeds, and the four captcha services.
+  - **Inline scripts** stay allowed because Next.js needs them, and a nonce would end page caching.
+  - **Adding an embed or script:** extend the policy. Set `CSP_REPORT_ONLY=1` first to see what it would block.
 
 ## Scripts
+
+Run from the repo root.
 
 | Command | Does |
 | --- | --- |
 | `pnpm dev` | Development server |
 | `pnpm build` / `pnpm start` | Production build (migrates PostgreSQL or hosted libSQL first) and server |
-| `pnpm seed` | Sample content. Safe to re-run, leaves a real site alone, and refuses to run in production without `SEED_FORCE=1`. The same sample content is offered by the first-time setup |
+| `pnpm seed` | Sample content (the same the first-time setup offers). Safe to re-run, leaves a real site alone, refuses to run in production without `SEED_FORCE=1` |
 | `pnpm db:generate` | Generate SQL migrations for both databases after changing the schema |
-| `pnpm migrate` | Apply pending migrations on their own (`pnpm build` runs them for PostgreSQL and hosted libSQL; a local SQLite file does it itself) |
-| `pnpm check:schemas` | Fail if the SQLite and Postgres schemas have drifted apart |
-| `pnpm check:backend` | End-to-end backend check against a throwaway database (see the script header) |
-| `pnpm admin:reset-password <email>` | Set a new password (from `NEW_PASSWORD`) for an account, sign it out everywhere and lift its lockout |
-| `pnpm typecheck` / `pnpm lint` | Static checks |
+| `pnpm migrate` | Apply pending migrations (the site's and the plugins') |
+| `pnpm plugin:generate <folder> <name>` | Generate a plugin's migrations after changing its tables |
+| `pnpm check:schemas` | Fail if the SQLite and PostgreSQL schemas have drifted apart |
+| `pnpm check:backend` | End-to-end backend check against a throwaway database (see the script's header) |
+| `pnpm admin:reset-password <email>` | Set a new password (from `NEW_PASSWORD`), sign the account out everywhere and lift its lockout |
+| `pnpm --filter @pet-adopt/web admin:reset-2fa <email>` | Turn off two-factor for an account (for the last admin) |
+| `pnpm --filter @pet-adopt/web storage:check` | Check the upload storage settings with a test file |
+| `pnpm --filter @pet-adopt/web storage:copy-local` | Copy uploads a site once kept on disk into the bucket (`--from <folder>`, `--dry-run`) |
+| `pnpm typecheck` / `pnpm lint` | Static checks, for every package |
 
 ## Known limitations
 
-- The page builder preview renders inside the page (not an iframe), so it uses the real site styles and theme (always in light mode) but does not emulate mobile breakpoints. Check mobile and dark mode on the live page.
 - Pages are single-level (`/about`, not `/about/team`).
-- The slug `home` is the homepage, and `admin`, `api`, `edit`, `health`, `media` and `pets` are reserved.
-- Photos cannot be SVG. Convert them to PNG or WebP first.
+- These addresses are reserved: `home` (the homepage), `admin`, `api`, `edit`, `health`, `media`, `pets`, `pet-page` and `setup`.
+- Photos can't be SVG, AVIF or HEIC. Save them as JPEG, PNG or WebP first.
+- The email template builder has no phone-width preview; emails use a fixed 600 px layout that stacks columns on small screens.
 
 ## Contributing
 
 Issues and pull requests are welcome.
 
 1. Fork, then `pnpm install` and `pnpm dev` (see Quick start). Use pnpm only.
-2. Before opening a pull request run `pnpm typecheck`, `pnpm lint` and `pnpm check:schemas`.
-3. If you touched `src/server` or the schema, also run `pnpm check:backend`, ideally on both SQLite and
-   PostgreSQL (the script header explains how). If you changed the schema, edit **both** schema files and
-   commit the output of `pnpm db:generate`.
-4. Keep the project self-contained: new features should work with npm packages only, with no required
-   outside service. Optional integrations (like S3 storage) are fine when the default needs nothing.
-5. Never put secrets in the repo. `.env` is git-ignored; document new variables in `.env.example`.
+2. Before opening a pull request, run `pnpm typecheck`, `pnpm lint` and `pnpm check:schemas`.
+3. **If you touched the backend or a schema:**
+   - Also run `pnpm check:backend`, ideally on both SQLite and PostgreSQL (the script's header explains how).
+   - If you changed the schema, edit **both** schema files and commit the output of `pnpm db:generate`.
+4. **Keep the project self-contained.** New features should work with npm packages only, with no required outside service. Optional integrations (S3 storage, Turso, captcha) are fine when the default needs nothing.
+5. **Never put secrets in the repo.** `.env` is git-ignored; document new variables in `apps/web/.env.example`.
 
-Found a security problem? Please report it privately to the maintainers instead of opening a public issue.
+Found a security problem? Please see [`SECURITY.md`](SECURITY.md) and report it privately instead of opening a public issue.
 
-[`CLAUDE.md`](CLAUDE.md) holds longer architecture notes (written for AI coding assistants, but useful for
-people too).
+[`CLAUDE.md`](CLAUDE.md) holds longer architecture notes. They're written for AI coding assistants, but are useful for people too.
 
 ## License
 

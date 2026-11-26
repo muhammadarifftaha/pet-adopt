@@ -2,9 +2,9 @@ import { FiBookOpen } from 'react-icons/fi'
 
 import { definePlugin } from '@pet-adopt/plugin-sdk'
 
-// A reference plugin. It is not registered: to try it, import it in `pet-adopt.config.ts` and add
-// `adoptionTips({ heading: 'Tips for new owners' })` to `plugins`. A Tips entry then appears in the
-// admin menu, its page lives at /admin/plugins/adoption-tips, and a card shows on the dashboard.
+// A reference plugin (see README.md), listed in apps/web/pet-adopt.config.ts as `adoptionTips()`;
+// remove it there to switch it off. A Tips entry appears in the admin menu, its page lives at
+// /admin/plugins/adoption-tips, and a card shows on the dashboard.
 //
 // Screens and widgets are server components by default: they can be async, call the data layer in
 // `src/server`, and render shadcn components. For interactivity, render a `'use client'` component.
