@@ -4,9 +4,10 @@ import type { Metadata } from 'next'
 import { notFound, redirect } from 'next/navigation'
 import React from 'react'
 
-import { getSettings } from '@/lib/queries'
+import { getPetPagePreview, getSettings, type PetPageData } from '@/lib/queries'
 import { forcedModeCss, resolveTheme } from '@/lib/theme'
-import { EMPTY_DATA, isPuckData } from '@/puck/data'
+import { listPetChoicesAction, type PetChoice } from '@/puck/actions'
+import { EMPTY_DATA, isPuckData, PET_PAGE_SLUG } from '@/puck/data'
 import { toSiteMeta } from '@/puck/server'
 import { getPageById } from '@/server/pages'
 import { getSessionUser } from '@/server/session'
@@ -39,6 +40,14 @@ export default async function EditPage({ params }: { params: Promise<{ id: strin
   const theme = resolveTheme(settings)
   const darkCss = theme.allowModeToggle ? forcedModeCss(theme, 'dark', '.editor-canvas[data-mode="dark"]') : null
 
+  // The Pet page template: its own blocks, previewed with a pet (the newest visible one to start).
+  let petPreview: { choices: PetChoice[]; pet: PetPageData | null } | null = null
+  if (page.slug === PET_PAGE_SLUG) {
+    const choices = await listPetChoicesAction()
+    const first = choices.find((choice) => !choice.note) ?? choices[0]
+    petPreview = { choices, pet: first ? await getPetPagePreview(first.id) : null }
+  }
+
   return (
     <PageEditor
       pageId={page.id}
@@ -51,6 +60,7 @@ export default async function EditPage({ params }: { params: Promise<{ id: strin
       site={toSiteMeta(settings)}
       darkCss={darkCss}
       readOnly={readOnly}
+      petPreview={petPreview}
     />
   )
 }

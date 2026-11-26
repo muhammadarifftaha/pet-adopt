@@ -1,15 +1,13 @@
 import type { Metadata } from 'next'
-import Image from 'next/image'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import React from 'react'
 
-import { RichText } from '@/components/site/RichText'
-import { WhatsAppButton } from '@/components/site/WhatsAppButton'
-import { AGE_GROUPS, SEXES, SIZES, SPECIES, STATUSES, labelFor } from '@/lib/options'
+import { BuilderContent } from '@/components/site/BuilderContent'
+import { SPECIES, labelFor } from '@/lib/options'
 import { petSeo } from '@/lib/pet-seo'
-import { getPetBySlug, getSettings, mediaOf } from '@/lib/queries'
-import { fillMessage } from '@/lib/whatsapp'
+import { getPetBySlug, getPetPage, getPublishedPage, mediaOf } from '@/lib/queries'
+import { DEFAULT_PET_PAGE_DATA, isPuckData, PET_PAGE_SLUG } from '@/puck/data'
 
 export const revalidate = 60
 
@@ -47,73 +45,28 @@ export async function generateMetadata({ params }: Args): Promise<Metadata> {
   }
 }
 
+// A pet's page: the Pet page template (system page "pet-page", edited in the page builder with the
+// pet blocks, src/puck/pet-page-config.tsx) drawn for this pet; its built-in layout until the owners
+// publish one. The status notice is automatic, not a block (agreed with the owner).
 export default async function PetPage({ params }: Args) {
   const { slug } = await params
-  const [pet, settings] = await Promise.all([getPetBySlug(slug), getSettings()])
+  const [pet, template] = await Promise.all([getPetPage(slug), getPublishedPage(PET_PAGE_SLUG)])
   if (!pet) notFound()
-
-  const photos = pet.photos.map(mediaOf).filter((m): m is NonNullable<ReturnType<typeof mediaOf>> => Boolean(m))
-  const adopted = pet.status === 'adopted'
-
-  const facts: [string, string | null | undefined][] = [
-    ['Species', labelFor(SPECIES, pet.species)],
-    ['Breed', pet.breed],
-    ['Sex', pet.sex && pet.sex !== 'unknown' ? labelFor(SEXES, pet.sex) : null],
-    ['Age', pet.ageDescription || (pet.ageGroup ? labelFor(AGE_GROUPS, pet.ageGroup) : null)],
-    ['Size', pet.size ? labelFor(SIZES, pet.size) : null],
-    ['Location', pet.location],
-    ['Vaccinated', pet.vaccinated ? 'Yes' : null],
-    ['Neutered / spayed', pet.neutered ? 'Yes' : null],
-  ]
+  const data = template && isPuckData(template.puckData) ? template.puckData : DEFAULT_PET_PAGE_DATA
 
   return (
-    <section className="section spacing-md">
-      <div className="container">
+    <>
+      <div className="container pet-page-top">
         <Link href="/pets" className="link-more">
           ← All pets
         </Link>
-
-        <div className="pet-detail">
-          <div className="pet-gallery">
-            {photos.map((photo, i) => (
-              <div key={photo.url} className={i === 0 ? 'pet-photo pet-photo-main' : 'pet-photo'}>
-                <Image src={photo.url} alt={photo.alt || `${pet.name} photo ${i + 1}`} fill priority={i === 0} sizes={i === 0 ? '(max-width: 900px) 100vw, 60vw' : '30vw'} />
-              </div>
-            ))}
-          </div>
-
-          <div className="pet-info">
-            <div className="pet-title">
-              <h1>{pet.name}</h1>
-              <span className={`badge badge-${pet.status}`}>{labelFor(STATUSES, pet.status)}</span>
-            </div>
-
-            <dl className="facts">
-              {facts
-                .filter(([, value]) => Boolean(value))
-                .map(([label, value]) => (
-                  <div key={label}>
-                    <dt>{label}</dt>
-                    <dd>{value}</dd>
-                  </div>
-                ))}
-            </dl>
-
-            {/* A rich-text document drawn as React elements (never HTML), so it cannot inject markup. */}
-            <RichText doc={pet.description} className="prose" />
-
-            {adopted ? (
-              <p className="notice">{pet.name} has found a home. Message us to hear about similar pets.</p>
-            ) : null}
-
-            <WhatsAppButton
-              phone={settings.whatsappNumber}
-              message={adopted ? fillMessage('Hi! I saw {pet} was adopted. Do you have similar pets?', pet.name) : fillMessage(settings.whatsappMessage, pet.name)}
-              label={adopted ? 'Ask about similar pets' : `Ask about ${pet.name} on WhatsApp`}
-            />
-          </div>
-        </div>
+        {pet.status === 'adopted' ? (
+          <p className="notice pet-status-notice">{pet.name} has found a home. Have a look at the other pets below.</p>
+        ) : pet.status === 'pending' ? (
+          <p className="notice pet-status-notice">{pet.name}’s adoption is pending. Message us if you are interested: plans sometimes change.</p>
+        ) : null}
       </div>
-    </section>
+      <BuilderContent data={data} title={pet.name} pet={pet} />
+    </>
   )
 }

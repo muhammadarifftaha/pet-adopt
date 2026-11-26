@@ -28,7 +28,7 @@ import {
 import { Input } from "@pet-adopt/ui/components/input";
 import { Textarea } from "@pet-adopt/ui/components/textarea";
 import { slugify } from "@/lib/slugify";
-import { isSystemPageSlug } from "@/puck/data";
+import { isSystemPageSlug, PET_PAGE_SLUG } from "@/puck/data";
 import { cn } from "@/lib/utils";
 import {
   PAGE_FIELD_LABELS,
@@ -361,6 +361,9 @@ export function PageForm({ page }: { page: PageFormPage | null }) {
   const isHome = page?.slug === "home";
   // The homepage and the Pets page keep their address and are never archived.
   const isSystem = page ? isSystemPageSlug(page.slug) : false;
+  // The Pet page template: no address of its own and no search settings (each pet has its own, on
+  // the pet's Search and sharing tab), so neither shows here.
+  const isPetTemplate = page?.slug === PET_PAGE_SLUG;
   const live = page && !archived && page.status === "published";
   const dirty = formState.isDirty;
 
@@ -401,6 +404,12 @@ export function PageForm({ page }: { page: PageFormPage | null }) {
         <fieldset disabled={archived || viewOnly} className="m-0 min-w-0 border-0 p-0">
           <FieldGroup>
             <TextInputField control={control} name="title" label="Title" required />
+            {isPetTemplate ? (
+              <p className="text-sm text-muted-foreground">
+                This is the Pet page template: one layout that draws every pet&rsquo;s page at <code>/pets/&lt;pet&gt;</code>. Each
+                pet&rsquo;s title, search description and share image come from that pet (its Search and sharing tab).
+              </p>
+            ) : (
             <TextInputField
               control={control}
               name="slug"
@@ -420,6 +429,7 @@ export function PageForm({ page }: { page: PageFormPage | null }) {
                 slugTouched.current = true;
               }}
             />
+            )}
             {!archived && !viewOnly ? (
               // The page's blocks are made in the page builder. With unsaved changes here (or on a
               // new page) the button saves first, so nothing typed above is lost.
@@ -457,6 +467,7 @@ export function PageForm({ page }: { page: PageFormPage | null }) {
                 </div>
               </div>
             ) : null}
+            {isPetTemplate ? null : (
             <FieldSet>
               <FieldLegend>Search and sharing</FieldLegend>
               <FieldGroup>
@@ -464,6 +475,7 @@ export function PageForm({ page }: { page: PageFormPage | null }) {
                 <ShareImageField control={control} />
               </FieldGroup>
             </FieldSet>
+            )}
           </FieldGroup>
         </fieldset>
 
@@ -490,7 +502,7 @@ export function PageForm({ page }: { page: PageFormPage | null }) {
                     Visitors use <code>{pagePath(page.liveSlug)}</code> until you publish; then the address becomes <code>{pagePath(page.slug)}</code>.
                   </p>
                 ) : null}
-                {live ? (
+                {live && !isPetTemplate ? (
                   <a
                     href={pagePath(page.liveSlug)}
                     target="_blank"
@@ -506,7 +518,9 @@ export function PageForm({ page }: { page: PageFormPage | null }) {
                   <p className="text-muted-foreground">
                     {isHome
                       ? "This is the homepage. If you unpublish it, the site shows its built-in homepage instead."
-                      : "This is the Pets page. If you unpublish it, /pets shows the built-in catalogue instead."}
+                      : isPetTemplate
+                        ? "This is the Pet page template. If you unpublish it, pet pages use the built-in layout instead."
+                        : "This is the Pets page. If you unpublish it, /pets shows the built-in catalogue instead."}
                   </p>
                 ) : null}
                 {!page.hasLayout && !archived ? (

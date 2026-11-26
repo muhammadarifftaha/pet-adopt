@@ -95,6 +95,12 @@ export const petFormSchema = z
       const result = validateRichText(value);
       if (!result.ok) context.addIssue({ code: "custom", message: result.error });
     }),
+    // Same rules and cap as the health notes.
+    personalityNotes: z.custom<RichTextDoc | null>().superRefine((value, context) => {
+      if (value === null || value === undefined) return;
+      const result = validateRichText(value);
+      if (!result.ok) context.addIssue({ code: "custom", message: result.error });
+    }),
     temperament: z.array(z.enum(valuesOf(TEMPERAMENTS))),
     goodWith: z.array(z.enum(valuesOf(GOOD_WITH))),
 

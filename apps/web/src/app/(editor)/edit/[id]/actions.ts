@@ -4,13 +4,16 @@ import type { Data } from '@puckeditor/core'
 
 import { isPetStatus, normalizeSpecies } from '@/lib/options'
 import {
+  getPetPagePreview,
   getPetSpotlight,
   queryCatalog,
+  similarPets,
   queryPetCards,
   queryPetProfiles,
   type CatalogData,
   type PetCardData,
   type PetFilters,
+  type PetPageData,
   type PetSpotlightData,
 } from '@/lib/queries'
 import { fetchPublicForm, type PublicForm } from '@/puck/forms'
@@ -84,4 +87,24 @@ export async function fetchPetsAction(filters: PetFilters): Promise<PetCardData[
 /** One form for the editor's Form block preview. Public data: the same form visitors see. */
 export async function fetchFormAction(id: number): Promise<PublicForm | null> {
   return fetchPublicForm(id)
+}
+
+/**
+ * The "Preview with" pet of the Pet page template. Any pet, hidden ones included (an adopted pet's
+ * page is worth previewing), so it needs `pages:view` like the builder itself.
+ */
+export async function fetchPetPagePreviewAction(id: number): Promise<PetPageData | null> {
+  await requirePermission('pages:view')
+  const petId = Number(id)
+  if (!Number.isSafeInteger(petId) || petId < 1) return null
+  return getPetPagePreview(petId)
+}
+
+/** "More pets like this" in the editor. Public data (available, listed pets); inputs are checked. */
+export async function fetchSimilarPetsAction(pet: { id: number; species: string; state: string | null }, limit: number): Promise<PetCardData[]> {
+  const id = Number(pet?.id)
+  if (!Number.isSafeInteger(id) || id < 1) return []
+  const species = typeof pet.species === 'string' ? pet.species.slice(0, 100) : ''
+  const state = typeof pet.state === 'string' ? pet.state.slice(0, 200) : null
+  return similarPets({ id, species, state }, Math.min(Math.max(Number(limit) || 3, 1), 12))
 }

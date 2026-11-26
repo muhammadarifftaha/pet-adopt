@@ -8,6 +8,8 @@ import type { EmailPurpose, RenderContext } from '@/lib/email-template'
 import { emailBuilderConfig, type EmailBuilderMetadata } from '@/puck/email-config'
 import { saveEmailTemplateAction, saveSystemEmailAction, sendEmailTemplateTestAction } from '@/server/actions/email-templates'
 
+import { useEditorToast } from '../../../EditorToast'
+
 // The email builder for one template. Save checks the layout on the server (placeholders, links, the
 // purpose's rules) and lists what to fix. "Send test" sends the layout as it is now, filled with
 // sample values, to an address (the person's own by default). View-only roles get every field
@@ -46,12 +48,12 @@ function HeaderActions() {
   const getPuck = useGetPuck()
   const [pending, startTransition] = useTransition()
   const [to, setTo] = useState(defaultTo)
-  const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null)
+  const { show, toast } = useEditorToast()
 
   const failed = (verb: string, result: { error: string; fieldErrors?: Record<string, string> }) => {
     const problems = problemsOf(result.fieldErrors)
     onProblems(problems)
-    setMessage({ ok: false, text: problems.length ? `${verb}: ${problems.length} ${problems.length === 1 ? 'thing' : 'things'} to fix.` : (result.fieldErrors?.to ?? result.error) })
+    show({ ok: false, text: problems.length ? `${verb}: ${problems.length} ${problems.length === 1 ? 'thing' : 'things'} to fix.` : (result.fieldErrors?.to ?? result.error) })
   }
 
   const save = () =>
@@ -60,7 +62,7 @@ function HeaderActions() {
       const result = target.kind === 'system' ? await saveSystemEmailAction(target.purpose, data) : await saveEmailTemplateAction(target.id, { data })
       if (!result.ok) return failed('Not saved', result)
       onProblems([])
-      setMessage({ ok: true, text: 'Saved.' })
+      show({ ok: true, text: 'Saved.' })
     })
 
   const sendTest = () =>
@@ -68,14 +70,12 @@ function HeaderActions() {
       const result = await sendEmailTemplateTestAction(purpose, getPuck().appState.data, to)
       if (!result.ok) return failed('Not sent', result)
       onProblems([])
-      setMessage({ ok: true, text: `Test sent to ${result.data.to}.` })
+      show({ ok: true, text: `Test sent to ${result.data.to}.` })
     })
 
   return (
     <div className="editor-actions">
-      <span role="status" className={message?.ok === false ? 'editor-msg editor-msg-error' : 'editor-msg'}>
-        {message?.text}
-      </span>
+      {toast}
       <Link href="/admin/email/templates">All templates</Link>
       {readOnly ? (
         <span className="editor-msg">View only: your role cannot change email templates.</span>

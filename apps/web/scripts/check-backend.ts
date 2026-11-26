@@ -32,6 +32,7 @@ import {
   archivePage,
   deletePage,
   ensureHomePage,
+  ensurePetPageTemplate,
   ensurePetsPage,
   getPageById,
   getPageVersionData,
@@ -47,7 +48,7 @@ import {
   unpublishPage,
 } from '../src/server/pages'
 import { ageGroupOf, ageGroupRange, estimateBirthDate, formatAge, subtractDays, subtractMonths, todayISO } from '../src/lib/age'
-import { deletePet, getLocationOptions, getPetById, getPetBySlug, getSpeciesOptions, queryPets, savePet } from '../src/server/pets'
+import { deletePet, getLocationOptions, getPetById, getPetBySlug, getSpeciesOptions, queryPets, rankSimilarPets, savePet } from '../src/server/pets'
 import { Fields, ValidationError, UserError, assertId, describeError } from '../src/server/result'
 import { getStorage, s3Settings } from '../src/server/storage'
 import { StripError, stripMetadata } from '../src/server/strip-metadata'
@@ -619,6 +620,16 @@ await check('health notes: rich text is rebuilt from allowed parts, links are ve
   await savePet(good.id, { description: '' })
   ok((await getPetById(good.id))!.description === null, 'a blank description clears it')
 
+  // Personality notes: the same kind of field as the health notes (2000 characters), no legacy column.
+  await savePet(good.id, { personalityNotes: doc(para('Loves chin scratches', [{ type: 'italic' }])) })
+  ok(richTextToPlain((await getPetById(good.id))!.personalityNotes!) === 'Loves chin scratches', 'personality notes are saved as a document')
+  ok((await fieldErrors(savePet(good.id, { personalityNotes: doc(para('p'.repeat(2001))) }))).personalityNotes, 'more than 2000 characters is a field error')
+  ok((await fieldErrors(savePet(good.id, { personalityNotes: doc({ type: 'heading', content: [] }) }))).personalityNotes, 'a heading in personality notes is a field error')
+  await savePet(good.id, { name: 'Notey' })
+  ok((await getPetById(good.id))!.personalityNotes !== null, 'kept when another field is saved')
+  await savePet(good.id, { personalityNotes: '' })
+  ok((await getPetById(good.id))!.personalityNotes === null, 'a blank value clears them')
+
   // The editor can produce exactly what the validator accepts, no more.
   const names = richTextExtensions.map((e) => e.name).sort()
   ok(
@@ -1013,6 +1024,45 @@ await check('pages: the Pets page is a system page at id 2, keeps /pets, cannot 
   ok(/cannot be archived/.test(await userError(archivePage(2))), 'cannot be archived')
   ok(/cannot be deleted/.test(await userError(deletePage(2))), 'cannot be deleted')
   await savePageDetails(2, { title: 'Adoptable pets', slug: 'pets' })
+})
+
+await check('pages: the Pet page template is a system page at id 3 with the pet blocks; /pet-page is reserved; it cannot be archived or deleted', async () => {
+  await ensurePetsPage()
+  ok(['created', 'moved', 'exists'].includes(await ensurePetPageTemplate()), 'ensured')
+  ok((await ensurePetPageTemplate()) === 'exists', 'not twice')
+  const template = (await getPageById(3))!
+  ok(template.slug === 'pet-page' && template.status === 'published', 'the template is id 3, published')
+  ok((await getPageById(1))!.slug === 'home' && (await getPageById(2))!.slug === 'pets', 'the homepage and the Pets page keep ids 1 and 2')
+  const layout = (await getPublishedPage('pet-page'))!.puckData as { content: Array<{ type: string }> }
+  ok(layout.content.map((block) => block.type).join() === 'PetGallery,PetSummary,PetDescription,PetHealth,PetPersonality,MorePets', 'starts with the pet blocks')
+  ok((await fieldErrors(savePageDetails(3, { slug: 'pet-layout' }))).slug, 'its address cannot change')
+  ok((await fieldErrors(savePageDetails(null, { title: 'Copy', slug: 'pet-page' }))).slug, 'no other page can take /pet-page')
+  ok(/cannot be archived/.test(await userError(archivePage(3))), 'cannot be archived')
+  ok(/cannot be deleted/.test(await userError(deletePage(3))), 'cannot be deleted')
+})
+
+await check('more pets like this: available, listed pets of the same species first, then the same state, never the pet itself', async () => {
+  // Its own photo: earlier checks delete the shared one.
+  const photo = await saveUpload({ data: png, alt: 'Similar pets' })
+  const make = (name: string, species: string, state: string, extra: Record<string, unknown> = {}) =>
+    savePet(null, { name, species, city: 'Town', state, photoIds: [photo.id], ...extra })
+  const pet = await make('Axo One', 'axolotl', 'Zedland')
+  const sameSpecies = await make('Axo Two', 'axolotl', 'Elsewhere')
+  const adopted = await make('Axo Adopted', 'axolotl', 'Zedland', { status: 'adopted' })
+  const unlisted = await make('Axo Hidden', 'axolotl', 'Zedland', { unlisted: true })
+  const sameState = await make('Quokka Near', 'quokka', 'Zedland')
+  try {
+    const top = await rankSimilarPets({ id: pet.id, species: 'axolotl', state: 'Zedland' }, 2)
+    ok(top.map((p) => p.id).join() === `${sameSpecies.id},${sameState.id}`, `same species, then same state: ${top.map((p) => p.name)}`)
+    const all = await rankSimilarPets({ id: pet.id, species: 'axolotl', state: 'Zedland' }, 12)
+    const ids = new Set(all.map((p) => p.id))
+    ok(!ids.has(pet.id) && !ids.has(adopted.id) && !ids.has(unlisted.id), 'never itself, adopted or unlisted pets')
+    ok(ids.size === all.length && all.length <= 12, 'no pet twice, at most the limit')
+    ok((await rankSimilarPets({ id: pet.id, species: 'axolotl', state: null }, 99)).length <= 12, 'the limit is clamped')
+  } finally {
+    for (const p of [pet, sameSpecies, adopted, unlisted, sameState]) await deletePet(p.id)
+    await removeUpload(photo.id)
+  }
 })
 
 // --- settings -----------------------------------------------------------------------------
@@ -1805,7 +1855,7 @@ await check('roles: the permission table is as agreed, every action checks a per
     'requestAccountDeletionAction', 'requestEmailVerificationAction',
     'createFirstAdminAction', 'finishSetupAction',
     'requestPasswordResetAction', 'resetPasswordWithTokenAction', 'acceptInviteAction', 'submitFormAction',
-    'fetchPetSpotlightAction', 'fetchCatalogAction', 'fetchPetProfilesAction', 'fetchPetsAction', 'fetchFormAction',
+    'fetchPetSpotlightAction', 'fetchCatalogAction', 'fetchPetProfilesAction', 'fetchPetsAction', 'fetchFormAction', 'fetchSimilarPetsAction',
   ])
   const { readFileSync, readdirSync } = await import('node:fs')
   const files = [

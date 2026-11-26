@@ -3,7 +3,7 @@ import type { Data } from '@puckeditor/core'
 export const EMPTY_DATA: Data = { content: [], root: { props: {} }, zones: {} }
 
 /** Props that are filled in at render time and must never be saved into the page JSON. */
-const TRANSIENT_PROPS = ['pets', 'spotlight', 'profiles', 'catalog', 'form', 'headingLevel']
+const TRANSIENT_PROPS = ['pets', 'spotlight', 'profiles', 'catalog', 'form', 'headingLevel', 'similar']
 
 /** A saved layout is a few kilobytes. Anything near this size is a mistake or an attack. */
 const MAX_BYTES = 1_000_000
@@ -26,6 +26,8 @@ function showsHeading(item: Block): boolean {
   if (item.type === 'PetSpotlight') return Boolean(props.spotlight)
   // The Form block's heading falls back to the form's name, so it shows one whenever the form exists.
   if (item.type === 'FormBlock') return Boolean(props.form)
+  // Pet page template: the Pet summary block's heading is the pet's name, always there.
+  if (item.type === 'PetSummary') return true
   return typeof props.heading === 'string' && props.heading.trim() !== ''
 }
 
@@ -96,7 +98,28 @@ export function isPuckData(value: unknown): value is Data {
  * Pages the site always has, listed with the other pages but fixed in place: they keep their address
  * and id and cannot be archived or deleted (see ensureSystemPages in src/server/pages.ts).
  */
-export const SYSTEM_PAGE_SLUGS = ['home', 'pets'] as const
+export const SYSTEM_PAGE_SLUGS = ['home', 'pets', 'pet-page'] as const
+
+/**
+ * The Pet page template (system page, id 3): one layout, built with the pet blocks
+ * (src/puck/pet-page-config.tsx), that draws every pet's page at /pets/<slug>. It has no address
+ * of its own: /pet-page is a 404.
+ */
+export const PET_PAGE_SLUG = 'pet-page'
+
+/** Every pet's page until the owners publish their own template: what the page used to show. */
+export const DEFAULT_PET_PAGE_DATA: Data = {
+  root: { props: {} },
+  zones: {},
+  content: [
+    { type: 'PetGallery', props: { id: 'pet-gallery', thumbnails: 'below' } },
+    { type: 'PetSummary', props: { id: 'pet-summary', headingStyle: 'normal', photo: 'none', showStatus: true, showFacts: true } },
+    { type: 'PetDescription', props: { id: 'pet-description', showButton: true, buttonLabel: '' } },
+    { type: 'PetHealth', props: { id: 'pet-health', heading: 'Health', showChecks: true, showNotes: true, layout: 'columns', rowGap: 'default' } },
+    { type: 'PetPersonality', props: { id: 'pet-personality', heading: 'Personality', showTemperament: true, showGoodWith: true, showNotes: true, layout: 'columns', rowGap: 'default' } },
+    { type: 'MorePets', props: { id: 'more-pets', heading: 'More pets like this', count: 3 } },
+  ],
+}
 export const isSystemPageSlug = (slug: string) => (SYSTEM_PAGE_SLUGS as readonly string[]).includes(slug)
 
 /** The Pets page (/pets) until the owners publish their own: just the catalogue. */

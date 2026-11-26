@@ -249,6 +249,12 @@ export function PetForm({ pet, siteName }: { pet: Pet | null; siteName: string }
                 />
                 <CheckboxGroupField control={control} name="temperament" label="Temperament" options={TEMPERAMENTS} />
                 <CheckboxGroupField control={control} name="goodWith" label="Good with" options={GOOD_WITH} />
+                <RichTextField
+                  control={control}
+                  name="personalityNotes"
+                  label="Personality notes"
+                  description="Anything about their character the lists above cannot say. Bold, italic, underline, lists and links. Up to 2000 characters."
+                />
               </FieldGroup>
               </ViewOnlyFieldset>
             </TabsContent>

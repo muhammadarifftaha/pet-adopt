@@ -72,7 +72,7 @@ export function RichTextField({
   maxChars = HEALTH_NOTES_MAX_CHARS,
 }: {
   control: FormControl;
-  name: "healthNotes" | "description";
+  name: "healthNotes" | "personalityNotes" | "description";
   label: string;
   description?: string;
   maxChars?: number;

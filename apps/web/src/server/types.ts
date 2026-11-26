@@ -64,6 +64,8 @@ export type Pet = Omit<PetSummary, 'photos'> & {
   healthNotes: RichTextDoc | null
   temperament: string[]
   goodWith: string[]
+  /** A rich-text document like `healthNotes`: anything about the pet's character the lists cannot say. */
+  personalityNotes: RichTextDoc | null
   /** Plain text. Blank lines separate paragraphs. */
   /** A rich-text document, like `healthNotes`. An old plain-text description arrives converted. */
   description: RichTextDoc | null
