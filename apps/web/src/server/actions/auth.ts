@@ -2,30 +2,29 @@
 
 import { asRole } from '@pet-adopt/plugin-sdk'
 
-import { APIError } from 'better-auth/api'
+import { eq } from 'drizzle-orm'
 import { headers } from 'next/headers'
+
+import { getDatabase } from '@/db/client'
 
 import { recordActivity, recordFailedSignIn } from '../activity'
 import { getAuth, MIN_PASSWORD_LENGTH } from '../auth'
+import { isAuthError } from '../auth-errors'
 import { asRecord, Fields, logError, run, UserError, ValidationError, type ActionResult } from '../result'
 import { getSessionUser, requireUser } from '../session'
 import { clearAttempts, guardPasswordChange, guardSignIn } from '../throttle'
-import type { SessionUser } from '../types'
+import { rememberPendingSignIn } from '../two-factor'
+import type { SessionUser, SignInResult } from '../types'
 import { listUsers, updateUser } from '../users'
 
 const MAX_PASSWORD_LENGTH = 128
 
 /**
- * Better Auth's errors. Not `instanceof APIError` alone: inside the Next bundle the error Better Auth
- * throws can come from another copy of the class than the one `better-auth/api` gives us, and the
- * check fails (a wrong password then showed "Something went wrong" and was not logged).
+ * Sign in with email and password. Signed in: the session cookie is already set. With two-factor
+ * on (and this browser not trusted) the answer is `{ twoFactor: true }` instead: no session yet,
+ * and the code goes to verifyTwoFactorAction (actions/two-factor.ts) within 10 minutes.
  */
-function isAuthError(error: unknown): error is APIError {
-  return error instanceof APIError || (error instanceof Error && error.name === 'APIError' && 'status' in error)
-}
-
-/** Sign in with email and password. On success the session cookie is already set. */
-export async function signInAction(input: { email: string; password: string }): Promise<ActionResult<SessionUser>> {
+export async function signInAction(input: { email: string; password: string }): Promise<ActionResult<SignInResult>> {
   return run(async () => {
     const raw = asRecord(input)
     const f = new Fields(raw, true)
@@ -45,11 +44,20 @@ export async function signInAction(input: { email: string; password: string }): 
         body: { email: normalized, password: password as string },
         headers: requestHeaders,
       })
+      // The password was right: the lockout counters start again, also when a code is still needed.
       await clearAttempts(keys)
-      const user = result.user as { id: string; email: string; name: string; role?: string | null }
-      const signedIn: SessionUser = { id: user.id, email: user.email, name: user.name, role: asRole(user.role) }
+      if ('twoFactorRedirect' in result && result.twoFactorRedirect) {
+        // Better Auth set its own cookie for the code step. Ours only says who is at that step, so a
+        // wrong code can be logged against the account (never trusted for anything else).
+        const { db, t } = await getDatabase()
+        const [account] = await db.select({ id: t.users.id }).from(t.users).where(eq(t.users.email, normalized)).limit(1)
+        if (account) await rememberPendingSignIn(account.id)
+        return { twoFactor: true }
+      }
+      const user = (result as { user: { id: string; email: string; name: string; role?: string | null; twoFactorEnabled?: boolean | null } }).user
+      const signedIn: SessionUser = { id: user.id, email: user.email, name: user.name, role: asRole(user.role), twoFactorEnabled: Boolean(user.twoFactorEnabled) }
       await recordActivity({ actor: signedIn, action: 'auth.sign-in', area: 'sign-in', summary: 'Signed in' })
-      return signedIn
+      return { twoFactor: false, user: signedIn }
     } catch (error) {
       if (isAuthError(error)) {
         // A wrong password, an unknown email and a disabled account all look the same.

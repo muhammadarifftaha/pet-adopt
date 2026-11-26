@@ -5,6 +5,8 @@ import React from "react";
 import { ThemeStyle } from "@/components/site/ThemeStyle";
 import { getSettings, siteIcons } from "@/lib/queries";
 import { getSessionUser } from "@/server/session";
+import { needsTwoFactorSetup } from "@/server/two-factor";
+import { TwoFactorRequired } from "@/components/admin/two-factor/TwoFactorRequired";
 
 // Tailwind and the shadcn tokens, bridged to the site theme (see the notes in globals.css).
 import "@pet-adopt/ui/globals.css";
@@ -39,6 +41,10 @@ export default async function AdminRootLayout({
   if (!user) redirect("/admin/login");
 
   const settings = await getSettings();
+  // Their role must use two-factor sign-in and they have not set it up: that setup, and nothing
+  // else, on every admin address (a layout cannot read the path, so no redirect loop to avoid).
+  // The actions refuse too (requirePermission).
+  const setupFirst = await needsTwoFactorSetup(user);
   return (
     // suppressHydrationWarning: a small script may set data-mode on <html> (the owner's saved
     // light/dark choice) before React hydrates, exactly like the public layout.
@@ -50,7 +56,9 @@ export default async function AdminRootLayout({
       </head>
       {/* The page background, text colour and font come from the shadcn tokens, which follow the theme. */}
       <body className="min-h-screen bg-background font-sans text-foreground antialiased">
-        <Providers userId={user.id}>{children}</Providers>
+        <Providers userId={user.id}>
+          {setupFirst ? <TwoFactorRequired user={user} siteName={settings.siteName} /> : children}
+        </Providers>
       </body>
     </html>
   );

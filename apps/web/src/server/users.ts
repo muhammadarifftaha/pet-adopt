@@ -18,7 +18,16 @@ import { getAuth, MIN_PASSWORD_LENGTH } from './auth'
 import { asRecord, Fields, isUniqueViolation, UserError, ValidationError } from './result'
 import type { Role } from './types'
 
-export type UserListItem = { id: string; email: string; name: string; role: Role; banned: boolean; createdAt: Date }
+export type UserListItem = {
+  id: string
+  email: string
+  name: string
+  role: Role
+  banned: boolean
+  /** Two-factor sign-in is set up. */
+  twoFactorEnabled: boolean
+  createdAt: Date
+}
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 /** Every change that could remove an admin takes this lock first. */
@@ -42,6 +51,7 @@ export async function listUsers(): Promise<UserListItem[]> {
     name: u.name,
     role: asRole(u.role),
     banned: Boolean(u.banned),
+    twoFactorEnabled: Boolean(u.twoFactorEnabled),
     createdAt: u.createdAt,
   }))
 }

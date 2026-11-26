@@ -6,6 +6,7 @@ import { cache } from 'react'
 
 import { getAuth } from './auth'
 import { UserError } from './result'
+import { needsTwoFactorSetup } from './two-factor'
 import type { SessionUser } from './types'
 
 /** The signed-in person, or null. Looked up once per request. */
@@ -17,11 +18,14 @@ export const getSessionUser = cache(async (): Promise<SessionUser | null> => {
   const auth = await getAuth()
   const session = await auth.api.getSession({ headers: requestHeaders })
   if (!session?.user) return null
-  const { id, email, name, role } = session.user as { id: string; email: string; name: string; role?: string | null }
-  return { id, email, name, role: asRole(role) }
+  const { id, email, name, role, twoFactorEnabled } = session.user as { id: string; email: string; name: string; role?: string | null; twoFactorEnabled?: boolean | null }
+  return { id, email, name, role: asRole(role), twoFactorEnabled: Boolean(twoFactorEnabled) }
 })
 
-/** Anyone signed in, whatever their role. Only for a person's own account (name, password). */
+/**
+ * Anyone signed in, whatever their role. Only for a person's own account (name, password,
+ * two-factor), so it works before someone who must set up two-factor has done so.
+ */
 export async function requireUser(): Promise<SessionUser> {
   const user = await getSessionUser()
   if (!user) throw new UserError('You need to be signed in.')
@@ -31,6 +35,8 @@ export async function requireUser(): Promise<SessionUser> {
 /** The signed-in person, if their role has `permission`; a UserError that says why otherwise. */
 export async function requirePermission(permission: Permission): Promise<SessionUser> {
   const user = await requireUser()
+  // Their role must use two-factor and they have not set it up: nothing else until they do.
+  if (await needsTwoFactorSetup(user)) throw new UserError('Set up two-factor sign-in first (your role requires it).')
   if (can(user.role, permission)) return user
   const role = ROLE_INFO[user.role].label
   if (permission === 'personalData:export' || permission === 'activity:export') throw new UserError(`Your role (${role}) cannot download this.`)
