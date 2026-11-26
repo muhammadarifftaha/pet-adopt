@@ -66,7 +66,7 @@ export async function AdminShell({
             ) : null}
             <span className="flex min-w-0 flex-col leading-tight">
               <span className="truncate font-semibold">{settings.siteName}</span>
-              <span className="text-xs text-muted-foreground">Admin</span>
+              <span className="text-xs text-sidebar-foreground/70">Admin</span>
             </span>
           </Link>
         </SidebarHeader>

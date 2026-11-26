@@ -272,13 +272,23 @@ function colorTokens(p: Palette, mode: Mode, shadow: ShadowKey): Record<string, 
   const bandBg = mode === 'light' ? mix(ink, '#000000', 0.2) : mix(bg, '#000000', 0.45)
   const surfaceAlt = mix(ink, bg, 0.97)
   const tint = p.tint ?? mix(primary, bg, 0.92)
+  // The admin sidebar: a little darker than the page in light mode (8% toward the text colour), so it
+  // stands apart from the content; in dark mode the surface as before.
+  const sidebarBg = mode === 'light' ? mix(surface, ink, 0.08) : surface
+  // Its hover and current-item highlight: a step further toward the text colour, so it shows on the
+  // sidebar in both modes (the pale --tint vanished on the darker light sidebar).
+  const sidebarAccent = mix(sidebarBg, ink, mode === 'light' ? 0.11 : 0.1)
   // Muted text and links appear on the page, on cards, on tinted sections and on muted panels, so
-  // they must reach 4.5:1 (WCAG 1.4.3) on all of them, not only on the page background.
+  // they must reach 4.5:1 (WCAG 1.4.3) on all of them, not only on the page background. (The admin
+  // sidebar draws its quieter text with its own foreground at 70%, not --muted, so its darker shade
+  // does not change the site's muted text.)
   const textBackgrounds = [bg, surface, surfaceAlt, tint]
   return {
     '--bg': bg,
     '--surface': surface,
     '--surface-alt': surfaceAlt,
+    '--sidebar-bg': sidebarBg,
+    '--sidebar-accent': sidebarAccent,
     '--placeholder': mix(ink, bg, 0.94),
     '--ink': ink,
     '--muted': ensureContrastOnAll(mix(ink, bg, 0.42), textBackgrounds, 4.5),
