@@ -1,48 +1,14 @@
 'use client'
 
-import React, { useSyncExternalStore } from 'react'
+import React from 'react'
 
-import { MODE_STORAGE_KEY } from '@/lib/theme'
-
-type Mode = 'light' | 'dark'
-
-const DARK_QUERY = '(prefers-color-scheme: dark)'
-
-// The page's mode lives on <html data-mode>, set by the pre-paint script or by this button, and
-// otherwise follows the device. Reading it as an external store keeps React in step with both.
-function subscribe(onChange: () => void) {
-  const observer = new MutationObserver(onChange)
-  observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-mode'] })
-  const media = window.matchMedia(DARK_QUERY)
-  media.addEventListener('change', onChange)
-  return () => {
-    observer.disconnect()
-    media.removeEventListener('change', onChange)
-  }
-}
-
-function currentMode(): Mode | null {
-  const chosen = document.documentElement.getAttribute('data-mode')
-  if (chosen === 'dark' || chosen === 'light') return chosen
-  return window.matchMedia(DARK_QUERY).matches ? 'dark' : 'light'
-}
-
-// The server cannot know the visitor's mode, so the button starts disabled until the client reads it.
-const serverMode = (): Mode | null => null
+import { useColorMode } from '@/lib/color-mode'
 
 /** Light/dark switch for visitors. Their choice is kept in this browser only. */
 export function ThemeToggle() {
-  const mode = useSyncExternalStore(subscribe, currentMode, serverMode)
-
-  function toggle() {
-    const next: Mode = mode === 'dark' ? 'light' : 'dark'
-    document.documentElement.setAttribute('data-mode', next)
-    try {
-      localStorage.setItem(MODE_STORAGE_KEY, next)
-    } catch {
-      // Storage can be blocked (private windows). The choice still applies until the page closes.
-    }
-  }
+  // Shared with the admin's user menu (src/lib/color-mode.ts); null until the browser reads it.
+  const [mode, setMode] = useColorMode()
+  const toggle = () => setMode(mode === 'dark' ? 'light' : 'dark')
 
   const dark = mode === 'dark'
   return (

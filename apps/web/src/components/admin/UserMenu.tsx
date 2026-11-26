@@ -3,13 +3,14 @@
 import React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { FiChevronDown, FiLogOut, FiUser } from "react-icons/fi";
+import { FiChevronDown, FiLogOut, FiMoon, FiUser } from "react-icons/fi";
 
 import { Avatar, AvatarFallback } from "@pet-adopt/ui/components/avatar";
 import { Badge } from "@pet-adopt/ui/components/badge";
 import { buttonVariants } from "@pet-adopt/ui/components/button";
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuGroup,
   DropdownMenuItem,
@@ -18,14 +19,18 @@ import {
   DropdownMenuTrigger,
 } from "@pet-adopt/ui/components/dropdown-menu";
 import { initialsOf } from "@/lib/admin/initials";
+import { useColorMode } from "@/lib/color-mode";
 import { ROLE_INFO } from "@pet-adopt/plugin-sdk";
 import { cn } from "@/lib/utils";
 import { signOutAction } from "@/server/actions/auth";
 import type { SessionUser } from "@/server/types";
 
-// Who is signed in: an avatar with their initials and name, opening a menu with the Account page and
-// Sign out. (Owners have no profile picture yet; give AvatarFallback an <AvatarImage> when they do.)
-export function UserMenu({ user }: { user: SessionUser }) {
+// Who is signed in: an avatar with their initials and name, opening a menu with the Account page, a
+// Dark mode switch (only when the site has dark mode, Site settings > Brand) and Sign out. The mode is
+// kept in this browser and shared with the public site's switch (src/lib/color-mode.ts). (Owners
+// have no profile picture yet; give AvatarFallback an <AvatarImage> when they do.)
+export function UserMenu({ user, canSwitchMode = false }: { user: SessionUser; canSwitchMode?: boolean }) {
+  const [mode, setMode] = useColorMode();
   const router = useRouter();
   const [signingOut, setSigningOut] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
@@ -79,6 +84,19 @@ export function UserMenu({ user }: { user: SessionUser }) {
             <FiUser aria-hidden="true" />
             Account
           </DropdownMenuItem>
+          {canSwitchMode ? (
+            // A checkbox item (menuitemcheckbox): its tick and aria-checked say whether dark is on.
+            // closeOnClick={false}: the change shows at once and the menu stays for another try.
+            <DropdownMenuCheckboxItem
+              checked={mode === "dark"}
+              disabled={mode === null}
+              closeOnClick={false}
+              onCheckedChange={(checked) => setMode(checked ? "dark" : "light")}
+            >
+              <FiMoon aria-hidden="true" />
+              Dark mode
+            </DropdownMenuCheckboxItem>
+          ) : null}
           {/* closeOnClick={false}: the menu stays open while signing out, so a failure can show here. */}
           <DropdownMenuItem
             closeOnClick={false}

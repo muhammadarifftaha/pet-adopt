@@ -12,6 +12,7 @@ import {
   SidebarTrigger,
 } from "@pet-adopt/ui/components/sidebar";
 import { getSettings } from "@/lib/queries";
+import { resolveTheme } from "@/lib/theme";
 import { getPluginNav } from "@/plugins/registry";
 import type { SessionUser } from "@/server/types";
 
@@ -88,7 +89,7 @@ export async function AdminShell({
         <header className="sticky top-0 z-50 flex h-14 items-center gap-2 border-b bg-background px-3">
           <SidebarTrigger />
           <div className="ml-auto">
-            <UserMenu user={user} />
+            <UserMenu user={user} canSwitchMode={resolveTheme(settings).allowModeToggle} />
           </div>
         </header>
         <main id="main-content" tabIndex={-1} className="flex-1 p-4 md:p-6">
