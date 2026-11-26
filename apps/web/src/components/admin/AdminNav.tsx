@@ -5,10 +5,11 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { createElement, type ReactNode } from 'react'
 import type { IconType } from 'react-icons'
-import { FiActivity, FiDroplet, FiMail, FiFileText, FiGrid, FiHeart, FiHome, FiImage, FiPackage, FiSettings, FiUsers } from 'react-icons/fi'
+import { FiActivity, FiDroplet, FiMail, FiFileText, FiHeart, FiHome, FiImage, FiPackage, FiSettings, FiUsers } from 'react-icons/fi'
 
 import {
   SidebarGroup,
+  SidebarGroupAction,
   SidebarGroupContent,
   SidebarGroupLabel,
   SidebarMenu,
@@ -56,21 +57,23 @@ const ICONS: Record<string, IconType> = {
   '/admin/email': FiMail,
   '/admin/users': FiUsers,
   '/admin/activity': FiActivity,
-  '/admin/plugins': FiGrid,
 }
 
 // A named nav landmark holding the sidebar's menus. Links keep `aria-current="page"` and a non-colour
 // cue (underline) next to the highlight. Nested screens (/admin/pets/3) keep their section current;
 // when two entries match (a plugin's home /admin/plugins/x and its /admin/plugins/x/reports) the
-// longest href wins. Sections, in order: Content, Plugins (screens from pet-adopt.config.ts and All
-// plugins), Settings; Dashboard sits above them.
+// longest href wins. Sections, in order: Content, Plugins (screens from pet-adopt.config.ts, with a
+// "View all" link to every plugin on the heading's line), Settings; Dashboard sits above them.
 export function AdminNav({
   items,
   pluginItems = [],
+  pluginsHref,
   role,
 }: {
   items: AdminNavItem[]
   pluginItems?: AdminNavItem[]
+  /** The list of every plugin: a "View all" link beside the Plugins heading (for roles that can view plugins). */
+  pluginsHref?: string
   role: Role
 }) {
   const pathname = usePathname()
@@ -80,6 +83,7 @@ export function AdminNav({
 
   const matches = (href: string) =>
     href === '/admin' ? pathname === href : pathname === href || pathname.startsWith(`${href}/`)
+  const viewAll = pluginsHref && can(role, 'plugins:view') ? pluginsHref : null
   const currentHref = [...core, ...plugins]
     .map((item) => item.href)
     .filter(matches)
@@ -106,9 +110,9 @@ export function AdminNav({
   // Dashboard on its own, then the sections in a fixed order: Content, Plugins, Settings. A section
   // the person's role has nothing in is left out (its heading too).
   const top = core.filter((item) => !item.section)
-  const sections: Array<{ label: string; items: AdminNavItem[]; fallback?: IconType }> = [
+  const sections: Array<{ label: string; items: AdminNavItem[]; fallback?: IconType; action?: { href: string; label: string; description: string } }> = [
     { label: 'Content', items: core.filter((item) => item.section === 'content') },
-    { label: 'Plugins', items: plugins, fallback: FiPackage },
+    { label: 'Plugins', items: plugins, fallback: FiPackage, action: viewAll ? { href: viewAll, label: 'View all', description: 'View all plugins' } : undefined },
     { label: 'Settings', items: core.filter((item) => item.section === 'settings') },
   ]
 
@@ -121,10 +125,22 @@ export function AdminNav({
           </SidebarGroupContent>
         </SidebarGroup>
       ) : null}
-      {sections.map(({ label, items: list, fallback }) =>
-        list.length ? (
+      {sections.map(({ label, items: list, fallback, action }) =>
+        list.length || action ? (
           <SidebarGroup key={label}>
             <SidebarGroupLabel>{label}</SidebarGroupLabel>
+            {action ? (
+              // A text link on the heading's line (shadcn's group action is drawn for an icon).
+              <SidebarGroupAction
+                className={cn(
+                  'top-3 aspect-auto w-auto px-1.5 py-0.5 text-xs font-medium text-sidebar-foreground/70 hover:text-sidebar-foreground',
+                  pathname === action.href && 'text-sidebar-foreground underline underline-offset-4',
+                )}
+                render={<Link href={action.href} aria-current={pathname === action.href ? 'page' : undefined} aria-label={action.description} />}
+              >
+                {action.label}
+              </SidebarGroupAction>
+            ) : null}
             <SidebarGroupContent>
               <SidebarMenu>{renderItems(list, fallback)}</SidebarMenu>
             </SidebarGroupContent>
