@@ -6,7 +6,8 @@ import React from 'react'
 import { BuilderContent } from '@/components/site/BuilderContent'
 import { SPECIES, labelFor } from '@/lib/options'
 import { petSeo } from '@/lib/pet-seo'
-import { getPetBySlug, getPetPage, getPublishedPage, mediaOf } from '@/lib/queries'
+import { getPetBySlug, getPetPage, getPublishedPage, getSettings } from '@/lib/queries'
+import { jsonLd, pageMetadata, petBreadcrumbsLd } from '@/lib/seo'
 import { DEFAULT_PET_PAGE_DATA, isPuckData, PET_PAGE_SLUG } from '@/puck/data'
 
 export const revalidate = 60
@@ -20,11 +21,10 @@ type Args = { params: Promise<{ slug: string }> }
 
 export async function generateMetadata({ params }: Args): Promise<Metadata> {
   const { slug } = await params
-  const pet = await getPetBySlug(slug)
+  const [pet, settings] = await Promise.all([getPetBySlug(slug), getSettings()])
   if (!pet) return {}
-  const cover = mediaOf(pet.photos?.[0])
-  // Owners can override the search and share text per pet (SEO tab); otherwise build it.
-  const shareImage = mediaOf(pet.seo?.image) ?? cover
+  // Owners can override the search and share text and image per pet (SEO tab); otherwise build them.
+  const image = pet.seo?.image ?? pet.photos?.[0] ?? null
   // The same fallbacks the admin's "Search and sharing" preview shows (src/lib/pet-seo.ts).
   const { title, description } = petSeo({
     name: pet.name,
@@ -36,13 +36,15 @@ export async function generateMetadata({ params }: Args): Promise<Metadata> {
     seoTitle: pet.seo?.title,
     seoDescription: pet.seo?.description,
   })
-  return {
+  return pageMetadata({
+    path: `/pets/${pet.slug}`,
+    siteName: settings.siteName,
     title,
     description,
-    openGraph: { title, description, images: shareImage ? [shareImage.url] : undefined },
+    image,
     // Unlisted pets are for people with the link, not for search engines.
-    robots: pet.unlisted ? { index: false, follow: false } : undefined,
-  }
+    robots: pet.unlisted ? 'noindex' : 'index',
+  })
 }
 
 // A pet's page: the Pet page template (system page "pet-page", edited in the page builder with the
@@ -50,12 +52,14 @@ export async function generateMetadata({ params }: Args): Promise<Metadata> {
 // publish one. The status notice is automatic, not a block (agreed with the owner).
 export default async function PetPage({ params }: Args) {
   const { slug } = await params
-  const [pet, template] = await Promise.all([getPetPage(slug), getPublishedPage(PET_PAGE_SLUG)])
+  const [pet, template, petsPage] = await Promise.all([getPetPage(slug), getPublishedPage(PET_PAGE_SLUG), getPublishedPage('pets')])
   if (!pet) notFound()
   const data = template && isPuckData(template.puckData) ? template.puckData : DEFAULT_PET_PAGE_DATA
 
   return (
     <>
+      {/* Structured data (JSON, not run as a script): Home › Pets › this pet in search results. */}
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLd(petBreadcrumbsLd(petsPage?.title || 'Adoptable pets', pet)) }} />
       <div className="container pet-page-top">
         <Link href="/pets" className="link-more">
           ← All pets

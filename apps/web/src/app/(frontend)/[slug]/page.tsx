@@ -3,7 +3,8 @@ import { notFound, redirect } from 'next/navigation'
 import React from 'react'
 
 import { BuilderContent } from '@/components/site/BuilderContent'
-import { getPublishedPage, mediaOf } from '@/lib/queries'
+import { getPublishedPage, getSettings } from '@/lib/queries'
+import { pageMetadata } from '@/lib/seo'
 import { isPuckData, PET_PAGE_SLUG } from '@/puck/data'
 
 export const revalidate = 60
@@ -19,14 +20,9 @@ export async function generateMetadata({ params }: Args): Promise<Metadata> {
   const { slug } = await params
   // The Pet page template draws /pets/<slug>; it has no address of its own.
   if (slug === PET_PAGE_SLUG) return {}
-  const page = await getPublishedPage(slug)
+  const [page, settings] = await Promise.all([getPublishedPage(slug), getSettings()])
   if (!page) return {}
-  const image = mediaOf(page.seo?.image)
-  return {
-    title: page.title,
-    description: page.seo?.description ?? undefined,
-    openGraph: { title: page.title, description: page.seo?.description ?? undefined, images: image ? [image.url] : undefined },
-  }
+  return pageMetadata({ path: `/${page.slug}`, siteName: settings.siteName, title: page.title, description: page.seo?.description, image: page.seo?.image })
 }
 
 export default async function BuilderPage({ params }: Args) {
