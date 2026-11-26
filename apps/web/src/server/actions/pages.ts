@@ -8,10 +8,11 @@ import {
   listPages,
   listPageVersions,
   publishPage,
+  restoreAndPublishPageVersion,
   restorePage,
   restorePageVersion,
-  savePageDetails,
   saveDraft,
+  savePageDetails,
   unpublishPage,
 } from '../pages'
 import { assertId, run, type ActionResult } from '../result'
@@ -40,8 +41,8 @@ export async function getPageAction(id: number): Promise<ActionResult<Page | nul
 /** Title, address (slug) and share details. Pass `id` = null to create a page. */
 export async function savePageDetailsAction(id: number | null, input: unknown): Promise<ActionResult<{ id: number; slug: string }>> {
   return run(async () => {
-    await requirePermission('pages:edit')
-    return savePageDetails(id === null ? null : assertId(id), input)
+    const user = await requirePermission('pages:edit')
+    return savePageDetails(id === null ? null : assertId(id), input, { by: user.id })
   })
 }
 
@@ -97,6 +98,18 @@ export async function listPageVersionsAction(id: number): Promise<ActionResult<P
   return run(async () => {
     await requirePermission('pages:view')
     return listPageVersions(assertId(id))
+  })
+}
+
+/** Restores version `number` as a new version and publishes it, in one step (a quick rollback). */
+export async function restoreAndPublishPageVersionAction(
+  id: number,
+  number: number,
+  baseVersion?: number,
+): Promise<ActionResult<{ version: number; number: number }>> {
+  return run(async () => {
+    const user = await requirePermission('pages:edit')
+    return restoreAndPublishPageVersion(assertId(id), assertId(number), { baseVersion: version(baseVersion), by: user.id })
   })
 }
 

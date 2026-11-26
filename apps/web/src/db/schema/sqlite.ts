@@ -224,6 +224,9 @@ export const pages = sqliteTable(
     // Puck's layout JSON. `puckDraft` is what the editor works on; `puckPublished` is what visitors see.
     puckDraft: text('puck_draft', { mode: 'json' }),
     puckPublished: text('puck_published', { mode: 'json' }),
+    // Settings (title, address, SEO) saved but not published yet, for a live page; null when there are
+    // none. Publishing copies them into the columns above. See PageDetails in src/server/pages.ts.
+    detailsDraft: text('details_draft', { mode: 'json' }),
     seoDescription: text('seo_description'),
     seoImageId: integer('seo_image_id').references(() => media.id, { onDelete: 'set null' }),
     publishedAt: timestamp('published_at'),
@@ -256,6 +259,9 @@ export const pageVersions = sqliteTable(
     createdBy: text('created_by').references(() => users.id, { onDelete: 'set null' }),
     // The version whose layout was copied in with "Use as draft", if any.
     restoredFrom: integer('restored_from'),
+    // The page's settings in this version (title, address, SEO); null in versions saved before they
+    // were kept, which then restore the layout only.
+    details: text('details', { mode: 'json' }),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },

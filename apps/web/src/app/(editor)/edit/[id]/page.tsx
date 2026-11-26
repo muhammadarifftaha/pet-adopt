@@ -42,8 +42,9 @@ export default async function EditPage({ params }: { params: Promise<{ id: strin
   return (
     <PageEditor
       pageId={page.id}
-      title={page.title}
-      slug={page.slug}
+      // The draft's settings: what the next publish will have.
+      title={page.draftDetails?.title ?? page.title}
+      slug={page.draftDetails?.slug ?? page.slug}
       status={page.status}
       version={page.updatedAt.getTime()}
       initialData={initialData}

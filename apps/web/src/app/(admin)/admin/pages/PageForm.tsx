@@ -1,5 +1,6 @@
 "use client";
 
+import { PageVersions } from "@/components/admin/pages/PageVersions";
 import { useViewOnly } from "@/components/admin/view-only";
 import Image from "next/image";
 import Link from "next/link";
@@ -65,6 +66,10 @@ export type PageFormPage = {
   seoImage: { id: number; thumbnailUrl: string; alt: string } | null;
   hasLayout: boolean;
   hasUnpublishedChanges: boolean;
+  /** Last change; sent with restores so a stale screen cannot overwrite newer work. */
+  updatedAt: Date;
+  /** The address visitors use now. `slug` above is the draft's, which differs until the next publish. */
+  liveSlug: string;
 };
 
 const fieldId = (name: string) => `page-${name}`;
@@ -480,9 +485,14 @@ export function PageForm({ page }: { page: PageFormPage | null }) {
                     <span className="text-muted-foreground">Unpublished changes</span>
                   ) : null}
                 </div>
+                {live && page.liveSlug !== page.slug ? (
+                  <p className="text-muted-foreground">
+                    Visitors use <code>{pagePath(page.liveSlug)}</code> until you publish; then the address becomes <code>{pagePath(page.slug)}</code>.
+                  </p>
+                ) : null}
                 {live ? (
                   <a
-                    href={pagePath(page.slug)}
+                    href={pagePath(page.liveSlug)}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="inline-flex items-center gap-1 underline-offset-4 hover:underline"
@@ -543,6 +553,7 @@ export function PageForm({ page }: { page: PageFormPage | null }) {
                 </p>
               </CardContent>
             </Card>
+            <PageVersions pageId={page.id} pageTitle={page.title} updatedAt={page.updatedAt} live={page.status === "published" && !archived} archived={archived} />
           </aside>
         ) : null}
       </div>

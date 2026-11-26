@@ -184,7 +184,7 @@ export function PageDetails({
                       onClick={() => restore(v.number)}
                     >
                       <FiRotateCcw aria-hidden />
-                      {restoring === v.number ? "Restoring…" : "Use as draft"}
+                      {restoring === v.number ? "Restoring…" : "Restore as draft"}
                       <span className="sr-only">version {v.number}</span>
                     </Button>
                   ) : null}

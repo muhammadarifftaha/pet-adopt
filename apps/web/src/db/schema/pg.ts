@@ -224,6 +224,9 @@ export const pages = pgTable(
     status: text('status').notNull().default('draft'),
     puckDraft: jsonb('puck_draft'),
     puckPublished: jsonb('puck_published'),
+    // Settings (title, address, SEO) saved but not published yet, for a live page; null when there are
+    // none. Publishing copies them into the columns above. See PageDetails in src/server/pages.ts.
+    detailsDraft: jsonb('details_draft'),
     seoDescription: text('seo_description'),
     seoImageId: integer('seo_image_id').references(() => media.id, { onDelete: 'set null' }),
     publishedAt: timestamp('published_at'),
@@ -256,6 +259,9 @@ export const pageVersions = pgTable(
     createdBy: text('created_by').references(() => users.id, { onDelete: 'set null' }),
     // The version whose layout was copied in with "Use as draft", if any.
     restoredFrom: integer('restored_from'),
+    // The page's settings in this version (title, address, SEO); null in versions saved before they
+    // were kept, which then restore the layout only.
+    details: jsonb('details'),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },

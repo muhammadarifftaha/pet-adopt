@@ -17,25 +17,28 @@ export default async function PageSettingsPage({ params }: { params: Promise<{ i
   const { id } = await params
   const page = unwrapOrNotFound(await getPageAction(parseId(id)))
 
-  // Only what the form shows: the layout JSON itself stays on the server.
+  // Only what the form shows: the layout JSON itself stays on the server. Its settings are the ones
+  // the next publish will have: saved-but-unpublished ones on a live page.
+  const draft = page.draftDetails
+  const image = draft ? draft.seo.image : page.seo.image
   const formPage: PageFormPage = {
     id: page.id,
-    title: page.title,
-    slug: page.slug,
+    title: draft?.title ?? page.title,
+    slug: draft?.slug ?? page.slug,
+    liveSlug: page.slug,
     status: page.status,
     archived: page.archivedAt !== null,
     publishedAt: page.publishedAt,
-    seoDescription: page.seo.description,
-    seoImage: page.seo.image
-      ? { id: page.seo.image.id, thumbnailUrl: page.seo.image.thumbnailUrl, alt: page.seo.image.alt }
-      : null,
+    seoDescription: draft ? draft.seo.description : page.seo.description,
+    seoImage: image ? { id: image.id, thumbnailUrl: image.thumbnailUrl, alt: image.alt } : null,
     hasLayout: page.puckDraft != null,
-    hasUnpublishedChanges: page.puckDraft != null && !isEqual(page.puckDraft, page.puckPublished ?? null),
+    hasUnpublishedChanges: (page.puckDraft != null && !isEqual(page.puckDraft, page.puckPublished ?? null)) || draft !== null,
+    updatedAt: page.updatedAt,
   }
 
   return (
     <>
-      <PageHeader title={page.title} description="Title, address and how the page looks when shared." />
+      <PageHeader title={draft?.title ?? page.title} description="Title, address and how the page looks when shared." />
       <ViewOnly value={!can(user.role, 'pages:edit')}>
         <ViewOnlyNotice role={user.role} what="this page" />
         <PageForm page={formPage} />
