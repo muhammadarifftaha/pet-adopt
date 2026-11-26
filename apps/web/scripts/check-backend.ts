@@ -68,6 +68,7 @@ import * as forms from '@pet-adopt/plugin-form-builder/server'
 // The services plugins reach through `host()` (sign-in, limits, phone, email), as the server registers them.
 import '../src/plugins/host'
 import { forgetPluginStorageStatus, getPluginStorageStatus } from '../src/plugins/storage'
+import { getEmailTemplateUsage } from '../src/plugins/registry'
 import { storageProblems } from '../src/plugins/storage-rules'
 import { applyPluginMigrations, pluginMigrationStates } from '../src/db/plugin-migrations'
 import { createUser, deleteUser, ensureOwner, listUsers, resetPassword, updateUser } from '../src/server/users'
@@ -89,13 +90,14 @@ import {
   deleteEmailTemplate,
   emailContext,
   listEmailTemplates,
+  getEmailTemplate,
   getSystemEmail,
   pickTemplate,
+  restoreSeededTemplate,
   renderPurposeEmail,
   restoreSystemEmail,
   saveEmailTemplate,
   saveSystemEmail,
-  setDefaultEmailTemplate,
 } from '../src/server/email-templates'
 
 let failures = 0
@@ -1659,7 +1661,7 @@ await check('form builder: forms are validated and unique; answers are checked p
     provideHost(realHost)
   }
   ok(
-    mails.length === 1 && mails[0].purpose === 'form-notification' && mails[0].to === 'team@example.test' && mails[0].answers?.some((answer) => answer.label === 'Your name' && answer.value === 'Ana'),
+    mails.length === 1 && mails[0].purpose === 'team-notification' && mails[0].to === 'team@example.test' && mails[0].details?.some((detail) => detail.label === 'Your name' && detail.value === 'Ana'),
     `notification: ${JSON.stringify(mails[0])}`,
   )
 
@@ -1984,10 +1986,10 @@ await check('email: SMTP settings are validated, the password is stored only enc
   }
 })
 
-await check('email templates: only allowed blocks and placeholders, no answers to visitors, a required reset link, escaping, defaults per purpose, fallbacks, and real sends (Mailpit)', async () => {
+await check('email templates: only allowed blocks and placeholders, no answers to visitors, a required reset link, escaping, system emails edited in place, a library used where picked, plugin defaults that always exist, and real sends (Mailpit)', async () => {
   const { db, t } = await getDatabase()
   await db.delete(t.emailTemplates)
-  const ctx = await emailContext({ name: '<b>Ana</b> & co', resetLink: 'https://example.test/r?token=a&b=1', minutes: '60', formName: 'Adopt "Rex"' })
+  const ctx = await emailContext({ name: '<b>Ana</b> & co', resetLink: 'https://example.test/r?token=a&b=1', minutes: '60', title: 'Adopt "Rex"' })
 
   // Every built-in template passes its own rules.
   for (const purpose of EMAIL_PURPOSES) ok(validateTemplate(DEFAULT_TEMPLATES[purpose], purpose).ok, `the built-in ${purpose} template is valid`)
@@ -2004,14 +2006,14 @@ await check('email templates: only allowed blocks and placeholders, no answers t
   )
   ok(clean.ok && clean.data.content[0].type === 'Text' && isEqual(clean.data.content[0].props, { id: 'a', text: 'Hello {{name}}', align: 'left', size: 'normal' }) && clean.data.root.props.subject === 'Hi {{siteName}}', `rebuilt: ${JSON.stringify(clean.ok && clean.data)}`)
 
-  const errorsOf = (content: unknown[], purpose: EmailPurpose = 'form-confirmation') => {
+  const errorsOf = (content: unknown[], purpose: EmailPurpose = 'visitor-message') => {
     const result = validateTemplate({ root: { props: { subject: 'S' } }, content }, purpose)
     return result.ok ? [] : result.errors
   }
   ok(errorsOf([{ type: 'Script', props: {} }]).some((e) => /cannot be used/.test(e)), 'unknown blocks are refused')
   ok(errorsOf([{ type: 'Text', props: { text: 'Hi {{resetLink}} {{password}}' } }]).length === 2, 'placeholders of another purpose, or unknown ones, are refused')
-  ok(errorsOf([{ type: 'Answers', props: {} }]).some((e) => /answers can only go/.test(e)), 'a visitor confirmation cannot list the answers')
-  ok(errorsOf([{ type: 'Answers', props: {} }], 'form-notification').length === 0, 'a team notification can')
+  ok(errorsOf([{ type: 'Details', props: {} }]).some((e) => /details can only go/.test(e)), 'a message to a visitor cannot list details')
+  ok(errorsOf([{ type: 'Details', props: {} }], 'team-notification').length === 0, 'a team notification can')
   for (const url of ['javascript:alert(1)', '//evil.test', 'https://user:pw@evil.test', '{{resetLink}}', '{{name}}', 'data:text/html,x']) {
     ok(errorsOf([{ type: 'Button', props: { label: 'x', url } }]).some((e) => /link must be/.test(e)), `button link refused: ${url}`)
   }
@@ -2050,7 +2052,7 @@ await check('email templates: only allowed blocks and placeholders, no answers t
   custom.root.props.subject = 'Custom reset for {{name}}'
   await saveSystemEmail('password-reset', custom, admin.id)
   await saveSystemEmail('password-reset', custom, admin.id)
-  ok((await getSystemEmail('password-reset')).customised && (await listEmailTemplates('password-reset')).length === 1, 'edited in place: one row, however many saves')
+  ok((await getSystemEmail('password-reset')).customised && (await db.select().from(t.emailTemplates).where(eq(t.emailTemplates.purpose, 'password-reset'))).length === 1 && !(await listEmailTemplates()).some((item) => item.purpose === 'password-reset'), 'edited in place: one row however many saves, and not in the library')
 
   // The password reset email uses the edited version, and the original after a restore.
   const sent: EmailMessage[] = []
@@ -2062,27 +2064,51 @@ await check('email templates: only allowed blocks and placeholders, no answers t
   await (await prepareResetEmail('tpl@example.test', ip(91), capture))()
   ok(sent[1]?.subject === 'Reset your Pet Adopt password' || /^Reset your .+ password$/.test(sent[1]?.subject ?? ''), `the original again: ${sent[1]?.subject}`)
 
-  // Form emails keep a library: unique names, one default per purpose, layouts checked on save.
-  const a = await createEmailTemplate({ name: 'Friendly notification', purpose: 'form-notification' }, admin.id)
-  ok(/already has this name/.test((await fieldErrors(createEmailTemplate({ name: 'FRIENDLY notification', purpose: 'form-confirmation' }, admin.id))).name ?? ''), 'names are unique whatever their case')
-  const b = await createEmailTemplate({ name: 'Second notification', purpose: 'form-notification', fromId: a.id }, admin.id)
-  ok((await fieldErrors(createEmailTemplate({ name: 'Wrong copy', purpose: 'form-confirmation', fromId: a.id }, admin.id))).purpose, 'a copy keeps its purpose')
+  // Form emails have a library: as many as people like, unique names, layouts checked on save, and
+  // used only where a form picks one (otherwise the built-in email).
+  const a = await createEmailTemplate({ name: 'Friendly notification', purpose: 'team-notification' }, admin.id)
+  ok(/already has this name/.test((await fieldErrors(createEmailTemplate({ name: 'FRIENDLY notification', purpose: 'visitor-message' }, admin.id))).name ?? ''), 'names are unique whatever their case')
+  const b = await createEmailTemplate({ name: 'Second notification', purpose: 'team-notification', fromId: a.id }, admin.id)
+  ok((await fieldErrors(createEmailTemplate({ name: 'Wrong copy', purpose: 'visitor-message', fromId: a.id }, admin.id))).purpose, 'a copy keeps its purpose')
   const bad = await fieldErrors(saveEmailTemplate(a.id, { data: { root: { props: { subject: '' } }, content: [{ type: 'Text', props: { text: '{{nope}}' } }] } }))
   ok(Object.keys(bad).length >= 2 && Object.keys(bad).every((key) => key.startsWith('template.')), `layout problems come back one per field error: ${JSON.stringify(bad)}`)
-  await setDefaultEmailTemplate(a.id, true)
-  await setDefaultEmailTemplate(b.id, true)
-  const defaults = (await listEmailTemplates('form-notification')).filter((item) => item.isDefault)
-  ok(defaults.length === 1 && defaults[0].id === b.id, 'one default per purpose')
-  ok((await pickTemplate('form-notification')).templateId === b.id, 'the default is used')
-  ok((await pickTemplate('form-notification', a.id)).templateId === a.id, 'a chosen template is used')
-  const other = await createEmailTemplate({ name: 'Confirmation look', purpose: 'form-confirmation' }, admin.id)
-  ok((await pickTemplate('form-notification', other.id)).templateId === b.id, 'a template of another purpose falls back to the default')
+  ok((await pickTemplate('team-notification')).templateId === null, 'nothing chosen: the built-in email, however many templates exist')
+  ok((await pickTemplate('team-notification', a.id)).templateId === a.id, 'a chosen template is used')
+  const other = await createEmailTemplate({ name: 'Confirmation look', purpose: 'visitor-message' }, admin.id)
+  ok((await pickTemplate('team-notification', other.id)).templateId === null, 'a template of another type falls back to the built-in email')
+  const library = await listEmailTemplates()
+  ok(isEqual(library.map((item) => item.name).sort(), ['Confirmation look', 'Form confirmation', 'Form response', 'Friendly notification', 'Second notification']), `the library: people's templates and the form builder's defaults: ${library.map((item) => item.name)}`)
+  ok(library.find((item) => item.name === 'Friendly notification')?.createdByName === admin.name && library.find((item) => item.name === 'Form response')?.createdByName === null, 'created by: the person, or nobody for a plugin default')
+
+  // Plugin defaults: seeded, never deleted, editable and restorable, and the fallback for that plugin's emails.
+  const seededNotification = library.find((item) => item.seedKey === 'form-builder:notification')!
+  ok(seededNotification.purpose === 'team-notification' && !seededNotification.edited, 'the form builder’s notification default is seeded')
+  ok(/cannot be deleted/.test(await userError(deleteEmailTemplate(seededNotification.id))), 'a plugin default cannot be deleted')
+  const changed = structuredClone((await getEmailTemplate(seededNotification.id))!.data)
+  changed.root.props.subject = 'Changed: {{title}}'
+  await saveEmailTemplate(seededNotification.id, { data: changed })
+  ok((await getEmailTemplate(seededNotification.id))!.edited, 'edited')
+  const restored = await restoreSeededTemplate(seededNotification.id)
+  ok(!restored.edited && restored.data.root.props.subject === 'New response: {{title}}', 'restored to the plugin’s own layout')
+  ok(/Only a default/.test(await userError(restoreSeededTemplate(a.id))), 'only plugin defaults can be restored')
+  ok((await pickTemplate('team-notification', 999999, 'form-builder:notification')).templateId === seededNotification.id, 'a missing pick falls back to the plugin default')
+  ok((await pickTemplate('team-notification', null, 'form-builder:confirmation')).templateId === null, 'a default of another type is not used')
   await deleteEmailTemplate(b.id)
-  ok((await pickTemplate('form-notification', b.id)).templateId === null, 'deleted: the built-in template')
+  ok((await pickTemplate('team-notification', b.id)).templateId === null, 'deleted: the built-in email')
+
+  // "Used by": the form builder reports which forms use which template.
+  const { id: usingForm } = await forms.createForm({ name: 'Uses a template', fields: [{ id: 'm', type: 'email', label: 'Email' }], settings: { notifyEmail: 'team@example.test', notifyTemplateId: a.id, confirmationFieldId: 'm', confirmationTemplateId: other.id } })
+  const { id: plainForm } = await forms.createForm({ name: 'Uses the defaults', fields: [{ id: 'm', type: 'email', label: 'Email' }], settings: { notifyEmail: 'team@example.test', confirmationFieldId: 'm' } })
+  const usage = await getEmailTemplateUsage()
+  ok(usage.get('form-builder:notification')?.some((use) => use.label === 'Form “Uses the defaults” (notification)') && usage.get('form-builder:confirmation')?.length === 1, 'forms that picked nothing use the defaults')
+  await forms.deleteForm(plainForm)
+  ok(usage.get(a.id)?.[0]?.label === 'Form “Uses a template” (notification)' && usage.get(a.id)?.[0]?.href === `/admin/plugins/form-builder/forms/${usingForm}`, `used by: ${JSON.stringify(usage.get(a.id))}`)
+  ok(usage.get(other.id)?.[0]?.label === 'Form “Uses a template” (confirmation)', 'the confirmation template too')
+  await forms.deleteForm(usingForm)
 
   // Visitor confirmations never carry answers, whatever is passed.
-  const confirmation = await renderPurposeEmail({ purpose: 'form-confirmation', values: { formName: 'Hello' }, answers: [{ label: 'Secret', value: 'visitor text' }] })
-  ok(!confirmation.html.includes('visitor text') && !confirmation.text.includes('visitor text'), 'no answers in a confirmation')
+  const confirmation = await renderPurposeEmail({ purpose: 'visitor-message', values: { title: 'Hello' }, details: [{ label: 'Secret', value: 'visitor text' }] })
+  ok(!confirmation.html.includes('visitor text') && !confirmation.text.includes('visitor text'), 'nothing typed in a message to a visitor')
 
   // The form builder: a confirmation needs an Email question, and is limited per address.
   const fields = [
@@ -2103,10 +2129,10 @@ await check('email templates: only allowed blocks and placeholders, no answers t
     const results = []
     for (let i = 0; i < 4; i++) results.push(await forms.confirmToVisitor(form, answers, `10.88.0.${i}`))
     ok(isEqual(results, [true, true, true, false]), `three confirmations an hour to one address: ${results}`)
-    ok(captured[0].purpose === 'form-confirmation' && captured[0].to === 'visitor@example.test' && !captured[0].answers && captured[0].values?.formName === 'Confirm me', `the confirmation: ${JSON.stringify(captured[0])}`)
+    ok(captured[0].purpose === 'visitor-message' && captured[0].to === 'visitor@example.test' && !captured[0].details && captured[0].values?.title === 'Confirm me' && captured[0].fallback === 'form-builder:confirmation', `the confirmation: ${JSON.stringify(captured[0])}`)
     await forms.notifyNewResponse(form, answers)
     const note = captured.at(-1)!
-    ok(note.purpose === 'form-notification' && note.to === 'team@example.test' && note.answers?.some((answer) => answer.value === 'Visitor text'), 'the team notification carries the answers')
+    ok(note.purpose === 'team-notification' && note.to === 'team@example.test' && note.details?.some((detail) => detail.value === 'Visitor text'), 'the team notification carries the answers as details')
   } finally {
     provideHost(realHost)
   }
@@ -2115,14 +2141,14 @@ await check('email templates: only allowed blocks and placeholders, no answers t
   const mailpit = process.env.MAILPIT_URL || 'http://127.0.0.1:8025'
   await saveEmailSettings({ host: '127.0.0.1', port: 1025, security: 'none', fromName: 'Pet Adopt', fromAddress: 'no-reply@pet-adopt.test' })
   await fetch(`${mailpit}/api/v1/messages`, { method: 'DELETE' })
-  ok(await host().sendTemplatedEmail({ purpose: 'form-notification', to: 'team@example.test', values: { formName: 'Mailpit form' }, answers: [{ label: 'Q', value: 'A <b>' }] }), 'sent')
+  ok(await host().sendTemplatedEmail({ purpose: 'team-notification', to: 'team@example.test', values: { title: 'Mailpit form' }, details: [{ label: 'Q', value: 'A <b>' }] }), 'sent')
   let html = ''
   for (let i = 0; i < 20 && !html; i++) {
-    const list = (await (await fetch(`${mailpit}/api/v1/search?query=${encodeURIComponent('subject:"New response: Mailpit form"')}`)).json()) as { messages: Array<{ ID: string }> }
+    const list = (await (await fetch(`${mailpit}/api/v1/search?query=${encodeURIComponent('subject:"New: Mailpit form"')}`)).json()) as { messages: Array<{ ID: string }> }
     if (list.messages[0]) html = ((await (await fetch(`${mailpit}/api/v1/message/${list.messages[0].ID}`)).json()) as { HTML: string }).HTML
     else await new Promise((resolve) => setTimeout(resolve, 100))
   }
-  ok(html.includes('A &lt;b&gt;') && html.includes('Mailpit form'), 'the notification arrived with the escaped answers')
+  ok(html.includes('A &lt;b&gt;') && html.includes('Mailpit form'), 'the notification arrived with the escaped details')
   await fetch(`${mailpit}/api/v1/messages`, { method: 'DELETE' })
 
   await forms.deleteForm(formId)

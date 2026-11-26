@@ -3,7 +3,7 @@
 // these through ./actions.ts; check:backend calls them directly.
 import { createHash } from 'node:crypto'
 
-import { csvCell, foldText, host, UserError, ValidationError } from '@pet-adopt/plugin-sdk'
+import { csvCell, foldText, host, UserError, ValidationError, type EmailTemplateUse } from '@pet-adopt/plugin-sdk'
 import { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm'
 
 import {
@@ -23,7 +23,8 @@ import {
   type PublicField,
   type SourceChoice,
 } from './fields'
-import { openFormsDatabase } from './storage'
+import { CONFIRMATION_KEY, NOTIFICATION_KEY } from './email-templates'
+import { FORM_BUILDER, openFormsDatabase } from './storage'
 
 export const MAX_FORMS = 100
 /** Past this a form stops accepting responses, so a flood cannot fill the disk. */
@@ -306,15 +307,33 @@ export async function notifyNewResponse(form: FormRecord, answers: FormAnswer[])
   if (!to) return
   try {
     await host().sendTemplatedEmail({
-      purpose: 'form-notification',
+      purpose: 'team-notification',
       templateId: form.settings.notifyTemplateId ?? null,
+      fallback: `${FORM_BUILDER}:${NOTIFICATION_KEY}`,
       to,
-      values: { formName: form.name },
-      answers: answers.map((answer) => ({ label: answer.label, value: answerToText(answer) })),
+      values: { title: form.name },
+      // The form's answers, as the email's Details block.
+      details: answers.map((answer) => ({ label: answer.label, value: answerToText(answer) })),
     })
   } catch (error) {
     host().logError(error, `form-builder: could not email a response to form ${form.id}`)
   }
+}
+
+/** Which email templates the forms use (Settings > Email templates shows it as "Used by"). */
+export async function emailTemplateUsage(): Promise<EmailTemplateUse[]> {
+  const { db, t } = await openFormsDatabase()
+  const rows = await db.select({ id: t.forms.id, name: t.forms.name, settings: t.forms.settings }).from(t.forms).orderBy(asc(t.forms.name))
+  const uses: EmailTemplateUse[] = []
+  for (const row of rows) {
+    const settings = (row.settings ?? {}) as FormSettings
+    const href = `/admin/plugins/${FORM_BUILDER}/forms/${row.id}`
+    // A form that picked no template uses this plugin's default one.
+    const pick = (templateId: number | undefined, key: string) => (templateId ? { templateId } : { seedKey: `${FORM_BUILDER}:${key}` })
+    if (settings.notifyEmail) uses.push({ ...pick(settings.notifyTemplateId, NOTIFICATION_KEY), label: `Form “${row.name}” (notification)`, href })
+    if (settings.confirmationFieldId) uses.push({ ...pick(settings.confirmationTemplateId, CONFIRMATION_KEY), label: `Form “${row.name}” (confirmation)`, href })
+  }
+  return uses
 }
 
 // Confirmations go to an address a visitor typed, so they are limited: 3 an hour to one address, 10
@@ -343,7 +362,7 @@ export async function confirmToVisitor(form: FormRecord, answers: FormAnswer[], 
     return false
   }
   try {
-    return await host().sendTemplatedEmail({ purpose: 'form-confirmation', templateId: form.settings.confirmationTemplateId ?? null, to, values: { formName: form.name } })
+    return await host().sendTemplatedEmail({ purpose: 'visitor-message', templateId: form.settings.confirmationTemplateId ?? null, fallback: `${FORM_BUILDER}:${CONFIRMATION_KEY}`, to, values: { title: form.name } })
   } catch (error) {
     host().logError(error, `form-builder: could not email a confirmation for form ${form.id}`)
     return false

@@ -12,7 +12,7 @@ import type { MediaValue } from './types'
 // (blockHtml in src/lib/email-template.ts, which escapes everything typed), so the canvas is the
 // email. Placeholders show as {{name}} chips. Only Columns and the root draw their own markup here
 // (with the same styles), because Puck needs its drop areas inside them. The config depends on the
-// purpose: the Answers block only exists for team notifications.
+// purpose: the Details block only exists for team notifications.
 
 /** What the canvas needs to draw blocks: theme, logo, site name. Passed as Puck metadata. */
 export type EmailBuilderMetadata = { ctx: RenderContext }
@@ -189,12 +189,12 @@ export function emailBuilderConfig(purpose: EmailPurpose): Config {
       ),
     },
   }
-  if (PURPOSE_INFO[purpose].answers) {
-    components.Answers = {
-      label: 'Answers',
-      fields: { title: { type: 'text', label: 'Title above the answers (optional)' } },
+  if (PURPOSE_INFO[purpose].details) {
+    components.Details = {
+      label: 'Details',
+      fields: { title: { type: 'text', label: 'Title above the details (optional)' } },
       defaultProps: { title: '' },
-      render: ({ puck, ...props }) => draw('Answers', props, puck.metadata),
+      render: ({ puck, ...props }) => draw('Details', props, puck.metadata),
     }
   }
 
@@ -202,7 +202,7 @@ export function emailBuilderConfig(purpose: EmailPurpose): Config {
     categories: {
       text: { title: 'Text', components: ['Heading', 'Text', 'Button'] },
       layout: { title: 'Images and layout', components: ['Image', 'Columns', 'Divider', 'Spacer'] },
-      ...(PURPOSE_INFO[purpose].answers ? { form: { title: 'Form', components: ['Answers'] } } : {}),
+      ...(PURPOSE_INFO[purpose].details ? { details: { title: 'Details', components: ['Details'] } } : {}),
     },
     root: {
       fields: rootFields,

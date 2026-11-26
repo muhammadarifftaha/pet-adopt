@@ -57,6 +57,10 @@ export async function register() {
   const { purgeOldActivitySometimes } = await import('@/server/activity')
   await purgeOldActivitySometimes()
 
+  // Plugins' default email templates (Settings > Email templates), created if missing. Never throws.
+  const { ensurePluginTemplates } = await import('@/server/email-templates')
+  await ensurePluginTemplates()
+
   // A plugin added since the last `pnpm migrate` (PostgreSQL) has no tables yet: say so now, not on
   // the first request that needs them. Its admin screens show the same notice.
   await import('@/plugins/host') // the services plugins reach through `host()`

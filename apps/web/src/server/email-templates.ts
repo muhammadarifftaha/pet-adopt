@@ -1,18 +1,24 @@
 // Email templates (Settings > Email templates, the builder at /edit/email/…) and the one place that
 // turns a purpose into a sent email. The format, the blocks and the rules (placeholders per purpose,
-// no answers in visitor confirmations) are in src/lib/email-template.ts. Agreed with the owner:
+// nothing a visitor typed in a message to a visitor) are in src/lib/email-template.ts. Agreed with the owner:
 //  - The site's own emails (password reset, test; SYSTEM_PURPOSES) have no library: the built-in
 //    template is edited in place (one row per purpose, `is_default` true, created on the first
-//    save) and "Restore the original" deletes that row.
-//  - Form emails keep a library: named templates, one of them the default, and a form may pick one.
+//    save) and "Restore default" deletes that row.
+//  - Everything else is a library of templates (team notifications, messages to visitors): as many
+//    as people like, used only where something picks one (a form, or any other plugin), so unused
+//    templates are fine. Plugins ship default templates (`emailTemplates` on the plugin, seeded at
+//    start, `seed_key`): editable and restorable, never deleted, and what that plugin's emails use
+//    when nothing else is picked, so its emails always have a template.
 //
-// Which template an email uses: the one asked for (forms) if it exists and has that purpose, else
-// the purpose's default (for a system email: its edited copy), else the built-in one. So deleting a
-// template never stops an email; it falls back.
+// Which template an email uses: a system email's edited copy, else the template that was picked (if it
+// still exists and has that purpose), else the built-in one. So deleting a template never stops an
+// email; it falls back.
 import { foldText } from '@pet-adopt/plugin-sdk'
-import { and, asc, eq, inArray, ne } from 'drizzle-orm'
+import { and, asc, eq, inArray, type SQL } from 'drizzle-orm'
+import { isEqual } from 'es-toolkit'
 
 import { getDatabase } from '@/db/client'
+import { getPluginEmailTemplates } from '@/plugins/registry'
 import {
   DEFAULT_TEMPLATES,
   EMAIL_PURPOSES,
@@ -34,44 +40,136 @@ import { resolveTheme } from '@/lib/theme'
 
 import { SITE_URL } from './auth'
 import { getEmailSender } from './email'
-import { asRecord, Fields, UserError, ValidationError } from './result'
+import { asRecord, Fields, logError, UserError, ValidationError } from './result'
 import { getSettings } from './settings'
 
-export type EmailTemplateSummary = { id: number; name: string; purpose: EmailPurpose; isDefault: boolean; updatedAt: Date }
+export type EmailTemplateSummary = {
+  id: number
+  name: string
+  purpose: EmailPurpose
+  isDefault: boolean
+  updatedAt: Date
+  /** A plugin's default template (`<plugin>:<key>`): never deleted, can be restored. */
+  seedKey: string | null
+  /** Who made it; null for plugin defaults (and accounts deleted since). */
+  createdByName: string | null
+  /** A plugin default that was changed (so "Restore default" applies). */
+  edited: boolean
+}
 export type EmailTemplateRecord = EmailTemplateSummary & { data: TemplateData }
 
-const DEFAULT_LOCK = 'email-templates:default'
+const SYSTEM_LOCK = 'email-templates:system'
 const PURPOSE_OPTIONS = LIBRARY_PURPOSES.map((value) => ({ value }))
 
-function toRecord(row: { id: number; name: string; purpose: string; data: unknown; isDefault: boolean; updatedAt: Date }): EmailTemplateRecord | null {
+/** The layout a plugin default starts from (and Restore default brings back). */
+function seedData(seedKey: string): TemplateData | null {
+  const seed = getPluginEmailTemplates().find((item) => item.seedKey === seedKey)
+  if (!seed) return null
+  const check = seed.data === undefined ? null : validateTemplate(seed.data, seed.purpose)
+  return check?.ok ? check.data : DEFAULT_TEMPLATES[seed.purpose]
+}
+
+type Row = { id: number; name: string; purpose: string; data: unknown; isDefault: boolean; updatedAt: Date; seedKey: string | null; createdByName?: string | null }
+
+function toRecord(row: Row): EmailTemplateRecord | null {
   if (!isEmailPurpose(row.purpose)) return null
   // Stored data was checked on save; a template that no longer passes (the rules changed) falls back.
   const check = validateTemplate(row.data, row.purpose)
-  return { id: row.id, name: row.name, purpose: row.purpose, isDefault: row.isDefault, updatedAt: row.updatedAt, data: check.ok ? check.data : DEFAULT_TEMPLATES[row.purpose] }
+  const data = check.ok ? check.data : DEFAULT_TEMPLATES[row.purpose]
+  const original = row.seedKey ? seedData(row.seedKey) : null
+  return {
+    id: row.id,
+    name: row.name,
+    purpose: row.purpose,
+    isDefault: row.isDefault,
+    updatedAt: row.updatedAt,
+    seedKey: row.seedKey,
+    createdByName: row.seedKey ? null : (row.createdByName ?? null),
+    edited: Boolean(original && !isEqual(original, data)),
+    data,
+  }
 }
 
-export async function listEmailTemplates(purpose?: EmailPurpose): Promise<EmailTemplateSummary[]> {
+async function selectRows(where: SQL | undefined) {
   const { db, t } = await getDatabase()
-  const rows = await db
-    .select({ id: t.emailTemplates.id, name: t.emailTemplates.name, purpose: t.emailTemplates.purpose, isDefault: t.emailTemplates.isDefault, updatedAt: t.emailTemplates.updatedAt })
+  return db
+    .select({
+      id: t.emailTemplates.id,
+      name: t.emailTemplates.name,
+      purpose: t.emailTemplates.purpose,
+      data: t.emailTemplates.data,
+      isDefault: t.emailTemplates.isDefault,
+      updatedAt: t.emailTemplates.updatedAt,
+      seedKey: t.emailTemplates.seedKey,
+      createdByName: t.users.name,
+    })
     .from(t.emailTemplates)
-    .where(purpose ? eq(t.emailTemplates.purpose, purpose) : undefined)
+    .leftJoin(t.users, eq(t.users.id, t.emailTemplates.createdBy))
+    .where(where)
     .orderBy(asc(t.emailTemplates.id))
+}
+
+/** The library (every template but the system emails), or one purpose of it. Plugin defaults are seeded first. */
+export async function listEmailTemplates(purpose?: EmailPurpose): Promise<EmailTemplateSummary[]> {
+  await ensurePluginTemplates()
+  const { t } = await getDatabase()
+  const rows = await selectRows(purpose ? eq(t.emailTemplates.purpose, purpose) : inArray(t.emailTemplates.purpose, [...LIBRARY_PURPOSES]))
   return rows
-    .filter((row): row is typeof row & { purpose: EmailPurpose } => isEmailPurpose(row.purpose))
+    .map((row) => toRecord(row as Row))
+    .filter((record): record is EmailTemplateRecord => record !== null && !isSystemPurpose(record.purpose))
+    .map(({ data: _data, ...summary }) => summary)
     .sort((a, b) => EMAIL_PURPOSES.indexOf(a.purpose) - EMAIL_PURPOSES.indexOf(b.purpose) || foldText(a.name).localeCompare(foldText(b.name)))
 }
 
+/** Creates the plugins' default templates that are missing (at start, and before listing). Never throws. */
+export async function ensurePluginTemplates(): Promise<void> {
+  try {
+    const seeds = getPluginEmailTemplates()
+    if (!seeds.length) return
+    const { db, t } = await getDatabase()
+    const existing = new Set((await db.select({ seedKey: t.emailTemplates.seedKey }).from(t.emailTemplates).where(inArray(t.emailTemplates.seedKey, seeds.map((seed) => seed.seedKey)))).map((row) => row.seedKey))
+    for (const seed of seeds) {
+      if (existing.has(seed.seedKey)) continue
+      await db
+        .insert(t.emailTemplates)
+        .values({ name: seed.name, purpose: seed.purpose, data: seedData(seed.seedKey) as TemplateData, isDefault: false, seedKey: seed.seedKey, createdBy: null })
+        .onConflictDoNothing({ target: t.emailTemplates.seedKey })
+    }
+  } catch (error) {
+    logError(error, 'could not create the plugins’ default email templates')
+  }
+}
+
 export async function getEmailTemplate(id: number): Promise<EmailTemplateRecord | null> {
+  const { t } = await getDatabase()
+  const [row] = await selectRows(eq(t.emailTemplates.id, id))
+  return row ? toRecord(row as Row) : null
+}
+
+/** A plugin default by its key (`<plugin>:<key>`), seeding it if it is missing. */
+async function getSeededTemplate(seedKey: string): Promise<EmailTemplateRecord | null> {
+  const { t } = await getDatabase()
+  let [row] = await selectRows(eq(t.emailTemplates.seedKey, seedKey))
+  if (!row && seedData(seedKey)) {
+    await ensurePluginTemplates()
+    ;[row] = await selectRows(eq(t.emailTemplates.seedKey, seedKey))
+  }
+  return row ? toRecord(row as Row) : null
+}
+
+/** "Restore default" for a plugin's default template: its original layout comes back (the name stays). */
+export async function restoreSeededTemplate(id: number): Promise<EmailTemplateRecord> {
+  const current = await getEmailTemplate(id)
+  const original = current?.seedKey ? seedData(current.seedKey) : null
+  if (!current || !original) throw new UserError('Only a default template can be restored.')
   const { db, t } = await getDatabase()
-  const [row] = await db.select().from(t.emailTemplates).where(eq(t.emailTemplates.id, id)).limit(1)
-  return row ? toRecord(row) : null
+  await db.update(t.emailTemplates).set({ data: original, updatedAt: new Date() }).where(eq(t.emailTemplates.id, id))
+  return (await getEmailTemplate(id)) as EmailTemplateRecord
 }
 
 async function assertNameFree(name: string, exceptId?: number) {
   const folded = foldText(name)
-  // Only the library has names people choose; the site's own emails are not in it.
-  const others = (await listEmailTemplates()).filter((other) => !isSystemPurpose(other.purpose))
+  const others = await listEmailTemplates()
   if (others.some((other) => other.id !== exceptId && foldText(other.name) === folded)) throw new ValidationError({ name: 'Another template already has this name.' })
 }
 
@@ -125,23 +223,12 @@ export async function saveEmailTemplate(id: number, raw: unknown): Promise<Email
   return (await getEmailTemplate(id)) as EmailTemplateRecord
 }
 
-/** Makes this template its purpose's default (`true`), or stops it being one (`false`: the built-in one is used). */
-export async function setDefaultEmailTemplate(id: number, isDefault: boolean): Promise<void> {
-  const { t, withTransaction } = await getDatabase()
-  await withTransaction(
-    async (tx) => {
-      const [row] = await tx.select({ purpose: t.emailTemplates.purpose }).from(t.emailTemplates).where(eq(t.emailTemplates.id, id)).limit(1)
-      if (!row || isSystemPurpose(row.purpose)) throw new UserError('This template no longer exists.')
-      if (isDefault) await tx.update(t.emailTemplates).set({ isDefault: false }).where(and(eq(t.emailTemplates.purpose, row.purpose), ne(t.emailTemplates.id, id)))
-      await tx.update(t.emailTemplates).set({ isDefault }).where(eq(t.emailTemplates.id, id))
-    },
-    { lock: DEFAULT_LOCK },
-  )
-}
-
-/** Deletes a template. Emails and forms that used it fall back to the default, then the built-in one. */
+/** Deletes a template. Whatever picked it (a form, say) sends the built-in email instead. */
 export async function deleteEmailTemplate(id: number): Promise<void> {
   const { db, t } = await getDatabase()
+  const [seeded] = await db.select({ seedKey: t.emailTemplates.seedKey }).from(t.emailTemplates).where(eq(t.emailTemplates.id, id)).limit(1)
+  // Plugin defaults stay: they are what that plugin's emails fall back to.
+  if (seeded?.seedKey) throw new UserError('A default template cannot be deleted. You can edit it, or restore its default.')
   const removed = await db
     .delete(t.emailTemplates)
     .where(and(eq(t.emailTemplates.id, id), inArray(t.emailTemplates.purpose, [...LIBRARY_PURPOSES])))
@@ -177,12 +264,12 @@ export async function saveSystemEmail(purpose: SystemPurpose, raw: unknown, by: 
       if (row) await tx.update(t.emailTemplates).set({ data: check.data, isDefault: true, updatedAt: new Date() }).where(eq(t.emailTemplates.id, row.id))
       else await tx.insert(t.emailTemplates).values({ name: PURPOSE_INFO[purpose].label, purpose, data: check.data, isDefault: true, createdBy: by })
     },
-    { lock: DEFAULT_LOCK },
+    { lock: SYSTEM_LOCK },
   )
   return getSystemEmail(purpose)
 }
 
-/** "Restore the original": forgets the edits, so the built-in template is sent again. Returns whether there were edits. */
+/** "Restore default": forgets the edits, so the built-in template is sent again. Returns whether there were edits. */
 export async function restoreSystemEmail(purpose: SystemPurpose): Promise<boolean> {
   const { db, t } = await getDatabase()
   const removed = await db.delete(t.emailTemplates).where(eq(t.emailTemplates.purpose, purpose)).returning({ id: t.emailTemplates.id })
@@ -191,20 +278,26 @@ export async function restoreSystemEmail(purpose: SystemPurpose): Promise<boolea
 
 // --- Rendering and sending ----------------------------------------------------------------------
 
-/** The template an email of `purpose` uses (see the top of this file). */
-export async function pickTemplate(purpose: EmailPurpose, templateId?: number | null): Promise<{ data: TemplateData; templateId: number | null }> {
+/**
+ * The template an email of `purpose` uses (see the top of this file): a system email's edited copy;
+ * otherwise the picked template, else the plugin default `fallback` (`<plugin>:<key>`), else the
+ * built-in one.
+ */
+export async function pickTemplate(purpose: EmailPurpose, templateId?: number | null, fallback?: string | null): Promise<{ data: TemplateData; templateId: number | null }> {
+  if (isSystemPurpose(purpose)) {
+    const row = await systemRow(purpose)
+    const record = row ? toRecord({ ...row, createdByName: null }) : null
+    return record ? { data: record.data, templateId: record.id } : { data: DEFAULT_TEMPLATES[purpose], templateId: null }
+  }
   if (templateId) {
     const chosen = await getEmailTemplate(templateId)
     if (chosen && chosen.purpose === purpose) return { data: chosen.data, templateId: chosen.id }
   }
-  const { db, t } = await getDatabase()
-  const [row] = await db
-    .select()
-    .from(t.emailTemplates)
-    .where(and(eq(t.emailTemplates.purpose, purpose), eq(t.emailTemplates.isDefault, true)))
-    .limit(1)
-  const record = row ? toRecord(row) : null
-  return record ? { data: record.data, templateId: record.id } : { data: DEFAULT_TEMPLATES[purpose], templateId: null }
+  if (fallback) {
+    const seeded = await getSeededTemplate(fallback)
+    if (seeded && seeded.purpose === purpose) return { data: seeded.data, templateId: seeded.id }
+  }
+  return { data: DEFAULT_TEMPLATES[purpose], templateId: null }
 }
 
 /** Theme, logo, site name and address for rendering. `values` are the purpose's own placeholders. */
@@ -220,16 +313,18 @@ export async function emailContext(values: Record<string, string>, extra: Partia
   }
 }
 
-/** An email of `purpose`, rendered from its template. Answers are only ever used for team notifications. */
+/** An email of `purpose`, rendered from its template. Details are only ever used for team notifications. */
 export async function renderPurposeEmail(input: {
   purpose: EmailPurpose
   templateId?: number | null
+  /** A plugin default (`<plugin>:<key>`) for when `templateId` is missing or deleted. */
+  fallback?: string | null
   values: Record<string, string>
-  answers?: Array<{ label: string; value: string }>
+  details?: Array<{ label: string; value: string }>
 }): Promise<RenderedEmail> {
-  const { data } = await pickTemplate(input.purpose, input.templateId)
-  const answers = PURPOSE_INFO[input.purpose].answers ? input.answers : undefined
-  return renderEmail(data, await emailContext(input.values, { answers }))
+  const { data } = await pickTemplate(input.purpose, input.templateId, input.fallback)
+  const details = PURPOSE_INFO[input.purpose].details ? input.details : undefined
+  return renderEmail(data, await emailContext(input.values, { details }))
 }
 
 /** Renders and sends. False when the site cannot send email (nothing set up). Throws when sending fails. */
@@ -245,11 +340,11 @@ export async function sendPurposeEmail(input: Parameters<typeof renderPurposeEma
 export async function renderTemplatePreview(purpose: EmailPurpose, raw: unknown): Promise<RenderedEmail> {
   const check = validateTemplate(raw, purpose)
   if (!check.ok) throw layoutErrors(check.errors)
-  const answers = PURPOSE_INFO[purpose].answers
+  const details = PURPOSE_INFO[purpose].details
     ? [
         { label: 'Your name', value: 'Sam Lee' },
-        { label: 'Message', value: 'This is a sample answer, so you can see how answers look.' },
+        { label: 'Message', value: 'A sample detail, so you can see how details look.' },
       ]
     : undefined
-  return renderEmail(check.data, await emailContext(PURPOSE_INFO[purpose].sample, { answers }))
+  return renderEmail(check.data, await emailContext(PURPOSE_INFO[purpose].sample, { details }))
 }

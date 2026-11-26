@@ -34,6 +34,7 @@ import {
   type FormFieldType,
   type FormSettings,
 } from '../fields'
+import { CONFIRMATION_SEED, NOTIFICATION_SEED } from '../email-templates'
 import { BASE, responsesHref } from './paths'
 
 // The form editor: details, the fields (add, change, reorder with buttons, remove) and settings.
@@ -42,7 +43,7 @@ import { BASE, responsesHref } from './paths'
 // each field; moves are announced in a polite live region; Save uses aria-disabled, not disabled.
 
 /** The site's email templates the form can pick from (Settings > Templates). */
-export type TemplateChoices = { notification: Array<{ id: number; name: string; isDefault: boolean }>; confirmation: Array<{ id: number; name: string; isDefault: boolean }> }
+export type TemplateChoices = { notification: Array<{ id: number; name: string; seedKey: string | null }>; confirmation: Array<{ id: number; name: string; seedKey: string | null }> }
 
 export type EditorForm = {
   id: number
@@ -192,24 +193,26 @@ export function FormEditor({
   const emailQuestions = drafts.filter((draft) => draft.type === 'email')
 
   function templateSelect(key: 'notifyTemplateId' | 'confirmationTemplateId', choices: TemplateChoices['notification']) {
-    const fallback = choices.find((choice) => choice.isDefault)
+    // Nothing picked yet: the form builder's own default template (it always exists).
+    const fallback = choices.find((choice) => choice.seedKey === (key === 'notifyTemplateId' ? NOTIFICATION_SEED : CONFIRMATION_SEED))
+    const selected = settings[key] && choices.some((choice) => choice.id === settings[key]) ? settings[key] : (settings[key] ?? fallback?.id)
     return (
       <select
         id={`fb-settings-${key}`}
         className={nativeSelect}
-        value={settings[key] ? String(settings[key]) : ''}
+        value={selected ? String(selected) : ''}
         onChange={(e) => setSettings({ ...settings, [key]: e.target.value ? Number(e.target.value) : undefined })}
         aria-describedby={described(`fb-settings-${key}-hint`, errors[`settings.${key}`] && `fb-settings-${key}-error`)}
         aria-invalid={errors[`settings.${key}`] ? true : undefined}
       >
-        <option value="">{fallback ? `The default (${fallback.name})` : 'The default (built in)'}</option>
         {choices.map((choice) => (
           <option key={choice.id} value={choice.id}>
             {choice.name}
+            {choice.seedKey ? ' (default)' : ''}
           </option>
         ))}
-        {/* A template that was deleted since: still shown, so the choice is visible; the email uses the default. */}
-        {settings[key] && !choices.some((choice) => choice.id === settings[key]) ? <option value={String(settings[key])}>A deleted template (the default is used)</option> : null}
+        {/* A template that was deleted since: still shown, so the choice is visible; the default is sent. */}
+        {settings[key] && !choices.some((choice) => choice.id === settings[key]) ? <option value={String(settings[key])}>A deleted template (the default is sent)</option> : null}
       </select>
     )
   }
@@ -503,7 +506,7 @@ export function FormEditor({
             <Label htmlFor="fb-settings-notifyTemplateId">Notification template</Label>
             {templateSelect('notifyTemplateId', templates.notification)}
             <p id="fb-settings-notifyTemplateId-hint" className="text-sm text-muted-foreground">
-              How the email to the address above looks. Templates are made in Settings, Templates.
+              How the email to the address above looks. Make templates in Settings, Email templates.
             </p>
             {errorText('fb-settings-notifyTemplateId-error', errors['settings.notifyTemplateId'])}
           </div>
@@ -545,7 +548,7 @@ export function FormEditor({
               <Label htmlFor="fb-settings-confirmationTemplateId">Confirmation template</Label>
               {templateSelect('confirmationTemplateId', templates.confirmation)}
               <p id="fb-settings-confirmationTemplateId-hint" className="text-sm text-muted-foreground">
-                What the visitor receives. Templates are made in Settings, Templates.
+                What the visitor receives. Make templates in Settings, Email templates.
               </p>
               {errorText('fb-settings-confirmationTemplateId-error', errors['settings.confirmationTemplateId'])}
             </div>

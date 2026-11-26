@@ -4,8 +4,10 @@
 //  - Each email the site sends has a purpose; the purpose decides the placeholders ({{name}}) a
 //    template may use. Every purpose has a built-in default (DEFAULT_TEMPLATES), so an email never
 //    depends on a template existing.
-//  - Visitor confirmations never contain what the visitor typed (no Answers block): anyone can
-//    enter any address in a public form, so echoing answers would let strangers mail their own text.
+//  - A message to a visitor never contains what the visitor typed (no Details block): anyone can
+//    enter any address in a public form, so echoing it would let strangers mail their own text.
+//  - Templates are not tied to forms: any plugin sends them (host().sendTemplatedEmail) and fills
+//    {{title}} and the Details block with its own content.
 //
 // Every block turns itself into email-safe HTML (tables and inline styles, plus one media query for
 // stacking columns on phones; classic Outlook gets a fixed-width wrapper and bulletproof buttons) and
@@ -13,7 +15,7 @@
 // what is designed is what is sent. Stored data is rebuilt by `validateTemplate` from allowed
 // blocks and props only, and everything a person typed is escaped when it is rendered.
 
-export const EMAIL_PURPOSES = ['password-reset', 'test', 'form-notification', 'form-confirmation'] as const
+export const EMAIL_PURPOSES = ['password-reset', 'test', 'team-notification', 'visitor-message'] as const
 export type EmailPurpose = (typeof EMAIL_PURPOSES)[number]
 
 /** Placeholders every template can use. */
@@ -21,14 +23,14 @@ export const COMMON_PLACEHOLDERS: Record<string, string> = { siteName: 'The site
 
 export const PURPOSE_INFO: Record<
   EmailPurpose,
-  { label: string; description: string; placeholders: Record<string, string>; required: string[]; answers: boolean; sample: Record<string, string> }
+  { label: string; description: string; placeholders: Record<string, string>; required: string[]; details: boolean; sample: Record<string, string> }
 > = {
   'password-reset': {
     label: 'Password reset',
     description: 'Sent when someone asks for a reset link on the sign-in page.',
     placeholders: { name: 'The person’s name', resetLink: 'The one-time reset link (required)', minutes: 'How long the link works, in minutes' },
     required: ['resetLink'],
-    answers: false,
+    details: false,
     sample: { name: 'Alex Rivera', resetLink: 'https://example.com/admin/reset-password?token=sample', minutes: '60' },
   },
   test: {
@@ -36,24 +38,24 @@ export const PURPOSE_INFO: Record<
     description: 'Sent by “Send a test email” in Settings > Email.',
     placeholders: { senderName: 'Who sent the test' },
     required: [],
-    answers: false,
+    details: false,
     sample: { senderName: 'Alex Rivera' },
   },
-  'form-notification': {
-    label: 'New form response (to the team)',
-    description: 'Sent to a form’s notification address for each response. Can list the answers.',
-    placeholders: { formName: 'The form’s name' },
+  'team-notification': {
+    label: 'Team notification',
+    description: 'Sent to your team when something comes in, such as a form response. Can list the details.',
+    placeholders: { title: 'What it is about, such as the form’s name' },
     required: [],
-    answers: true,
-    sample: { formName: 'Adoption enquiry' },
+    details: true,
+    sample: { title: 'Adoption enquiry' },
   },
-  'form-confirmation': {
-    label: 'Form confirmation (to the visitor)',
-    description: 'Sent to the visitor after they fill in a form that asks for it. Never includes their answers.',
-    placeholders: { formName: 'The form’s name' },
+  'visitor-message': {
+    label: 'Message to a visitor',
+    description: 'Sent to someone outside the team, such as a confirmation after they fill in a form. Never repeats what they typed.',
+    placeholders: { title: 'What it is about, such as the form’s name' },
     required: [],
-    answers: false,
-    sample: { formName: 'Adoption enquiry' },
+    details: false,
+    sample: { title: 'Adoption enquiry' },
   },
 }
 
@@ -61,7 +63,7 @@ export const isEmailPurpose = (value: unknown): value is EmailPurpose => (EMAIL_
 
 /**
  * The site's own emails (agreed with the owner): no library of templates. The built-in template is
- * edited in place, and "Restore the original" brings it back. Form emails keep a library instead,
+ * edited in place, and "Restore default" brings it back. Form emails keep a library instead,
  * so each form can pick its own.
  */
 export const SYSTEM_PURPOSES = ['password-reset', 'test'] as const satisfies readonly EmailPurpose[]
@@ -86,7 +88,7 @@ export type BlockData =
   | { type: 'Divider'; props: { id: string } }
   | { type: 'Spacer'; props: { id: string; size: 'small' | 'medium' | 'large' } }
   | { type: 'Columns'; props: { id: string; left: BlockData[]; right: BlockData[] } }
-  | { type: 'Answers'; props: { id: string; title: string } }
+  | { type: 'Details'; props: { id: string; title: string } }
 
 export type TemplateRoot = { subject: string; preheader: string; showLogo: boolean; footer: string }
 export type TemplateData = { root: { props: TemplateRoot }; content: BlockData[] }
@@ -132,7 +134,7 @@ const placeholdersIn = (text: string) => [...text.matchAll(PLACEHOLDER)].map((ma
 
 /**
  * Checks a template for a purpose and returns a clean copy built from the allowed blocks and props.
- * Unknown blocks, nested columns, an Answers block where answers are not allowed, unknown
+ * Unknown blocks, nested columns, a Details block where details are not allowed, unknown
  * placeholders, bad links and a missing required placeholder are errors.
  */
 export function validateTemplate(raw: unknown, purpose: EmailPurpose): TemplateCheck {
@@ -226,12 +228,12 @@ export function validateTemplate(raw: unknown, purpose: EmailPurpose): TemplateC
           }
           out.push({ type: 'Columns', props: { id, left: blocks(props.left, `${at}, left column,`, true), right: blocks(props.right, `${at}, right column,`, true) } })
           break
-        case 'Answers':
-          if (!PURPOSE_INFO[purpose].answers) {
-            errors.push(`${at}: the answers can only go in “${PURPOSE_INFO['form-notification'].label}” emails.`)
+        case 'Details':
+          if (!PURPOSE_INFO[purpose].details) {
+            errors.push(`${at}: the details can only go in “${PURPOSE_INFO['team-notification'].label}” emails.`)
             break
           }
-          out.push({ type: 'Answers', props: { id, title: checkText(at, props.title, TEMPLATE_LIMITS.heading) } })
+          out.push({ type: 'Details', props: { id, title: checkText(at, props.title, TEMPLATE_LIMITS.heading) } })
           break
         default:
           errors.push(`${at}: this kind of block cannot be used in an email.`)
@@ -263,8 +265,8 @@ export type EmailTheme = { primary: string; onPrimary: string; ink: string; mute
 export type RenderContext = {
   /** Placeholder values. Missing ones render as nothing (the builder shows them as {{name}} instead). */
   values: Record<string, string>
-  /** For the Answers block (team notifications only). */
-  answers?: Array<{ label: string; value: string }>
+  /** For the Details block (team notifications only): label and value pairs, such as a form's answers. */
+  details?: Array<{ label: string; value: string }>
   theme: EmailTheme
   /** The site's address (no trailing slash): makes /media/… and /paths absolute. */
   origin: string
@@ -356,20 +358,20 @@ export function blockHtml(block: BlockData, ctx: RenderContext): string {
       return `<div style="height:${SPACER[block.props.size]}px;line-height:${SPACER[block.props.size]}px;font-size:0">&nbsp;</div>`
     case 'Columns':
       return columnsHtml(block.props.left.map((child) => blockHtml(child, ctx)).join(''), block.props.right.map((child) => blockHtml(child, ctx)).join(''))
-    case 'Answers': {
-      const answers =
-        ctx.answers ??
+    case 'Details': {
+      const details =
+        ctx.details ??
         (ctx.showPlaceholders
           ? [
               { label: 'Your name', value: 'Sample answer' },
-              { label: 'Message', value: 'Each answer the visitor gave appears here.' },
+              { label: 'Message', value: 'Each detail, such as a form’s answers, appears here.' },
             ]
           : [])
       const title = block.props.title ? `<p style="margin:0 0 8px;${font}font-size:16px;font-weight:700;color:${t.ink}">${fill(block.props.title, ctx)}</p>` : ''
-      const rows = answers
+      const rows = details
         .map(
-          (answer) =>
-            `<tr><td valign="top" style="padding:8px 12px 8px 0;border-top:1px solid ${t.line};${font}font-size:14px;font-weight:700;color:${t.ink};width:35%">${escapeHtml(answer.label)}</td><td valign="top" style="padding:8px 0;border-top:1px solid ${t.line};${font}font-size:14px;color:${t.ink}">${escapeHtml(answer.value || '(blank)').replace(/\n/g, '<br>')}</td></tr>`,
+          (detail) =>
+            `<tr><td valign="top" style="padding:8px 12px 8px 0;border-top:1px solid ${t.line};${font}font-size:14px;font-weight:700;color:${t.ink};width:35%">${escapeHtml(detail.label)}</td><td valign="top" style="padding:8px 0;border-top:1px solid ${t.line};${font}font-size:14px;color:${t.ink}">${escapeHtml(detail.value || '(blank)').replace(/\n/g, '<br>')}</td></tr>`,
         )
         .join('')
       return `${title}<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 16px">${rows}</table>`
@@ -402,8 +404,8 @@ export function blockText(block: BlockData, ctx: RenderContext): string {
         .map((child) => blockText(child, ctx))
         .filter(Boolean)
         .join('\n\n')
-    case 'Answers': {
-      const lines = (ctx.answers ?? []).map((answer) => `${answer.label}: ${answer.value || '(blank)'}`)
+    case 'Details': {
+      const lines = (ctx.details ?? []).map((detail) => `${detail.label}: ${detail.value || '(blank)'}`)
       return [block.props.title ? fillText(block.props.title, ctx) : '', ...lines].filter(Boolean).join('\n')
     }
   }
@@ -508,16 +510,16 @@ export const DEFAULT_TEMPLATES: Record<EmailPurpose, TemplateData> = {
       text('text-1', 'This is a test email from {{siteName}}, sent by {{senderName}} from the admin. If you can read it, the site can send email, for example password reset links.'),
     ],
   },
-  'form-notification': {
-    root: { props: { subject: 'New response: {{formName}}', preheader: 'Someone filled in {{formName}}.', showLogo: true, footer: FOOTER } },
+  'team-notification': {
+    root: { props: { subject: 'New: {{title}}', preheader: 'Something new on {{siteName}}: {{title}}.', showLogo: true, footer: FOOTER } },
     content: [
-      heading('heading-1', 'New response to “{{formName}}”'),
-      text('text-1', 'Someone filled in the form on {{siteName}}. Their answers:'),
-      { type: 'Answers', props: { id: 'answers-1', title: '' } },
+      heading('heading-1', 'New: {{title}}'),
+      text('text-1', 'Something new came in on {{siteName}}. The details:'),
+      { type: 'Details', props: { id: 'details-1', title: '' } },
     ],
   },
-  'form-confirmation': {
-    root: { props: { subject: 'Thanks, we got your message', preheader: 'We received your {{formName}} form.', showLogo: true, footer: FOOTER } },
-    content: [heading('heading-1', 'Thank you'), text('text-1', 'We received your “{{formName}}” form and will get back to you soon.\n\n{{siteName}}')],
+  'visitor-message': {
+    root: { props: { subject: 'Thanks, we got your message', preheader: 'We received your {{title}}.', showLogo: true, footer: FOOTER } },
+    content: [heading('heading-1', 'Thank you'), text('text-1', 'We received your “{{title}}” and will get back to you soon.\n\n{{siteName}}')],
   },
 }

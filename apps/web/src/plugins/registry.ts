@@ -3,9 +3,10 @@ import { FiMail } from 'react-icons/fi'
 import type { AdminNavItem, NavIcon } from '@/components/admin/nav-items'
 
 import config from '../../pet-adopt.config'
-import { accessOf, accessPermission, type EmailSender, type Plugin, type PluginAccess, type PluginMigration, type PluginScreen, type PluginStorage, type PluginWidget } from '@pet-adopt/plugin-sdk'
+import { accessOf, accessPermission, type EmailSender, type EmailTemplateUse, type Plugin, type PluginEmailTemplate, type PluginAccess, type PluginMigration, type PluginScreen, type PluginStorage, type PluginWidget } from '@pet-adopt/plugin-sdk'
 import { IconError, toNavIcon } from './icon'
 import { storageProblems } from './storage-rules'
+import { logError } from '@/server/result'
 // Register what plugins reach through the SDK: `storage.open()` and `host()`.
 import './host'
 import './storage'
@@ -49,6 +50,9 @@ type Registry = {
   screens: ResolvedScreen[]
   widgets: ResolvedWidget[]
   email: { plugin: string; sender: EmailSender } | null
+  templateUsage: Array<{ plugin: string; usage: () => Promise<EmailTemplateUse[]> }>
+  /** Plugin default templates, keyed `<plugin>:<key>`. */
+  templateSeeds: Array<PluginEmailTemplate & { seedKey: string; plugin: string }>
 }
 
 /** "resend-email" -> "Resend email". */
@@ -76,6 +80,8 @@ function build(): Registry {
   const widgets: ResolvedWidget[] = []
   const infos: PluginInfo[] = []
   let email: Registry['email'] = null
+  const templateUsage: Registry['templateUsage'] = []
+  const templateSeeds: Registry['templateSeeds'] = []
 
   for (const plugin of plugins) {
     const who = `Plugin "${plugin.name}"`
@@ -95,6 +101,21 @@ function build(): Registry {
       // Two senders would leave it unclear which one a reset link goes out through.
       if (email) throw new Error(`${who} provides email, but "${email.plugin}" already does. Register only one.`)
       email = { plugin: plugin.name, sender: plugin.email }
+    }
+    if (plugin.emailTemplateUsage !== undefined) {
+      if (typeof plugin.emailTemplateUsage !== 'function') throw new Error(`${who}: emailTemplateUsage must be a function.`)
+      templateUsage.push({ plugin: plugin.name, usage: plugin.emailTemplateUsage })
+    }
+    if (plugin.emailTemplates !== undefined) {
+      if (!Array.isArray(plugin.emailTemplates)) throw new Error(`${who}: emailTemplates must be a list.`)
+      for (const seed of plugin.emailTemplates) {
+        if (!/^[a-z0-9-]{1,40}$/.test(seed?.key ?? '')) throw new Error(`${who}: an email template key must be lowercase letters, digits and dashes.`)
+        if (typeof seed.name !== 'string' || !seed.name.trim() || seed.name.length > 80) throw new Error(`${who}: email template "${seed.key}" needs a name of at most 80 characters.`)
+        if (seed.purpose !== 'team-notification' && seed.purpose !== 'visitor-message') throw new Error(`${who}: email template "${seed.key}" must be a team-notification or a visitor-message.`)
+        const seedKey = `${plugin.name}:${seed.key}`
+        if (templateSeeds.some((other) => other.seedKey === seedKey)) throw new Error(`${who}: two email templates have the key "${seed.key}".`)
+        templateSeeds.push({ ...seed, name: seed.name.trim(), seedKey, plugin: plugin.name })
+      }
     }
     if (plugin.storage !== undefined) {
       const problems = storageProblems(plugin.name, plugin.storage)
@@ -159,7 +180,7 @@ function build(): Registry {
     })
   }
 
-  return { plugins, infos, screens, widgets, email }
+  return { plugins, infos, screens, widgets, email, templateUsage, templateSeeds }
 }
 
 let cached: Registry | undefined
@@ -198,6 +219,33 @@ export function getPluginInfo(name: string): PluginInfo | null {
  */
 export function getEmailPlugin(): { plugin: string; sender: EmailSender } | null {
   return registry().email
+}
+
+/**
+ * Where each email template is used, from every plugin that reports it (`emailTemplateUsage`), keyed
+ * by template id. A plugin that fails (not migrated yet, say) is skipped.
+ */
+export async function getEmailTemplateUsage(): Promise<Map<number | string, Array<{ label: string; href?: string }>>> {
+  // Keyed by template id, or by seed key (`<plugin>:<key>`) for uses of a plugin's default.
+  const byTemplate = new Map<number | string, Array<{ label: string; href?: string }>>()
+  for (const { plugin, usage } of registry().templateUsage) {
+    try {
+      for (const use of await usage()) {
+        const key = Number.isSafeInteger(use?.templateId) ? (use.templateId as number) : typeof use?.seedKey === 'string' ? use.seedKey : null
+        if (key === null || typeof use.label !== 'string') continue
+        const href = typeof use.href === 'string' && use.href.startsWith('/admin/') ? use.href : undefined
+        byTemplate.set(key, [...(byTemplate.get(key) ?? []), { label: use.label.slice(0, 200), href }])
+      }
+    } catch (error) {
+      logError(error, `plugin "${plugin}" could not report where it uses email templates`)
+    }
+  }
+  return byTemplate
+}
+
+/** Every plugin's default email templates (`seedKey` is `<plugin>:<key>`). */
+export function getPluginEmailTemplates(): Registry['templateSeeds'] {
+  return registry().templateSeeds
 }
 
 export function getPluginWidgets(): ResolvedWidget[] {

@@ -350,6 +350,9 @@ export const emailTemplates = pgTable('email_templates', {
   purpose: text('purpose').notNull(),
   data: jsonb('data').notNull(),
   isDefault: flag('is_default'),
+  // A template a plugin ships (`<plugin>:<key>`, e.g. form-builder:notification): seeded at start,
+  // editable, never deleted, and what that plugin's emails use when nothing else is picked.
+  seedKey: text('seed_key').unique(),
   createdBy: text('created_by').references(() => users.id, { onDelete: 'set null' }),
   createdAt: createdAt(),
   updatedAt: updatedAt(),

@@ -10,10 +10,10 @@ import {
   getEmailTemplate,
   listEmailTemplates,
   renderTemplatePreview,
+  restoreSeededTemplate,
   restoreSystemEmail,
   saveEmailTemplate,
   saveSystemEmail,
-  setDefaultEmailTemplate,
   type EmailTemplateRecord,
   type EmailTemplateSummary,
   type SystemEmail,
@@ -77,24 +77,6 @@ export async function saveEmailTemplateAction(id: number, input: unknown): Promi
   })
 }
 
-/** Makes the template its purpose's default (or stops it being one: the built-in template is used). */
-export async function setDefaultEmailTemplateAction(id: number, isDefault: boolean): Promise<ActionResult> {
-  return run(async () => {
-    const user = await requirePermission('settings:edit')
-    const templateId = assertId(id)
-    await setDefaultEmailTemplate(templateId, isDefault === true)
-    const template = await getEmailTemplate(templateId)
-    const purpose = template ? PURPOSE_INFO[template.purpose].label : ''
-    await record(
-      user,
-      'email-template.default',
-      template,
-      templateId,
-      isDefault === true ? `Made ${quoted(template?.name)} the template for “${purpose}” emails` : `Stopped using ${quoted(template?.name)} for “${purpose}” emails (the built-in one is used)`,
-    )
-  })
-}
-
 export async function deleteEmailTemplateAction(id: number): Promise<ActionResult> {
   return run(async () => {
     const user = await requirePermission('settings:edit')
@@ -116,14 +98,25 @@ export async function saveSystemEmailAction(purpose: string, data: unknown): Pro
   })
 }
 
-/** "Restore the original": the built-in template is sent again. */
+/** "Restore default": the built-in template is sent again. */
 export async function restoreSystemEmailAction(purpose: string): Promise<ActionResult> {
   return run(async () => {
     const user = await requirePermission('settings:edit')
     if (!isSystemPurpose(purpose)) throw new UserError('Unknown email.')
     if (await restoreSystemEmail(purpose)) {
-      await recordActivity({ actor: user, action: 'email-template.restore', area: 'settings', summary: `Restored the original “${PURPOSE_INFO[purpose].label}” email`, subject: { id: purpose, label: PURPOSE_INFO[purpose].label } })
+      await recordActivity({ actor: user, action: 'email-template.restore', area: 'settings', summary: `Restored the default “${PURPOSE_INFO[purpose].label}” email`, subject: { id: purpose, label: PURPOSE_INFO[purpose].label } })
     }
+  })
+}
+
+/** "Restore default" for a plugin's default template: its original layout comes back. */
+export async function restoreSeededTemplateAction(id: number): Promise<ActionResult<EmailTemplateRecord>> {
+  return run(async () => {
+    const user = await requirePermission('settings:edit')
+    const templateId = assertId(id)
+    const restored = await restoreSeededTemplate(templateId)
+    await record(user, 'email-template.restore', restored, templateId, `Restored the default ${quoted(restored.name)} template`)
+    return restored
   })
 }
 

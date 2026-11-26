@@ -6,6 +6,8 @@ import { EditForm } from './screens/EditForm'
 import { FormsList } from './screens/FormsList'
 import { FormsWidget } from './screens/FormsWidget'
 import { Responses } from './screens/Responses'
+import { FORM_EMAIL_TEMPLATES } from './email-templates'
+import { emailTemplateUsage } from './server'
 import { FORM_BUILDER, formBuilderStorage } from './storage'
 
 export { FORM_BUILDER, formBuilderStorage, openFormsDatabase } from './storage'
@@ -26,6 +28,10 @@ export const formBuilder = definePlugin<{ title?: string } | void>((options) => 
   title: options?.title ?? 'Forms',
   description: 'Build forms for the site, such as adoption applications or volunteer sign-ups, and read the responses.',
   storage: formBuilderStorage,
+  // Its default email templates (seeded at start; forms that pick no other use them), and which forms
+  // use which template (the "Used by" column of Settings > Email templates).
+  emailTemplates: FORM_EMAIL_TEMPLATES,
+  emailTemplateUsage,
   screens: [
     {
       path: '',

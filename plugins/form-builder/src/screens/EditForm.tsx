@@ -16,8 +16,8 @@ export async function EditForm({ id, user }: { id: string; user: PluginUser }) {
   if (!form) notFound()
   const [{ total }, notification, confirmation] = await Promise.all([
     listResponses(form.id, { limit: 1 }),
-    host().emailTemplates('form-notification'),
-    host().emailTemplates('form-confirmation'),
+    host().emailTemplates('team-notification'),
+    host().emailTemplates('visitor-message'),
   ])
   return (
     // No `key` from updatedAt: a save refreshes this screen, and remounting the editor would drop its

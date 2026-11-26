@@ -35,7 +35,7 @@ export default async function EditEmailTemplatePage({ params }: { params: Promis
         target={{ kind: 'system', purpose: system }}
         name={`${PURPOSE_INFO[system].label} email`}
         purpose={system}
-        purposeLabel={email.customised ? 'Edited' : 'The original'}
+        purposeLabel={email.customised ? 'System email · Edited' : 'System email · Unedited'}
         initialData={email.data as unknown as Data}
         ctx={await emailContext({})}
         defaultTo={user.email}
