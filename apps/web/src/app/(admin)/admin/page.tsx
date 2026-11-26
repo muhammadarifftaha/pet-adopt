@@ -11,6 +11,8 @@ import { PetStatus } from '@/lib/options'
 import { listMediaAction } from '@/server/actions/media'
 import { listPagesAction } from '@/server/actions/pages'
 import { listPetsAction } from '@/server/actions/pets'
+import { isSetupDone } from '@/server/setup'
+import { redirect } from 'next/navigation'
 
 export const metadata = { title: 'Dashboard' }
 
@@ -18,6 +20,8 @@ export const metadata = { title: 'Dashboard' }
 // and `totalDocs` is the number that matches.
 export default async function DashboardPage() {
   const user = await requirePermissionPage('pets:view')
+  // The guided first-time setup until an admin finishes or skips it (src/server/setup.ts).
+  if (can(user.role, 'settings:edit') && !(await isSetupDone())) redirect('/setup')
   const [available, pending, adopted, pages, media] = await Promise.all([
     listPetsAction({ status: PetStatus.Available, limit: 1 }),
     listPetsAction({ status: PetStatus.Pending, limit: 1 }),

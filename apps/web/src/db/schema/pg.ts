@@ -325,6 +325,10 @@ export const siteSettings = pgTable('site_settings', {
   socials: jsonb('socials').$type<Array<{ platform: string; url: string }>>().notNull().default(sql`'[]'::jsonb`),
   nav: jsonb('nav').$type<Array<{ label: string; href: string }>>().notNull().default(sql`'[]'::jsonb`),
   footerText: text('footer_text'),
+  // First-time setup (src/server/setup.ts): the setup link's key, sealed, while no account exists;
+  // and when the guided setup was finished or skipped.
+  setupKeyEncrypted: text('setup_key_encrypted'),
+  setupDoneAt: timestamp('setup_done_at'),
   // Roles that must use two-factor sign-in (src/server/two-factor.ts); set on the Users screen.
   twoFactorRoles: jsonb('two_factor_roles').$type<string[]>().notNull().default(sql`'[]'::jsonb`),
   createdAt: createdAt(),

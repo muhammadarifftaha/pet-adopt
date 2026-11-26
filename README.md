@@ -30,18 +30,20 @@ Open <http://localhost:3000>.
 
 Local development uses a SQLite file (`data/pet-adopt.db` at the repo root, git-ignored), which creates and migrates its own schema on first start. Uploads always go to S3-compatible storage, never to the server's disk; in development that is the Garage server in `docker-compose.yml` (a small single-node S3 server on port 9000), and `pnpm --filter @pet-adopt/web storage:check` confirms it works. Set `BETTER_AUTH_SECRET` in `.env` to a long random string (`openssl rand -hex 32`). It is required in production and optional in development.
 
-### The first owner account
+### The first account
 
-Set these two lines in `.env` **before** the first start:
+Start the server on a new site and look at its log. While no account exists it prints a **setup link** with a one-time key:
 
-```bash
-SEED_ADMIN_EMAIL=you@example.com
-SEED_ADMIN_PASSWORD=choose-a-long-password
+```
+| This site has no accounts yet. Open this link to create the first admin account: |
+| http://localhost:3000/setup?key=…                                                 |
 ```
 
-On startup, if no user exists yet, the server creates that owner for you. It never changes a password or brings back an account you deleted. Use at least 12 characters: in production a shorter password stops the server from starting.
+Open it to create the first admin account. Only someone who can read the server's log has the link, so nobody else can claim a fresh deployment first; it stops working once the account exists (opening `/setup` without it prints it again). A short guided setup follows: the site's name and WhatsApp number, a theme, optional sample content, and email. Every step can be skipped and changed later in the admin.
 
-There is no public sign-up. If you leave these unset, create the first account with `pnpm seed` (after setting them) or by running the server once with them set; always set both variables when deploying, so nobody else can claim the site first. More accounts are added by an admin in the Users screen.
+There is no public sign-up: more accounts are added by an admin in the Users screen (an email invite by default).
+
+**Unattended installs:** set `SEED_ADMIN_EMAIL` and `SEED_ADMIN_PASSWORD` instead, and the server creates that admin on startup (at least 12 characters in production; it never changes a password or brings back a deleted account). The guided setup then starts after signing in.
 
 ## How it works
 
@@ -91,7 +93,7 @@ src/
 │   └── result.ts types.ts                                Result and error types shared by everything
 ├── puck/                   Page-builder blocks (config.tsx) and layout validation (data.ts)
 ├── lib/                    Shared helpers: theme, links, options, WhatsApp numbers, cached public queries
-└── instrumentation.ts      On server start: checks production settings and creates the first owner
+└── instrumentation.ts      On server start: checks production settings, creates the first owner (unattended installs) or prints the setup link
 drizzle/                    Generated SQL migrations (sqlite/ and pg/), committed
 scripts/                    seed, migrate, check-schemas, check-backend, reset-password
 ```
@@ -186,7 +188,7 @@ Keep `render` functions free of hooks and browser-only code: the same components
 3. **Set the required variables.** In production the server refuses to start without them:
    - `BETTER_AUTH_SECRET`: at least 32 random characters (`openssl rand -hex 32`).
    - `NEXT_PUBLIC_SERVER_URL`: your public URL, such as `https://adopt.example.com`. It is also the only origin allowed to make signed-in requests, so use the exact address visitors and owners use.
-   - `SEED_ADMIN_EMAIL` and `SEED_ADMIN_PASSWORD`: so the first owner exists before anyone can reach `/admin` (see above).
+   - The first account: open the setup link the server prints to its log on first start (see above), or set `SEED_ADMIN_EMAIL` and `SEED_ADMIN_PASSWORD` for an unattended install.
 4. **Set up upload storage.** Uploads live only in S3-compatible object storage: AWS S3, another provider with an S3 API (through `S3_ENDPOINT`), or an S3-compatible server you run yourself. Set the `S3_*` variables (`apps/web/.env.example` explains each one); production refuses to start without them. The bucket can stay private, because visitors load images through this site's `/media` route. Then run `pnpm --filter @pet-adopt/web storage:check`, which writes, reads and deletes a test file and says which permission or setting is wrong if a step fails. A site from before this change kept uploads on disk (`data/media` by default): `pnpm --filter @pet-adopt/web storage:copy-local` copies them into the bucket (`--from <folder>` for another folder, `--dry-run` to list first; files already there are skipped, local files are left alone).
 5. `pnpm build && pnpm start`
 
@@ -208,7 +210,7 @@ Pages are cached and refresh immediately when you publish; they also revalidate 
 | --- | --- |
 | `pnpm dev` | Development server |
 | `pnpm build` / `pnpm start` | Production build (migrates PostgreSQL or hosted libSQL first) and server |
-| `pnpm seed` | Sample content. Safe to re-run, leaves a real site alone, and refuses to run in production without `SEED_FORCE=1`. The owner account comes from `SEED_ADMIN_*` on startup |
+| `pnpm seed` | Sample content. Safe to re-run, leaves a real site alone, and refuses to run in production without `SEED_FORCE=1`. The same sample content is offered by the first-time setup |
 | `pnpm db:generate` | Generate SQL migrations for both databases after changing the schema |
 | `pnpm migrate` | Apply pending migrations on their own (`pnpm build` runs them for PostgreSQL and hosted libSQL; a local SQLite file does it itself) |
 | `pnpm check:schemas` | Fail if the SQLite and Postgres schemas have drifted apart |

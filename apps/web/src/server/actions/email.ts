@@ -17,7 +17,7 @@ const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 export async function sendTestEmailAction(to: string): Promise<ActionResult<{ to: string }>> {
   return run(async () => {
-    const user = await requirePermission('settings:edit')
+    const user = await requirePermission('settings:edit', { unconfirmed: true })
     const address = typeof to === 'string' ? to.trim() : ''
     if (!address || address.length > 254 || !EMAIL.test(address)) throw new ValidationError({ to: 'Enter an email address, like name@example.com.' })
 
@@ -53,7 +53,7 @@ export async function getEmailSettingsAction(): Promise<ActionResult<EmailSettin
  */
 export async function saveEmailSettingsAction(input: unknown): Promise<ActionResult<EmailSettingsView>> {
   return run(async () => {
-    const user = await requirePermission('settings:edit')
+    const user = await requirePermission('settings:edit', { unconfirmed: true })
     const { changed } = await saveEmailSettings(input)
     if (changed.length) await recordActivity({ actor: user, action: 'settings.email', area: 'settings', summary: 'Changed the email settings', fields: changed })
     return getEmailSettingsView()
