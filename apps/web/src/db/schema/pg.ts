@@ -43,6 +43,8 @@ export const users = pgTable('users', {
   banned: boolean('banned').default(false),
   banReason: text('ban_reason'),
   banExpires: timestamp('ban_expires'),
+  // Better Auth's two-factor plugin: true once an authenticator app is set up and confirmed.
+  twoFactorEnabled: boolean('two_factor_enabled').default(false),
 })
 
 export const sessions = pgTable(
@@ -103,6 +105,23 @@ export const verifications = pgTable(
       .notNull(),
   },
   (t) => [index('verifications_identifier_idx').on(t.identifier)],
+)
+
+// Better Auth's two-factor plugin (see sqlite.ts).
+export const twoFactors = pgTable(
+  'two_factors',
+  {
+    id: text('id').primaryKey(),
+    secret: text('secret').notNull(),
+    backupCodes: text('backup_codes').notNull(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    verified: boolean('verified').default(true),
+    failedVerificationCount: integer('failed_verification_count').default(0),
+    lockedUntil: timestamp('locked_until'),
+  },
+  (t) => [index('two_factors_secret_idx').on(t.secret), uniqueIndex('two_factors_user_id_unique').on(t.userId)],
 )
 
 export const rateLimits = pgTable('rate_limits', {
@@ -300,6 +319,8 @@ export const siteSettings = pgTable('site_settings', {
   socials: jsonb('socials').$type<Array<{ platform: string; url: string }>>().notNull().default(sql`'[]'::jsonb`),
   nav: jsonb('nav').$type<Array<{ label: string; href: string }>>().notNull().default(sql`'[]'::jsonb`),
   footerText: text('footer_text'),
+  // Roles that must use two-factor sign-in (src/server/two-factor.ts); set on the Users screen.
+  twoFactorRoles: jsonb('two_factor_roles').$type<string[]>().notNull().default(sql`'[]'::jsonb`),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
 })

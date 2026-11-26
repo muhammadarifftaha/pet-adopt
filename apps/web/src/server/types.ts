@@ -175,4 +175,9 @@ export type SessionUser = {
   email: string
   name: string
   role: Role
+  /** Two-factor sign-in is set up (an authenticator app was confirmed). */
+  twoFactorEnabled: boolean
 }
+
+/** The answer to a sign-in with email and password: signed in, or a code is needed next. */
+export type SignInResult = { twoFactor: false; user: SessionUser } | { twoFactor: true }

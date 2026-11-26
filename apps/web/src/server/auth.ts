@@ -4,16 +4,20 @@
 //    (src/server/users.ts) or from SEED_ADMIN_EMAIL / SEED_ADMIN_PASSWORD on first start.
 //  - Roles: `admin` (everything, including users and site settings) or `editor` (pets, pages, media).
 //  - Sessions last 2 hours; five sign-in attempts per 10 minutes per client.
+//  - Two-factor sign-in (authenticator app plus backup codes) with Better Auth's twoFactor plugin,
+//    driven by the server actions in src/server/actions/two-factor.ts; its HTTP endpoints stay closed
+//    (see the route handler). Rules around it (who must use it, admin reset) are in two-factor.ts.
 //  - Better Auth's own /admin/* HTTP endpoints are switched off (see the route handler), so every
 //    role change goes through src/server/users.ts and its last-admin protection.
 import { betterAuth } from 'better-auth'
 import { drizzleAdapter } from 'better-auth/adapters/drizzle'
 import { nextCookies } from 'better-auth/next-js'
-import { admin } from 'better-auth/plugins'
+import { admin, twoFactor } from 'better-auth/plugins'
 
 import { getDatabase, type Database } from '@/db/client'
 
 import { CLIENT_IP_HEADER } from './throttle'
+import { generateBackupCodes } from './two-factor-codes'
 
 const production = process.env.NODE_ENV === 'production'
 // `next build` loads this too (often in CI with no secrets), so it is exempt from the checks.
@@ -49,6 +53,9 @@ const siteURL = (process.env.NEXT_PUBLIC_SERVER_URL ?? '').trim().replace(/\/+$/
 if (enforce && !siteURL) {
   throw new Error('NEXT_PUBLIC_SERVER_URL must be set in production, for example https://adopt.example.com')
 }
+
+/** How long "Trust this device" skips the code step on that browser. */
+export const TRUST_DEVICE_DAYS = 30
 
 export const MIN_PASSWORD_LENGTH = production ? 12 : 8
 
@@ -88,7 +95,23 @@ function createAuth({ db, t, dialect }: Database) {
       // address; it is limited per user by guardPasswordChange (route and action).
       customRules: { '/sign-in/email': false, '/change-password': false },
     },
-    plugins: [admin({ defaultRole: 'editor', adminRoles: ['admin'] }), nextCookies()],
+    plugins: [
+      admin({ defaultRole: 'editor', adminRoles: ['admin'] }),
+      twoFactor({
+        // Shown in authenticator apps; each setup passes the site's name instead (actions/two-factor.ts).
+        issuer: 'Pet Adopt',
+        // The code step after the password: 10 minutes to enter it, and "Trust this device" lasts 30 days.
+        twoFactorCookieMaxAge: 600,
+        trustDeviceMaxAge: TRUST_DEVICE_DAYS * 24 * 60 * 60,
+        // Ten one-time backup codes, stored encrypted (Better Auth's default, stated here on purpose).
+        // Ours are lower case without look-alikes (BACKUP_CODE_ALPHABET), so they survive paper.
+        backupCodeOptions: { storeBackupCodes: 'encrypted', customBackupCodesGenerate: () => generateBackupCodes() },
+        // 10 wrong codes in a row lock the code step for 15 minutes, across sign-in attempts.
+        accountLockout: { enabled: true, maxFailedAttempts: 10, durationSeconds: 15 * 60 },
+      }),
+      // Last: it copies the cookies the other plugins set into Next's response.
+      nextCookies(),
+    ],
   })
 }
 

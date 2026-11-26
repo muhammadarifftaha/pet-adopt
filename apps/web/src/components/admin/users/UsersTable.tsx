@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import React from "react";
-import { FiTrash2 } from "react-icons/fi";
+import { FiShieldOff, FiTrash2 } from "react-icons/fi";
 
 import {
   AlertDialog,
@@ -22,6 +22,7 @@ import { initialsOf } from "@/lib/admin/initials";
 import { useViewOnly } from "@/components/admin/view-only";
 import { ROLE_INFO, ROLES } from "@pet-adopt/plugin-sdk";
 import { deleteUserAction } from "@/server/actions/users";
+import { resetUserTwoFactorAction } from "@/server/actions/two-factor";
 import type { UserListItem } from "@/server/users";
 
 import { AddUserDialog, EditUserDialog, PasswordDialog, ResetLinkDialog } from "./UserDialogs";
@@ -70,6 +71,7 @@ export function UsersTable({ users, meId, minPasswordLength }: { users: UserList
         <EditUserDialog user={user} isMe={isMe} onDone={done} />
         <ResetLinkDialog user={user} onDone={(text) => announce(text)} />
         <PasswordDialog user={user} isMe={isMe} minPasswordLength={minPasswordLength} onDone={done} />
+        {user.twoFactorEnabled && !isMe ? <ResetTwoFactor user={user} announce={announce} onDone={done} /> : null}
         <DeleteUser user={user} isMe={isMe} isLastAdmin={user.role === "admin" && admins <= 1} announce={announce} onDeleted={deleted} />
       </>
     );
@@ -78,6 +80,11 @@ export function UsersTable({ users, meId, minPasswordLength }: { users: UserList
     <>
       {user.id === meId ? <Badge variant="outline">You</Badge> : null}
       {user.banned ? <Badge variant="destructive">Banned</Badge> : null}
+      {user.twoFactorEnabled ? (
+        <Badge variant="secondary" title="Two-factor sign-in is on">
+          2FA<span className="sr-only"> (two-factor sign-in on)</span>
+        </Badge>
+      ) : null}
     </>
   );
   // Initials, as in the header's user menu (accounts have no pictures yet). Hidden from screen
@@ -230,6 +237,47 @@ function DeleteUser({
           <AlertDialogCancel>Keep</AlertDialogCancel>
           <Button variant="destructive" aria-disabled={pending || undefined} onClick={remove}>
             {pending ? "Deleting…" : isMe ? "Delete my account" : "Delete account"}
+          </Button>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}
+
+/** Turns off someone's two-factor sign-in, for when they lost their phone and backup codes. */
+function ResetTwoFactor({ user, announce, onDone }: { user: UserListItem; announce: Announce; onDone: (message: string) => void }) {
+  const [open, setOpen] = React.useState(false);
+  const [pending, startTransition] = React.useTransition();
+
+  function reset() {
+    if (pending) return;
+    startTransition(async () => {
+      const result = await resetUserTwoFactorAction(user.id);
+      setOpen(false);
+      if (result.ok) onDone(`Two-factor sign-in is off for ${user.name}.`);
+      else announce(result.error, true);
+    });
+  }
+
+  return (
+    <AlertDialog open={open} onOpenChange={setOpen}>
+      <AlertDialogTrigger render={<Button variant="outline" size="sm" aria-disabled={pending || undefined} />}>
+        <FiShieldOff aria-hidden />
+        Turn off 2FA
+        <span className="sr-only">for {user.name}</span>
+      </AlertDialogTrigger>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Turn off two-factor sign-in for {user.name}?</AlertDialogTitle>
+          <AlertDialogDescription>
+            For when they lost their phone and their backup codes. Their password alone will sign them in, and their backup codes and trusted browsers stop
+            working. If their role must use two-factor, they set it up again at their next visit. Check it really is them asking first.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Keep it on</AlertDialogCancel>
+          <Button variant="destructive" aria-disabled={pending || undefined} onClick={reset}>
+            {pending ? "Turning off…" : "Turn off two-factor"}
           </Button>
         </AlertDialogFooter>
       </AlertDialogContent>

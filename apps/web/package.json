@@ -19,6 +19,7 @@
     "check:backend": "tsx scripts/check-backend.ts",
     "seed": "tsx --env-file-if-exists=.env scripts/seed.ts",
     "admin:reset-password": "tsx --env-file-if-exists=.env scripts/reset-password.ts",
+    "admin:reset-2fa": "tsx --env-file-if-exists=.env scripts/reset-two-factor.ts",
     "storage:check": "tsx --env-file-if-exists=.env scripts/storage-check.ts",
     "storage:copy-local": "tsx --env-file-if-exists=.env scripts/storage-copy-local.ts",
     "plugin:generate": "tsx scripts/plugin-generate.ts"
@@ -66,6 +67,7 @@
     "nuqs": "^2.10.3",
     "pg": "^8.23.1",
     "postcss": "^8.5.32",
+    "qrcode": "1.5.4",
     "react": "19.2.6",
     "react-dom": "19.2.6",
     "react-dropzone": "15.0.0",
@@ -81,6 +83,7 @@
   "devDependencies": {
     "@types/node": "22.19.9",
     "@types/pg": "^8.23.1",
+    "@types/qrcode": "1.5.6",
     "@types/react": "19.2.14",
     "@types/react-dom": "19.2.3",
     "drizzle-kit": "^0.31.11",

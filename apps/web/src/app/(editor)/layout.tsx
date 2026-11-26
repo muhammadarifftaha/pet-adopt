@@ -1,10 +1,13 @@
 import '@puckeditor/core/puck.css'
 import type { Metadata } from 'next'
+import { redirect } from 'next/navigation'
 import React from 'react'
 
 import { PRE_PAINT, ThemeStyle } from '@/components/site/ThemeStyle'
 import { getSettings, siteIcons } from '@/lib/queries'
 import { puckDarkCss, resolveTheme } from '@/lib/theme'
+import { getSessionUser } from '@/server/session'
+import { needsTwoFactorSetup } from '@/server/two-factor'
 
 import '../(frontend)/fonts'
 import '../(frontend)/styles.css'
@@ -15,6 +18,10 @@ export async function generateMetadata(): Promise<Metadata> {
 }
 
 export default async function EditorLayout({ children }: { children: React.ReactNode }) {
+  // Each page checks who may see it. Someone whose role requires two-factor and who has not set it
+  // up goes to the admin, which shows that setup instead.
+  const user = await getSessionUser()
+  if (user && (await needsTwoFactorSetup(user))) redirect('/admin')
   const settings = await getSettings()
   // The editor's own interface follows the owner's light/dark choice, like the admin: their saved
   // choice (the pre-paint script sets data-mode), else their system setting. Only when the site has

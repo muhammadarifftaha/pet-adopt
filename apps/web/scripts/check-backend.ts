@@ -84,6 +84,9 @@ import {
 } from '../src/server/activity'
 import { getEmailSender, getEmailSettingsView, isLoopbackHost, parseFrom, resolveSmtp, saveEmailSettings, sendsToLocalServer } from '../src/server/email'
 import { open, seal } from '../src/server/secret-box'
+import { backupCodesLeft, forgetTrustedDevices, needsTwoFactorSetup, resetTwoFactor, saveTwoFactorRoles } from '../src/server/two-factor'
+import { BACKUP_CODE_ALPHABET, normalizeBackupCode, normalizeTotpCode } from '../src/server/two-factor-codes'
+import { createHmac } from 'node:crypto'
 import { DEFAULT_TEMPLATES, EMAIL_PURPOSES, emailImageSrc, LOGO_DEFAULTS, renderEmail, validateTemplate, type EmailPurpose, type RenderContext, type TemplateData } from '../src/lib/email-template'
 import {
   createEmailTemplate,
@@ -1757,6 +1760,8 @@ await check('roles: the permission table is as agreed, every action checks a per
   // person's own account; save/publish in the page builder check it inside persist().
   const allowed = new Set([
     'signInAction', 'signOutAction', 'getCurrentUserAction', 'updateProfileAction', 'changePasswordAction',
+    'verifyTwoFactorAction', 'getTwoFactorStatusAction', 'startTwoFactorSetupAction', 'confirmTwoFactorSetupAction',
+    'disableTwoFactorAction', 'regenerateBackupCodesAction',
     'requestPasswordResetAction', 'resetPasswordWithTokenAction', 'submitFormAction',
     'fetchPetSpotlightAction', 'fetchCatalogAction', 'fetchPetProfilesAction', 'fetchPetsAction', 'fetchFormAction',
   ])
@@ -2210,6 +2215,149 @@ await check('email images: a WebP upload is sent as a lossless PNG copy (classic
   await removeUpload(media.id)
   await removeUpload(jpeg.id)
   ok(!(await storage.exists(`${base}.email.png`)), 'removed with the upload')
+})
+
+// --- two-factor sign-in ----------------------------------------------------------------------
+/** RFC 6238 TOTP (SHA-1, 6 digits, 30 s) from an otpauth:// URI, as an authenticator app works it out. */
+function totpFrom(uri: string, offsetSteps = 0): string {
+  const secret = new URL(uri).searchParams.get('secret') ?? ''
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'
+  let bits = ''
+  for (const char of secret.replace(/=+$/, '').toUpperCase()) bits += alphabet.indexOf(char).toString(2).padStart(5, '0')
+  const key = Buffer.from((bits.match(/.{8}/g) ?? []).map((byte) => parseInt(byte, 2)))
+  const counter = Buffer.alloc(8)
+  counter.writeBigUInt64BE(BigInt(Math.floor(Date.now() / 30_000) + offsetSteps))
+  const mac = createHmac('sha1', key).update(counter).digest()
+  const offset = mac[mac.length - 1] & 0xf
+  return String((mac.readUInt32BE(offset) & 0x7fffffff) % 1_000_000).padStart(6, '0')
+}
+/** The cookies a Better Auth answer set, as a Cookie header added to `base`. */
+function withCookies(base: Headers, ...from: Headers[]): Headers {
+  const jar = new Map<string, string>()
+  for (const part of (base.get('cookie') ?? '').split('; ').filter(Boolean)) jar.set(part.split('=')[0], part)
+  for (const headers of from) {
+    for (const line of headers.getSetCookie()) {
+      const pair = line.split(';')[0]
+      const [name, value] = [pair.slice(0, pair.indexOf('=')), pair.slice(pair.indexOf('=') + 1)]
+      if (value && !/max-age=0/i.test(line)) jar.set(name, pair)
+      else jar.delete(name)
+    }
+  }
+  const next = new Headers(base)
+  next.set('cookie', [...jar.values()].join('; '))
+  return next
+}
+async function authCode(p: Promise<unknown>): Promise<string> {
+  try {
+    await p
+  } catch (e) {
+    const code = (e as { body?: { code?: string } }).body?.code
+    if (code) return code
+    throw e
+  }
+  throw new Error('expected a Better Auth error')
+}
+
+await check('two-factor: setup needs the password and a code, secrets are stored encrypted, sign-in asks for a code, backup codes work once, trusted browsers, lockouts, required roles, admin reset', async () => {
+  // Typed codes are tidied up; anything else is refused before Better Auth sees it.
+  ok(normalizeTotpCode(' 123 456 ') === '123456' && normalizeTotpCode('12345') === null && normalizeTotpCode('12345a') === null, 'authenticator codes: 6 digits, spaces allowed')
+  ok(normalizeBackupCode('K7M2P X9QRT') === 'k7m2p-x9qrt' && normalizeBackupCode('k7m2p-x9qr') === null && normalizeBackupCode('k7m2p-x9qr0') === null, 'backup codes: case and spacing ignored, look-alikes refused')
+
+  const email = 'twofactor@example.test'
+  const password = 'two-factor-password-1'
+  const { id } = await createUser({ email, name: 'Tess Factor', password, role: 'editor' })
+  const auth = await getAuth()
+  const base = ip(80)
+  const signIn = (headers: Headers = base) => auth.api.signInEmail({ body: { email, password }, headers, returnHeaders: true })
+
+  const first = await signIn()
+  ok(!('twoFactorRedirect' in first.response), 'no code is asked before two-factor is on')
+  const session = withCookies(base, first.headers)
+
+  ok((await authCode(auth.api.enableTwoFactor({ body: { password: 'wrong-password-123' }, headers: session }))) === 'INVALID_PASSWORD', 'setup needs the right password')
+  const setup = await auth.api.enableTwoFactor({ body: { password, issuer: 'Check Site' }, headers: session })
+  ok('totpURI' in setup && setup.totpURI.startsWith('otpauth://totp/') && setup.totpURI.includes('issuer=Check'), `an authenticator URI with the site's name: ${'totpURI' in setup ? setup.totpURI : ''}`)
+  const uri = (setup as { totpURI: string }).totpURI
+  const codes = (setup as { backupCodes: string[] }).backupCodes
+  ok(codes.length === 10 && codes.every((code) => normalizeBackupCode(code) === code && [...code.replace('-', '')].every((c) => BACKUP_CODE_ALPHABET.includes(c))), `ten backup codes in our format: ${codes.join(' ')}`)
+
+  const [row] = await db.select().from(t.twoFactors).where(eq(t.twoFactors.userId, id))
+  const secret = new URL(uri).searchParams.get('secret') as string
+  ok(row && row.verified === false, 'not on until a code is confirmed')
+  ok(!row.secret.includes(secret) && !codes.some((code) => row.backupCodes.includes(code)), 'the secret and backup codes are stored encrypted')
+  ok(!(await listUsers()).find((u) => u.id === id)?.twoFactorEnabled, 'the account is not marked yet')
+  const halfway = await signIn()
+  ok(!('twoFactorRedirect' in halfway.response), 'an unfinished setup does not lock the person out')
+
+  ok((await authCode(auth.api.verifyTOTP({ body: { code: '000000' === totpFrom(uri) ? '111111' : '000000' }, headers: session }))) === 'INVALID_CODE', 'a wrong confirmation code is refused')
+  await auth.api.verifyTOTP({ body: { code: totpFrom(uri) }, headers: session })
+  ok((await listUsers()).find((u) => u.id === id)?.twoFactorEnabled === true, 'confirmed: two-factor is on')
+  ok((await backupCodesLeft(id)) === 10, 'ten backup codes left')
+
+  // A sign-in now stops after the password: no session, Better Auth's code-step cookie instead.
+  const step = await signIn()
+  ok('twoFactorRedirect' in step.response && step.response.twoFactorRedirect === true, 'the password alone does not sign in')
+  ok(!step.headers.getSetCookie().some((line) => /session_token=[^;]+/.test(line) && !/max-age=0/i.test(line)), 'no session cookie after the password')
+  const pending = withCookies(base, step.headers)
+  ok((await authCode(auth.api.verifyTOTP({ body: { code: totpFrom(uri, 20) }, headers: pending }))) === 'INVALID_CODE', 'a code from ten minutes ahead is refused')
+  const signedIn = await auth.api.verifyTOTP({ body: { code: totpFrom(uri) }, headers: pending, returnHeaders: true })
+  ok(signedIn.response.user.id === id && signedIn.headers.getSetCookie().some((line) => /session_token=/.test(line)), 'the right code signs in')
+  ok((await authCode(auth.api.verifyTOTP({ body: { code: totpFrom(uri) }, headers: pending }))) === 'INVALID_TWO_FACTOR_COOKIE', 'a code step works once')
+
+  // Backup codes: each signs in once.
+  const viaBackup = withCookies(base, (await signIn()).headers)
+  await auth.api.verifyBackupCode({ body: { code: codes[0] }, headers: viaBackup })
+  ok((await backupCodesLeft(id)) === 9, 'a used backup code is gone')
+  const again = withCookies(base, (await signIn()).headers)
+  ok((await authCode(auth.api.verifyBackupCode({ body: { code: codes[0] }, headers: again }))) === 'INVALID_BACKUP_CODE', 'a backup code works only once')
+
+  // Five wrong codes end that sign-in (the 1 above counts too); then the account-wide lock.
+  for (let i = 0; i < 4; i++) await authCode(auth.api.verifyTOTP({ body: { code: '000001' }, headers: again }))
+  ok((await authCode(auth.api.verifyTOTP({ body: { code: totpFrom(uri) }, headers: again }))) === 'TOO_MANY_ATTEMPTS_REQUEST_NEW_CODE', 'five wrong codes end that sign-in, even before a right one')
+  // That was 5 failures in a row for the account; 5 more make 10.
+  const more = withCookies(base, (await signIn()).headers)
+  for (let i = 0; i < 5; i++) await authCode(auth.api.verifyTOTP({ body: { code: '000001' }, headers: more }))
+  const locked = withCookies(base, (await signIn()).headers)
+  ok((await authCode(auth.api.verifyTOTP({ body: { code: totpFrom(uri) }, headers: locked }))) === 'ACCOUNT_TEMPORARILY_LOCKED', 'ten wrong codes in a row lock the code step for the account')
+  await db.update(t.twoFactors).set({ lockedUntil: null, failedVerificationCount: 0 }).where(eq(t.twoFactors.userId, id))
+
+  // "Trust this device": the next sign-in on that browser skips the code, until it is forgotten.
+  const trusting = withCookies(base, (await signIn()).headers)
+  const trusted = await auth.api.verifyTOTP({ body: { code: totpFrom(uri), trustDevice: true }, headers: trusting, returnHeaders: true })
+  const browser = withCookies(base, trusted.headers)
+  ok(browser.get('cookie')?.includes('trust_device'), 'a trusted-device cookie is set')
+  const skip = await signIn(browser)
+  ok(!('twoFactorRedirect' in skip.response), 'a trusted browser signs in with the password alone')
+  await forgetTrustedDevices(id)
+  ok('twoFactorRedirect' in (await signIn(browser)).response, 'forgotten trusted browsers are asked for a code again')
+  ok('twoFactorRedirect' in (await signIn(ip(81))).response, 'another browser is always asked')
+
+  // Required roles: saved per role, and someone in one who has not set it up must do so first.
+  ok((await fieldErrors(saveTwoFactorRoles(['editor', 'superuser']))).roles, 'unknown roles are refused')
+  ok((await fieldErrors(saveTwoFactorRoles('editor'))).roles, 'a list is required')
+  const saved = await saveTwoFactorRoles(['editor', 'admin', 'editor'])
+  ok(saved.after.join() === 'admin,editor', `stored once each, in role order: ${saved.after.join()}`)
+  const editor = { id: 'x', email: 'x@example.test', name: 'X', role: 'editor' as const }
+  ok(await needsTwoFactorSetup({ ...editor, twoFactorEnabled: false }), 'an editor without two-factor must set it up')
+  ok(!(await needsTwoFactorSetup({ ...editor, twoFactorEnabled: true })), 'an editor with two-factor is fine')
+  ok(!(await needsTwoFactorSetup({ ...editor, role: 'developer', twoFactorEnabled: false })), 'roles not ticked are not asked')
+  await saveTwoFactorRoles([])
+  const [settingsRow] = await db.select({ roles: t.siteSettings.twoFactorRoles }).from(t.siteSettings)
+  ok(Array.isArray(settingsRow.roles) && settingsRow.roles.length === 0, 'cleared')
+
+  // Admin reset (lost phone and codes): off, secret and codes gone, trusted browsers forgotten.
+  const trustingAgain = withCookies(base, (await signIn()).headers)
+  const browser2 = withCookies(base, (await auth.api.verifyTOTP({ body: { code: totpFrom(uri), trustDevice: true }, headers: trustingAgain, returnHeaders: true })).headers)
+  const reset = await resetTwoFactor(id)
+  ok(reset.wasEnabled && !(await listUsers()).find((u) => u.id === id)?.twoFactorEnabled, 'reset turns it off')
+  ok((await db.select().from(t.twoFactors).where(eq(t.twoFactors.userId, id))).length === 0, 'the secret and backup codes are deleted')
+  const trustRows = await db.select().from(t.verifications).where(eq(t.verifications.value, id))
+  ok(!trustRows.some((r) => r.identifier.startsWith('trust-device-')), 'trusted browsers are forgotten')
+  ok(!('twoFactorRedirect' in (await signIn(browser2)).response), 'the password alone signs in again')
+  ok(!(await resetTwoFactor(id)).wasEnabled, 'a second reset changes nothing')
+  ok(/no longer exists/.test(await userError(resetTwoFactor('no-such-user'))), 'an unknown account is refused')
+
+  await deleteUser(id)
 })
 
 // FK enforcement is on (SQLite needs a pragma)

@@ -3,6 +3,7 @@ import { notFound, redirect } from 'next/navigation'
 
 import type { ActionResult } from '@/server/result'
 import { getSessionUser } from '@/server/session'
+import { needsTwoFactorSetup } from '@/server/two-factor'
 import type { SessionUser } from '@/server/types'
 
 /**
@@ -31,6 +32,7 @@ export function parseId(value: string): number {
 export async function requirePermissionPage(permission: Permission): Promise<SessionUser> {
   const user = await getSessionUser()
   if (!user) redirect('/admin/login')
-  if (!can(user.role, permission)) redirect('/admin')
+  // Two-factor still to set up (their role requires it): the admin layout shows that screen.
+  if (!can(user.role, permission) || (await needsTwoFactorSetup(user))) redirect('/admin')
   return user
 }

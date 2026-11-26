@@ -41,6 +41,8 @@ export const users = sqliteTable('users', {
   banned: integer('banned', { mode: 'boolean' }).default(false),
   banReason: text('ban_reason'),
   banExpires: timestamp('ban_expires'),
+  // Better Auth's two-factor plugin: true once an authenticator app is set up and confirmed.
+  twoFactorEnabled: integer('two_factor_enabled', { mode: 'boolean' }).default(false),
 })
 
 export const sessions = sqliteTable(
@@ -101,6 +103,26 @@ export const verifications = sqliteTable(
       .notNull(),
   },
   (t) => [index('verifications_identifier_idx').on(t.identifier)],
+)
+
+// Better Auth's two-factor plugin: one row per account that has started setting up an authenticator
+// app. `secret` and `backup_codes` are encrypted by Better Auth with BETTER_AUTH_SECRET; `verified`
+// is false until the first code is confirmed. The failure count and lock are its account lockout
+// (10 wrong codes in a row lock the second step for 15 minutes).
+export const twoFactors = sqliteTable(
+  'two_factors',
+  {
+    id: text('id').primaryKey(),
+    secret: text('secret').notNull(),
+    backupCodes: text('backup_codes').notNull(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    verified: integer('verified', { mode: 'boolean' }).default(true),
+    failedVerificationCount: integer('failed_verification_count').default(0),
+    lockedUntil: timestamp('locked_until'),
+  },
+  (t) => [index('two_factors_secret_idx').on(t.secret), uniqueIndex('two_factors_user_id_unique').on(t.userId)],
 )
 
 export const rateLimits = sqliteTable('rate_limits', {
@@ -301,6 +323,8 @@ export const siteSettings = sqliteTable('site_settings', {
   socials: text('socials', { mode: 'json' }).$type<Array<{ platform: string; url: string }>>().notNull().default(sql`'[]'`),
   nav: text('nav', { mode: 'json' }).$type<Array<{ label: string; href: string }>>().notNull().default(sql`'[]'`),
   footerText: text('footer_text'),
+  // Roles that must use two-factor sign-in (src/server/two-factor.ts); set on the Users screen.
+  twoFactorRoles: text('two_factor_roles', { mode: 'json' }).$type<string[]>().notNull().default(sql`'[]'`),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
 })
