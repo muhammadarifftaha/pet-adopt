@@ -59,6 +59,9 @@ export const sessions = pgTable(
       .$onUpdate(() => new Date())
       .notNull(),
     ipAddress: text('ip_address'),
+    // How this session signed in: 'password' (with the code when two-factor is on) or
+    // 'provider:<id>' (a sign-in provider, which counts as two-factor; src/server/auth.ts).
+    signInMethod: text('sign_in_method'),
     userAgent: text('user_agent'),
     userId: text('user_id')
       .notNull()
@@ -342,6 +345,30 @@ export const pluginMigrations = pgTable(
 )
 
 // --- Email -------------------------------------------------------------------------------
+
+// Sign-in providers (OAuth 2 / OpenID Connect) admins add on Authentication > Sign-in providers
+// (src/server/auth-providers.ts). `slug` is the provider's id in Better Auth and in the callback
+// address (/api/auth/callback/<slug>), fixed once created. The client secret is only stored
+// encrypted (src/server/secret-box.ts). People connect a provider to their own account first
+// (Better Auth's `accounts` rows, providerId = slug); a provider never creates accounts.
+export const authProviders = pgTable('auth_providers', {
+  id: id(),
+  slug: text('slug').notNull().unique(),
+  name: text('name').notNull(),
+  // 'oidc' (discovery URL) or 'oauth2' (the three endpoints by hand).
+  kind: text('kind').notNull(),
+  discoveryUrl: text('discovery_url'),
+  authorizationUrl: text('authorization_url'),
+  tokenUrl: text('token_url'),
+  userInfoUrl: text('user_info_url'),
+  clientId: text('client_id').notNull(),
+  clientSecretEncrypted: text('client_secret_encrypted'),
+  // Space-separated.
+  scopes: text('scopes').notNull(),
+  enabled: flag('enabled'),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+})
 
 // The built-in SMTP sender's settings (src/server/email.ts), one row (id 1), edited in
 // Email > Sending. SMTP_* / EMAIL_* environment variables override single fields. The password is

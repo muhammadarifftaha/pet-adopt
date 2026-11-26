@@ -11,7 +11,7 @@
 // to write one is logged and never undoes or fails the change. Inside `withTransaction` the insert
 // joins the open transaction, so code that needs the change and its entry to commit together can
 // call it there.
-import { csvCell, type Role } from '@pet-adopt/plugin-sdk'
+import { asRole, csvCell, type Role } from '@pet-adopt/plugin-sdk'
 import { and, desc, eq, gte, lt, max, or, sql, type SQL } from 'drizzle-orm'
 import { isEqual } from 'es-toolkit'
 import { headers } from 'next/headers'
@@ -283,6 +283,27 @@ export async function recordPageActivity(
 }
 
 /** A failed sign-in. The typed email is never stored; it only finds the account it was meant for. */
+/**
+ * An entry for something a sign-in provider did in its callback route (sign-in, connecting it),
+ * with the account as the actor. `summary` gets the provider's name.
+ */
+export async function recordProviderActivity(userId: string, action: string, providerSlug: string, summary: (provider: string) => string): Promise<void> {
+  try {
+    const { db, t } = await getDatabase()
+    const [user] = await db.select({ id: t.users.id, name: t.users.name, role: t.users.role }).from(t.users).where(eq(t.users.id, userId)).limit(1)
+    if (!user) return
+    const [provider] = await db.select({ name: t.authProviders.name }).from(t.authProviders).where(eq(t.authProviders.slug, providerSlug)).limit(1)
+    await recordActivity({
+      actor: { id: user.id, name: user.name, role: asRole(user.role) },
+      action,
+      area: action.startsWith('auth.') ? 'sign-in' : 'account',
+      summary: summary(provider?.name ?? providerSlug),
+    })
+  } catch (error) {
+    logError(error, `could not record ${action}`)
+  }
+}
+
 /** A sign-in with the right password to an archived account (refused). */
 export async function recordArchivedSignIn(email: string): Promise<void> {
   try {

@@ -5,10 +5,12 @@ import { usePathname } from 'next/navigation'
 
 import { cn } from '@/lib/utils'
 
-// The Authentication page's side menu: Two-factor (which roles must use it) and Archived accounts.
+// The Authentication page's side menu: Two-factor (which roles must use it), Sign-in providers
+// (OAuth 2 / OIDC) and Archived accounts.
 // Plain links with aria-current (each screen is its own address), drawn like Email's side menu.
 const ITEMS = [
   { href: '/admin/authentication', label: 'Two-factor' },
+  { href: '/admin/authentication/providers', label: 'Sign-in providers' },
   { href: '/admin/authentication/archived', label: 'Archived accounts' },
 ] as const
 

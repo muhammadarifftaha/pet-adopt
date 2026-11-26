@@ -47,9 +47,13 @@ export async function roleRequiresTwoFactor(role: Role): Promise<boolean> {
   return (await getTwoFactorRoles()).includes(role)
 }
 
-/** True when the person's role requires two-factor and they have not set it up yet. */
+/**
+ * True when the person's role requires two-factor and they have not set it up yet. A session from a
+ * sign-in provider counts as two-factor (agreed with the owner: the provider does its own checks).
+ */
 export async function needsTwoFactorSetup(user: SessionUser): Promise<boolean> {
-  return !user.twoFactorEnabled && (await roleRequiresTwoFactor(user.role))
+  if (user.twoFactorEnabled || user.signInMethod.startsWith('provider:')) return false
+  return roleRequiresTwoFactor(user.role)
 }
 
 /** Saves which roles must use two-factor. Returns the roles before and after, for the log. */

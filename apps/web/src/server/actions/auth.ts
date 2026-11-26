@@ -55,7 +55,7 @@ export async function signInAction(input: { email: string; password: string }): 
         return { twoFactor: true }
       }
       const user = (result as { user: { id: string; email: string; name: string; role?: string | null; twoFactorEnabled?: boolean | null } }).user
-      const signedIn: SessionUser = { id: user.id, email: user.email, name: user.name, role: asRole(user.role), twoFactorEnabled: Boolean(user.twoFactorEnabled) }
+      const signedIn: SessionUser = { id: user.id, email: user.email, name: user.name, role: asRole(user.role), twoFactorEnabled: Boolean(user.twoFactorEnabled), signInMethod: 'password' }
       await recordActivity({ actor: signedIn, action: 'auth.sign-in', area: 'sign-in', summary: 'Signed in' })
       return { twoFactor: false, user: signedIn }
     } catch (error) {

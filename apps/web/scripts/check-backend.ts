@@ -22,7 +22,8 @@ import { closeDatabase, getDatabase } from '../src/db/client'
 import { safeHref, validateHttpsUrl } from '../src/lib/links'
 import { richTextExtensions } from '../src/components/admin/pets/form/rich-text-extensions'
 import { richTextToPlain } from '../src/lib/rich-text'
-import { getAuth } from '../src/server/auth'
+import { forgetAuth, getAuth } from '../src/server/auth'
+import { deleteAuthProvider, disconnectProvider, listAuthProviders, providersVersion, saveAuthProvider } from '../src/server/auth-providers'
 import { listMedia, updateMediaDetails } from '../src/server/media'
 import { cleanMediaName } from '../src/lib/media-name'
 import {
@@ -86,7 +87,8 @@ import { getEmailSender, getEmailSettingsView, isLoopbackHost, parseFrom, resolv
 import { open, seal } from '../src/server/secret-box'
 import { backupCodesLeft, forgetTrustedDevices, needsTwoFactorSetup, resetTwoFactor, saveTwoFactorRoles } from '../src/server/two-factor'
 import { BACKUP_CODE_ALPHABET, normalizeBackupCode, normalizeTotpCode } from '../src/server/two-factor-codes'
-import { createHmac } from 'node:crypto'
+import { createHmac, generateKeyPairSync, randomBytes, sign as signData } from 'node:crypto'
+import { createServer } from 'node:http'
 import { DEFAULT_TEMPLATES, EMAIL_PURPOSES, emailImageSrc, LOGO_DEFAULTS, renderEmail, validateTemplate, type EmailPurpose, type RenderContext, type TemplateData } from '../src/lib/email-template'
 import {
   createEmailTemplate,
@@ -1758,6 +1760,7 @@ await check('roles: the permission table is as agreed, every action checks a per
     'signInAction', 'signOutAction', 'getCurrentUserAction', 'updateProfileAction', 'changePasswordAction',
     'verifyTwoFactorAction', 'getTwoFactorStatusAction', 'startTwoFactorSetupAction', 'confirmTwoFactorSetupAction',
     'disableTwoFactorAction', 'regenerateBackupCodesAction',
+    'startProviderSignInAction', 'getMyProvidersAction', 'connectProviderAction', 'disconnectProviderAction',
     'requestPasswordResetAction', 'resetPasswordWithTokenAction', 'submitFormAction',
     'fetchPetSpotlightAction', 'fetchCatalogAction', 'fetchPetProfilesAction', 'fetchPetsAction', 'fetchFormAction',
   ])
@@ -2380,7 +2383,7 @@ await check('two-factor: setup needs the password and a code, secrets are stored
   ok((await fieldErrors(saveTwoFactorRoles('editor'))).roles, 'a list is required')
   const saved = await saveTwoFactorRoles(['editor', 'admin', 'editor'])
   ok(saved.after.join() === 'admin,editor', `stored once each, in role order: ${saved.after.join()}`)
-  const editor = { id: 'x', email: 'x@example.test', name: 'X', role: 'editor' as const }
+  const editor = { id: 'x', email: 'x@example.test', name: 'X', role: 'editor' as const, signInMethod: 'password' }
   ok(await needsTwoFactorSetup({ ...editor, twoFactorEnabled: false }), 'an editor without two-factor must set it up')
   ok(!(await needsTwoFactorSetup({ ...editor, twoFactorEnabled: true })), 'an editor with two-factor is fine')
   ok(!(await needsTwoFactorSetup({ ...editor, role: 'developer', twoFactorEnabled: false })), 'roles not ticked are not asked')
@@ -2401,6 +2404,205 @@ await check('two-factor: setup needs the password and a code, secrets are stored
   ok(/no longer exists/.test(await userError(resetTwoFactor('no-such-user'))), 'an unknown account is refused')
 
   await removeAccount(id)
+})
+
+// --- sign-in providers (OAuth 2 / OIDC) -------------------------------------------------------
+/**
+ * A tiny OpenID Connect provider for the checks: discovery, keys, authorize (answers at once for
+ * whoever `as` names), token (an RS256 ID token carrying the nonce) and userinfo.
+ */
+async function mockOidc() {
+  const { privateKey, publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048 })
+  const jwk = { ...(publicKey.export({ format: 'jwk' }) as Record<string, string>), kid: 'k1', alg: 'RS256', use: 'sig' }
+  const b64 = (value: object | Buffer) => (Buffer.isBuffer(value) ? value : Buffer.from(JSON.stringify(value))).toString('base64url')
+  const codes = new Map<string, { sub: string; email: string; nonce?: string; clientId: string }>()
+  const state = { as: { sub: 'idp-user-1', email: 'someone@idp.example' } }
+  let issuer = ''
+  const server = createServer(async (req, res) => {
+    const url = new URL(req.url ?? '/', issuer)
+    const json = (body: unknown) => {
+      res.writeHead(200, { 'content-type': 'application/json' })
+      res.end(JSON.stringify(body))
+    }
+    if (url.pathname === '/.well-known/openid-configuration') {
+      return json({
+        issuer,
+        authorization_endpoint: `${issuer}/authorize`,
+        token_endpoint: `${issuer}/token`,
+        userinfo_endpoint: `${issuer}/userinfo`,
+        jwks_uri: `${issuer}/jwks`,
+        response_types_supported: ['code'],
+        subject_types_supported: ['public'],
+        id_token_signing_alg_values_supported: ['RS256'],
+        code_challenge_methods_supported: ['S256'],
+        token_endpoint_auth_methods_supported: ['client_secret_basic', 'client_secret_post'],
+      })
+    }
+    if (url.pathname === '/jwks') return json({ keys: [jwk] })
+    if (url.pathname === '/authorize') {
+      const code = randomBytes(16).toString('hex')
+      codes.set(code, { ...state.as, nonce: url.searchParams.get('nonce') ?? undefined, clientId: url.searchParams.get('client_id') ?? '' })
+      const back = new URL(url.searchParams.get('redirect_uri') ?? '')
+      back.searchParams.set('code', code)
+      back.searchParams.set('state', url.searchParams.get('state') ?? '')
+      back.searchParams.set('iss', issuer)
+      res.writeHead(302, { location: back.toString() })
+      return res.end()
+    }
+    if (url.pathname === '/token') {
+      let body = ''
+      for await (const chunk of req) body += chunk
+      const grant = codes.get(new URLSearchParams(body).get('code') ?? '')
+      if (!grant) {
+        res.writeHead(400, { 'content-type': 'application/json' })
+        return res.end(JSON.stringify({ error: 'invalid_grant' }))
+      }
+      const now = Math.floor(Date.now() / 1000)
+      const head = b64({ alg: 'RS256', typ: 'JWT', kid: 'k1' })
+      const claims = b64({ iss: issuer, sub: grant.sub, aud: grant.clientId, iat: now, exp: now + 300, nonce: grant.nonce, email: grant.email, email_verified: true, name: 'IdP Person' })
+      const signature = signData('sha256', Buffer.from(`${head}.${claims}`), privateKey).toString('base64url')
+      return json({ access_token: `at-${grant.sub}`, token_type: 'Bearer', expires_in: 300, id_token: `${head}.${claims}.${signature}` })
+    }
+    if (url.pathname === '/userinfo') return json({ sub: state.as.sub, email: state.as.email, name: 'IdP Person' })
+    res.writeHead(404)
+    res.end()
+  })
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+  const port = (server.address() as { port: number }).port
+  issuer = `http://localhost:${port}`
+  return { issuer, state, close: () => server.close() }
+}
+
+/**
+ * Runs a provider round trip like a browser: the start (sign-in or connect), the provider's
+ * authorize page, then Better Auth's callback route. Returns where the callback sent the browser
+ * and the cookies it set.
+ */
+async function providerRoundTrip(start: { url: string; headers: Headers }, cookies: Headers) {
+  const jar = withCookies(cookies, start.headers)
+  const authorize = await fetch(start.url, { redirect: 'manual' })
+  const callback = authorize.headers.get('location') ?? ''
+  const auth = await getAuth()
+  const response = await auth.handler(new Request(callback, { headers: jar }))
+  return { location: response.headers.get('location') ?? '', headers: withCookies(jar, response.headers) }
+}
+
+await check('sign-in providers: https only, secret encrypted, never an account or a link by email, connect then sign in (counts as two-factor), one link per provider account, archived and disabled refused, delete disconnects', async () => {
+  const idp = await mockOidc()
+  try {
+    // Saving: endpoints are checked, the secret is only stored encrypted.
+    const bad = await fieldErrors(saveAuthProvider(null, { name: 'Bad', kind: 'oidc', discoveryUrl: 'http://idp.example/.well-known/openid-configuration', clientId: 'x' }))
+    ok(bad.discoveryUrl, 'plain http to a real host is refused')
+    ok((await fieldErrors(saveAuthProvider(null, { name: 'Bad', kind: 'oidc', discoveryUrl: 'https://user:pw@idp.example/x', clientId: 'x' }))).discoveryUrl, 'credentials in the address are refused')
+    const manual = await fieldErrors(saveAuthProvider(null, { name: 'Manual', kind: 'oauth2', clientId: 'x' }))
+    ok(manual.authorizationUrl && manual.tokenUrl && manual.userInfoUrl, 'OAuth 2 needs its three endpoints')
+    const versionBefore = await providersVersion()
+    const { provider } = await saveAuthProvider(null, {
+      name: 'Mock IdP',
+      kind: 'oidc',
+      discoveryUrl: `${idp.issuer}/.well-known/openid-configuration`,
+      clientId: 'pet-adopt',
+      clientSecret: 'mock-client-secret',
+      enabled: true,
+    })
+    ok(provider.slug === 'mock-idp' && provider.secretSet && provider.scopes === 'openid email profile', `saved: ${provider.slug} ${provider.scopes}`)
+    ok(provider.redirectUri.endsWith('/api/auth/callback/mock-idp'), `the address to register: ${provider.redirectUri}`)
+    const [stored] = await db.select().from(t.authProviders).where(eq(t.authProviders.id, provider.id))
+    ok(stored.clientSecretEncrypted && !stored.clientSecretEncrypted.includes('mock-client-secret'), 'the client secret is stored encrypted')
+    ok(!('clientSecretEncrypted' in provider), 'the view never carries the secret')
+    ok((await providersVersion()) !== versionBefore, 'saving changes the version other servers watch')
+    const { provider: second } = await saveAuthProvider(null, { name: 'Mock IdP', kind: 'oidc', discoveryUrl: `${idp.issuer}/x`, clientId: 'y' })
+    ok(second.slug === 'mock-idp-2' && !second.enabled, 'names may repeat: the address gets a number; new providers start off')
+    await deleteAuthProvider(second.id)
+    forgetAuth()
+
+    const auth = await getAuth()
+    const base = ip(95)
+    const start = async (headers: Headers) => {
+      const r = await auth.api.signInSocial({ body: { provider: 'mock-idp', callbackURL: '/admin', errorCallbackURL: '/admin/login', disableRedirect: true }, headers, returnHeaders: true })
+      return { url: (r.response as { url: string }).url, headers: r.headers }
+    }
+
+    // A provider account whose email matches an account here is NOT linked by that, and an unknown
+    // one creates nothing.
+    const owner = (await listUsers()).find((u) => u.role === 'admin' && !u.archivedAt)!
+    idp.state.as = { sub: 'idp-owner', email: owner.email }
+    const byEmail = await providerRoundTrip(await start(base), base)
+    ok(byEmail.location.startsWith('/admin/login?error='), `a matching email is not enough: ${byEmail.location}`)
+    ok(!byEmail.headers.get('cookie')?.includes('session_token'), 'and no session')
+    idp.state.as = { sub: 'idp-stranger', email: 'stranger@idp.example' }
+    const usersBefore = (await listUsers()).length
+    const stranger = await providerRoundTrip(await start(base), base)
+    ok(stranger.location.startsWith('/admin/login?error=') && (await listUsers()).length === usersBefore, `a stranger gets no account: ${stranger.location}`)
+
+    // Connecting while signed in (their provider email may differ), then signing in with it.
+    const email = 'provider@example.test'
+    const password = 'provider-password-123'
+    const { id } = await createUser({ email, name: 'Pro Vider', password, role: 'editor' })
+    const signed = await auth.api.signInEmail({ body: { email, password }, headers: base, returnHeaders: true })
+    const session = withCookies(base, signed.headers)
+    idp.state.as = { sub: 'idp-pro', email: 'pro.vider@idp.example' }
+    const link = await auth.api.linkSocialAccount({ body: { provider: 'mock-idp', callbackURL: '/admin/account?connected=mock-idp', errorCallbackURL: '/admin/account', disableRedirect: true }, headers: session, returnHeaders: true })
+    const linked = await providerRoundTrip({ url: (link.response as { url: string }).url, headers: link.headers }, session)
+    ok(linked.location === '/admin/account?connected=mock-idp', `connected: ${linked.location}`)
+    const links = await db.select().from(t.accounts).where(eq(t.accounts.userId, id))
+    const providerLink = links.find((row) => row.providerId === 'mock-idp')
+    ok(providerLink?.accountId === 'idp-pro', 'stored as a link to that provider account')
+    ok(!providerLink?.accessToken || !providerLink.accessToken.includes('at-idp-pro'), 'provider tokens are stored encrypted')
+    ok((await listAuthProviders()).find((p) => p.slug === 'mock-idp')?.connected === 1, 'the admin list counts it')
+
+    const viaProvider = await providerRoundTrip(await start(base), base)
+    ok(viaProvider.location === '/admin', `signed in through the provider: ${viaProvider.location}`)
+    const providerSession = await auth.api.getSession({ headers: viaProvider.headers })
+    ok(providerSession?.user.id === id, 'as the connected account')
+    ok((providerSession?.session as { signInMethod?: string }).signInMethod === 'provider:mock-idp', 'the session records how it signed in')
+    ok((await db.select().from(t.sessions).where(eq(t.sessions.userId, id))).some((row) => row.signInMethod === 'password'), 'password sessions are marked too')
+    await saveTwoFactorRoles(['editor'])
+    const asUser = { id, email, name: 'Pro Vider', role: 'editor' as const, twoFactorEnabled: false }
+    ok(!(await needsTwoFactorSetup({ ...asUser, signInMethod: 'provider:mock-idp' })), 'a provider sign-in counts as two-factor')
+    ok(await needsTwoFactorSetup({ ...asUser, signInMethod: 'password' }), 'a password sign-in still has to set it up')
+    await saveTwoFactorRoles([])
+    const logged = await db.select().from(t.activityLog).where(eq(t.activityLog.actorId, id))
+    ok(logged.some((row) => row.action === 'account.provider-connect' && row.summary.includes('Mock IdP')), 'connecting is logged')
+    ok(logged.some((row) => row.action === 'auth.sign-in' && row.summary === 'Signed in with Mock IdP'), 'the provider sign-in is logged')
+
+    // That provider account belongs to one account here.
+    const other = await createUser({ email: 'other@example.test', name: 'Oth Er', password, role: 'editor' })
+    const otherSession = withCookies(base, (await auth.api.signInEmail({ body: { email: 'other@example.test', password }, headers: base, returnHeaders: true })).headers)
+    const steal = await auth.api.linkSocialAccount({ body: { provider: 'mock-idp', callbackURL: '/admin/account', errorCallbackURL: '/admin/account', disableRedirect: true }, headers: otherSession, returnHeaders: true })
+    const stolen = await providerRoundTrip({ url: (steal.response as { url: string }).url, headers: steal.headers }, otherSession)
+    ok(stolen.location.includes('error=account_already_linked_to_different_user'), `someone else's provider account cannot be connected: ${stolen.location}`)
+
+    // Archived accounts and disabled providers are refused.
+    await archiveUser(id, { by: owner.id })
+    const archived = await providerRoundTrip(await start(base), base)
+    ok(archived.location.includes(`error=${'ACCOUNT_ARCHIVED'}`), `an archived account is refused: ${archived.location}`)
+    await restoreUser(id)
+    await saveAuthProvider(provider.id, { enabled: false })
+    forgetAuth()
+    const off = await getAuth()
+    ok(
+      (await authCode(off.api.signInSocial({ body: { provider: 'mock-idp', callbackURL: '/admin', disableRedirect: true }, headers: base }))) !== '',
+      'a disabled provider cannot be used',
+    )
+    await saveAuthProvider(provider.id, { enabled: true })
+    forgetAuth()
+
+    // Disconnecting ends it; deleting the provider removes every connection.
+    await disconnectProvider(id, 'mock-idp')
+    const after = await providerRoundTrip(await start(base), base)
+    ok(after.location.startsWith('/admin/login?error='), 'disconnected: no longer signs in')
+    await db.insert(t.accounts).values({ id: 'acct-check', accountId: 'idp-x', providerId: 'mock-idp', userId: other.id, createdAt: new Date(), updatedAt: new Date() })
+    const removed = await deleteAuthProvider(provider.id)
+    forgetAuth()
+    ok(removed.disconnected === 1 && (await db.select().from(t.accounts).where(eq(t.accounts.providerId, 'mock-idp'))).length === 0, 'deleting a provider disconnects everyone')
+    ok(!(await db.select().from(t.accounts).where(eq(t.accounts.userId, id))).every((row) => row.providerId !== 'credential'), 'passwords stay')
+
+    await removeAccount(id)
+    await removeAccount(other.id)
+  } finally {
+    idp.close()
+  }
 })
 
 // FK enforcement is on (SQLite needs a pragma)

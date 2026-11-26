@@ -177,6 +177,8 @@ export type SessionUser = {
   role: Role
   /** Two-factor sign-in is set up (an authenticator app was confirmed). */
   twoFactorEnabled: boolean
+  /** How this session signed in: 'password', or 'provider:<id>' for a sign-in provider. */
+  signInMethod: string
 }
 
 /** The answer to a sign-in with email and password: signed in, or a code is needed next. */

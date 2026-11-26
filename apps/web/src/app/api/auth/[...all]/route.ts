@@ -18,10 +18,15 @@ const MAX_SIGN_IN_BODY = 10_000
 // a Better Auth upgrade or plugin adds; a list of what is open cannot. Everything else is done
 // through server actions.
 const ALLOWED = new Set([SIGN_IN, CHANGE_PASSWORD, '/api/auth/sign-out', '/api/auth/get-session'])
+/**
+ * Sign-in providers' callbacks (src/server/auth-providers.ts): the provider sends the browser back
+ * here. Starting a sign-in, connecting and disconnecting go through server actions.
+ */
+const PROVIDER_CALLBACK = /^\/api\/auth\/callback\/[a-z0-9-]{1,60}$/
 
 async function handle(request: Request) {
   const { pathname } = new URL(request.url)
-  if (!ALLOWED.has(pathname)) return new Response('Not found', { status: 404 })
+  if (!ALLOWED.has(pathname) && !PROVIDER_CALLBACK.test(pathname)) return new Response('Not found', { status: 404 })
 
   const auth = await getAuth()
 
