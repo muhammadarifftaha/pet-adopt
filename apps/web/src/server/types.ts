@@ -177,6 +177,12 @@ export type SessionUser = {
   role: Role
   /** Two-factor sign-in is set up (an authenticator app was confirmed). */
   twoFactorEnabled: boolean
+  /** How this session signed in: 'password', or 'provider:<id>' for a sign-in provider. */
+  signInMethod: string
+  /** Profile picture address, or null (initials). */
+  image?: string | null
+  /** They confirmed they read their email (src/server/email-change.ts); unset counts as confirmed. */
+  emailVerified?: boolean
 }
 
 /** The answer to a sign-in with email and password: signed in, or a code is needed next. */

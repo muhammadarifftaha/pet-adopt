@@ -1,7 +1,7 @@
 import { asRole } from '@pet-adopt/plugin-sdk'
 
-import { recordActivity, recordFailedSignIn } from '@/server/activity'
-import { getAuth } from '@/server/auth'
+import { recordActivity, recordArchivedSignIn, recordFailedSignIn } from '@/server/activity'
+import { ACCOUNT_ARCHIVED, getAuth } from '@/server/auth'
 import { UserError } from '@/server/result'
 import { clearAttempts, guardPasswordChange, guardSignIn } from '@/server/throttle'
 
@@ -12,16 +12,21 @@ const CHANGE_PASSWORD = '/api/auth/change-password'
 /** A sign-in body is two short strings. Anything bigger is not a sign-in. */
 const MAX_SIGN_IN_BODY = 10_000
 
-// Only the endpoints this app uses are open. Better Auth ships many more (update-user, set role,
-// remove user, impersonate, list or revoke sessions, change email, password reset...), and several
-// of them skip the validation and the last-admin protection in src/server/users.ts. A list of what
-// is closed would miss the next one a Better Auth upgrade or plugin adds; a list of what is open
-// cannot. Everything else is done through server actions.
+// Only the endpoints this app uses are open. Better Auth ships many more (update-user, two-factor,
+// list or revoke sessions, change email, password reset...), and several of them would skip the
+// validation and the rules in src/server/users.ts. A list of what is closed would miss the next one
+// a Better Auth upgrade or plugin adds; a list of what is open cannot. Everything else is done
+// through server actions.
 const ALLOWED = new Set([SIGN_IN, CHANGE_PASSWORD, '/api/auth/sign-out', '/api/auth/get-session'])
+/**
+ * Sign-in providers' callbacks (src/server/auth-providers.ts): the provider sends the browser back
+ * here. Starting a sign-in, connecting and disconnecting go through server actions.
+ */
+const PROVIDER_CALLBACK = /^\/api\/auth\/callback\/[a-z0-9-]{1,60}$/
 
 async function handle(request: Request) {
   const { pathname } = new URL(request.url)
-  if (!ALLOWED.has(pathname)) return new Response('Not found', { status: 404 })
+  if (!ALLOWED.has(pathname) && !PROVIDER_CALLBACK.test(pathname)) return new Response('Not found', { status: 404 })
 
   const auth = await getAuth()
 
@@ -59,6 +64,10 @@ async function handle(request: Request) {
       if (user) await recordActivity({ actor: { id: user.id, name: user.name, role: asRole(user.role) }, action: 'auth.sign-in', area: 'sign-in', summary: 'Signed in' })
     } else if (response.status === 401) {
       await recordFailedSignIn(email)
+    } else if (response.status === 403) {
+      // Also 403: a rejected origin. Only our code means the account is archived (auth.ts).
+      const code = ((await response.clone().json().catch(() => null)) as { code?: unknown } | null)?.code
+      if (code === ACCOUNT_ARCHIVED) await recordArchivedSignIn(email)
     }
     return response
   }

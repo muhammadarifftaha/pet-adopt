@@ -162,6 +162,22 @@ export async function clearLockoutsFor(email: string): Promise<void> {
 const sha256 = (value: string) => createHash('sha256').update(value).digest('hex')
 
 /** Lower-cased and bounded, so any input becomes one short fixed-size key. */
+/** Forgets every attempt counter about an account (its deletion): per user and per email. */
+export async function forgetAttemptsOf(userId: string, email: string): Promise<void> {
+  const { db, t } = await getDatabase()
+  const digest = emailDigest(email)
+  await db
+    .delete(t.rateLimits)
+    .where(
+      or(
+        like(t.rateLimits.key, `%${userId}%`),
+        eq(t.rateLimits.key, `login:email:${digest}`),
+        like(t.rateLimits.key, `login:pair:${digest}|%`),
+        eq(t.rateLimits.key, `pwreset:email:${digest}`),
+      ),
+    )
+}
+
 function emailDigest(email: unknown): string {
   const normalized = typeof email === 'string' ? email.trim().toLowerCase() : ''
   return sha256(normalized && normalized.length <= 254 ? normalized : 'invalid')

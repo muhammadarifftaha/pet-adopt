@@ -11,7 +11,7 @@
 //
 // It creates accounts, pets and pages, so never point it at a real site.
 import { APIError } from 'better-auth/api'
-import { eq, sql, type SQL } from 'drizzle-orm'
+import { eq, like, sql, type SQL } from 'drizzle-orm'
 import zlib from 'node:zlib'
 
 import { isEqual } from 'es-toolkit'
@@ -22,7 +22,8 @@ import { closeDatabase, getDatabase } from '../src/db/client'
 import { safeHref, validateHttpsUrl } from '../src/lib/links'
 import { richTextExtensions } from '../src/components/admin/pets/form/rich-text-extensions'
 import { richTextToPlain } from '../src/lib/rich-text'
-import { getAuth } from '../src/server/auth'
+import { forgetAuth, getAuth } from '../src/server/auth'
+import { deleteAuthProvider, disconnectProvider, listAuthProviders, providersVersion, saveAuthProvider } from '../src/server/auth-providers'
 import { listMedia, updateMediaDetails } from '../src/server/media'
 import { cleanMediaName } from '../src/lib/media-name'
 import {
@@ -71,7 +72,7 @@ import { forgetPluginStorageStatus, getPluginStorageStatus } from '../src/plugin
 import { getEmailTemplateUsage } from '../src/plugins/registry'
 import { storageProblems } from '../src/plugins/storage-rules'
 import { applyPluginMigrations, pluginMigrationStates } from '../src/db/plugin-migrations'
-import { createUser, deleteUser, ensureOwner, listUsers, resetPassword, updateUser } from '../src/server/users'
+import { archiveUser, createUser, deleteUser, DELETION_GRACE_DAYS, ensureOwner, listUsers, purgeDueDeletions, requestOwnDeletion, resetPassword, restoreUser, updateUser } from '../src/server/users'
 import {
   activityRetentionDays,
   changedFields,
@@ -84,9 +85,13 @@ import {
 } from '../src/server/activity'
 import { getEmailSender, getEmailSettingsView, isLoopbackHost, parseFrom, resolveSmtp, saveEmailSettings, sendsToLocalServer } from '../src/server/email'
 import { open, seal } from '../src/server/secret-box'
+import { acceptInvite, isInviteTokenValid, sendInvite } from '../src/server/invites'
+import { cancelEmailChange, confirmEmailChange, emailChangeFor, needsEmailConfirmation, pendingEmailChange, requestEmailChange, requestEmailVerification, sendEmailChangeNotice } from '../src/server/email-change'
+import { adoptProviderPicture, AVATAR_SIZE, isPrivateAddress, pictureFromIdToken, removeAvatar, saveAvatar } from '../src/server/avatars'
 import { backupCodesLeft, forgetTrustedDevices, needsTwoFactorSetup, resetTwoFactor, saveTwoFactorRoles } from '../src/server/two-factor'
 import { BACKUP_CODE_ALPHABET, normalizeBackupCode, normalizeTotpCode } from '../src/server/two-factor-codes'
-import { createHmac } from 'node:crypto'
+import { createHmac, generateKeyPairSync, randomBytes, sign as signData } from 'node:crypto'
+import { createServer } from 'node:http'
 import { DEFAULT_TEMPLATES, EMAIL_PURPOSES, emailImageSrc, LOGO_DEFAULTS, renderEmail, validateTemplate, type EmailPurpose, type RenderContext, type TemplateData } from '../src/lib/email-template'
 import {
   createEmailTemplate,
@@ -137,6 +142,11 @@ async function userError(p: Promise<unknown>): Promise<string> {
 
 const png = await sharp({ create: { width: 40, height: 30, channels: 3, background: '#f60' } }).png().toBuffer()
 const ip = (n: number) => new Headers({ 'x-forwarded-for': `10.0.0.${n}` })
+/** Accounts are removed in two steps (archive, then delete); the checks' own clean-up does both. */
+const removeAccount = async (id: string) => {
+  await archiveUser(id, { by: 'check-backend' })
+  await deleteUser(id)
+}
 
 // Uploads have nowhere to go without the bucket settings: say so once instead of failing a dozen checks.
 try {
@@ -383,12 +393,13 @@ await check('create an editor; duplicate email refused; sign in as editor', asyn
   ok((res.user as { role?: string }).role === 'editor', 'role should be editor')
 })
 
-await check('last admin cannot be demoted or deleted; can once there are two', async () => {
+await check('last admin cannot be demoted or archived; can once there are two', async () => {
   const users = await listUsers()
   const admin = users.find((u) => u.role === 'admin')!
   const editor = users.find((u) => u.role === 'editor')!
   await userError(updateUser(admin.id, { name: admin.name, role: 'editor' }, { canChangeRole: true }))
-  await userError(deleteUser(admin.id))
+  ok(/last admin/.test(await userError(archiveUser(admin.id, { by: editor.id }))), 'the last admin cannot be archived')
+  ok(/Archive the account/.test(await userError(deleteUser(admin.id))), 'an active account cannot be deleted')
   await updateUser(editor.id, { name: 'Ed', role: 'admin' }, { canChangeRole: true })
   await updateUser(admin.id, { name: admin.name, role: 'editor' }, { canChangeRole: true })
   await updateUser(admin.id, { name: admin.name, role: 'admin' }, { canChangeRole: true })
@@ -406,26 +417,16 @@ await check('two admins demoting each other at once never leave zero admins', as
   ])
   ok(results.filter((r) => r.status === 'fulfilled').length === 1, 'exactly one demotion may succeed')
   ok((await listUsers()).filter((u) => u.role === 'admin').length === 1, 'one admin must remain')
-  // The same race with deletes: two admins deleting each other.
+  // The same race with archiving: two admins archiving each other.
   await updateUser(first.id, { name: first.name, role: 'admin' }, { canChangeRole: true })
   await updateUser(second.id, { name: second.name, role: 'admin' }, { canChangeRole: true })
-  const deletes = await Promise.allSettled([deleteUser(first.id), deleteUser(second.id)])
-  ok(deletes.filter((r) => r.status === 'fulfilled').length === 1, 'exactly one deletion may succeed')
-  ok((await listUsers()).filter((u) => u.role === 'admin').length === 1, 'one admin must remain after the deletes too')
+  const archives = await Promise.allSettled([archiveUser(first.id, { by: second.id }), archiveUser(second.id, { by: first.id })])
+  ok(archives.filter((r) => r.status === 'fulfilled').length === 1, 'exactly one archive may succeed')
+  ok((await listUsers()).filter((u) => u.role === 'admin' && !u.archivedAt).length === 1, 'one active admin must remain after the archives too')
   // Put the accounts back the way later checks expect them.
-  const survivor = (await listUsers())[0]
-  const ownerSurvived = survivor.id === first.id
-  await createUser({
-    email: ownerSurvived ? 'editor@example.test' : process.env.SEED_ADMIN_EMAIL!,
-    name: ownerSurvived ? 'Ed' : 'Owner',
-    password: 'editor-password-1',
-    role: 'editor',
-  })
-  const afterwards = await listUsers()
-  const owner = afterwards.find((u) => u.email === process.env.SEED_ADMIN_EMAIL)!
-  const editor = afterwards.find((u) => u.email === 'editor@example.test')!
-  await updateUser(owner.id, { name: owner.name, role: 'admin' }, { canChangeRole: true })
-  await updateUser(editor.id, { name: editor.name, role: 'editor' }, { canChangeRole: true })
+  for (const user of await listUsers()) if (user.archivedAt) await restoreUser(user.id)
+  await updateUser(first.id, { name: first.name, role: 'admin' }, { canChangeRole: true })
+  await updateUser(second.id, { name: second.name, role: 'editor' }, { canChangeRole: true })
 })
 
 await check('editors cannot change roles through updateUser', async () => {
@@ -1462,7 +1463,7 @@ await check('reset links: one use, hashed at rest, expire, cancel older ones, en
   ok(/expired/.test(await userError(resetPasswordWithToken({ token: tokenOf(third.url), password: 'late-password-123456' }))), 'and cannot be used')
 
   ok(/not found/.test(await userError(createResetLink('no-such-user'))), 'no link for a missing account')
-  await deleteUser(id)
+  await removeAccount(id)
 })
 
 await check('reset emails: same answer for unknown addresses, sent only to real accounts, limited per email', async () => {
@@ -1487,7 +1488,7 @@ await check('reset emails: same answer for unknown addresses, sent only to real 
   await (await prepareResetEmail(email, ip(73), sender))()
   ok(/Too many attempts/.test(await userError(prepareResetEmail(email, ip(74), sender))), 'the fourth request for one email within the hour is refused')
 
-  await deleteUser(id)
+  await removeAccount(id)
 })
 
 // --- plugins with their own tables -------------------------------------------------------
@@ -1762,7 +1763,11 @@ await check('roles: the permission table is as agreed, every action checks a per
     'signInAction', 'signOutAction', 'getCurrentUserAction', 'updateProfileAction', 'changePasswordAction',
     'verifyTwoFactorAction', 'getTwoFactorStatusAction', 'startTwoFactorSetupAction', 'confirmTwoFactorSetupAction',
     'disableTwoFactorAction', 'regenerateBackupCodesAction',
-    'requestPasswordResetAction', 'resetPasswordWithTokenAction', 'submitFormAction',
+    'startProviderSignInAction', 'getMyProvidersAction', 'connectProviderAction', 'disconnectProviderAction',
+    'uploadAvatarAction', 'removeAvatarAction',
+    'getEmailChangeStatusAction', 'requestEmailChangeAction', 'cancelEmailChangeAction', 'confirmEmailChangeAction',
+    'requestAccountDeletionAction', 'requestEmailVerificationAction',
+    'requestPasswordResetAction', 'resetPasswordWithTokenAction', 'acceptInviteAction', 'submitFormAction',
     'fetchPetSpotlightAction', 'fetchCatalogAction', 'fetchPetProfilesAction', 'fetchPetsAction', 'fetchFormAction',
   ])
   const { readFileSync, readdirSync } = await import('node:fs')
@@ -1813,8 +1818,8 @@ await check('roles: the permission table is as agreed, every action checks a per
     const message = await userError(updateUser(admins[0].id, { name: admins[0].name, role: 'audit' }, { canChangeRole: true }))
     ok(/last admin/.test(message), `the last admin cannot become audit: ${message}`)
   }
-  await deleteUser(dev.id)
-  await deleteUser(aud.id)
+  await removeAccount(dev.id)
+  await removeAccount(aud.id)
 })
 
 await check('activity log: entries name fields not values, own vs everyone, failed sign-ins keep no email, plugins prefixed, CSV safe, old entries purged', async () => {
@@ -1883,9 +1888,9 @@ await check('activity log: entries name fields not values, own vs everyone, fail
   else process.env.ACTIVITY_LOG_DAYS = saved
 
   // Entries outlive their account (no foreign key) and keep the name.
-  await deleteUser(ana.id)
+  await removeAccount(ana.id)
   ok((await listActivity({ id: ben.id, all: true }, { actor: ana.id })).entries.every((row) => row.actorName === 'Ana'), 'entries outlive the account')
-  await deleteUser(ben.id)
+  await removeAccount(ben.id)
   await db.delete(t.activityLog)
 })
 
@@ -2182,7 +2187,7 @@ await check('email templates: only allowed blocks and placeholders, no answers t
   await fetch(`${mailpit}/api/v1/search?query=${encodeURIComponent(`subject:"New: ${title}"`)}`, { method: 'DELETE' })
 
   await forms.deleteForm(formId)
-  await deleteUser(user.id)
+  await removeAccount(user.id)
   await db.delete(t.emailTemplates)
   await db.delete(t.emailSettings)
 })
@@ -2257,6 +2262,53 @@ async function authCode(p: Promise<unknown>): Promise<string> {
   }
   throw new Error('expected a Better Auth error')
 }
+
+await check('archived accounts: cannot sign in (also with two-factor), signed out, no reset links, read-only, email kept, restorable; only archived accounts can be deleted; nobody archives themselves', async () => {
+  const email = 'archive@example.test'
+  const password = 'archive-password-123'
+  const { id } = await createUser({ email, name: 'Archie Ved', password, role: 'editor' })
+  const owner = (await listUsers()).find((u) => u.role === 'admin' && !u.archivedAt)!
+  const auth = await getAuth()
+  const signIn = (pw = password) => auth.api.signInEmail({ body: { email, password: pw }, headers: ip(90), returnHeaders: true })
+
+  const before = await signIn()
+  const session = withCookies(ip(90), before.headers)
+  ok((await auth.api.getSession({ headers: session }))?.user.id === id, 'signed in before archiving')
+  await createResetLink(id)
+
+  ok(/your own account/.test(await userError(archiveUser(owner.id, { by: owner.id }))), 'nobody archives themselves')
+  ok(/Archive the account/.test(await userError(deleteUser(id))), 'an active account cannot be deleted')
+  await archiveUser(id, { by: owner.id })
+  ok((await listUsers()).find((u) => u.id === id)?.archivedAt instanceof Date, 'archived, with the time')
+  ok(/already archived/.test(await userError(archiveUser(id, { by: owner.id }))), 'archiving twice is refused')
+
+  ok((await db.select().from(t.sessions).where(eq(t.sessions.userId, id))).length === 0, 'signed out everywhere')
+  ok(!(await auth.api.getSession({ headers: session })), 'the old session no longer works')
+  ok((await db.select().from(t.verifications).where(eq(t.verifications.value, id))).every((r) => !r.identifier.startsWith('pwreset:')), 'pending reset links are cancelled')
+  ok((await authCode(signIn())) === 'ACCOUNT_ARCHIVED', 'the right password is refused')
+  ok((await authCode(signIn('wrong-password-123'))) === 'INVALID_EMAIL_OR_PASSWORD', 'a wrong password looks like any wrong password')
+  ok(/archived/.test(await userError(createResetLink(id))), 'no reset links')
+  ok(/archived/.test(await userError(updateUser(id, { name: 'New Name', role: 'admin' }, { canChangeRole: true }))), 'read-only while archived')
+  ok(/archived/.test(await userError(resetPassword(id, { password: 'another-password-123' }))), 'no new password while archived')
+  ok(/archived account has this email/.test((await fieldErrors(createUser({ email, name: 'Again', password, role: 'editor' }))).email ?? ''), 'its email cannot be reused; restore instead')
+
+  // Restored: as it was, and it signs in again.
+  ok(/not archived/.test(await userError(restoreUser(owner.id))), 'only archived accounts are restored')
+  await restoreUser(id)
+  ok(!(await listUsers()).find((u) => u.id === id)?.archivedAt, 'restored')
+  ok((await signIn()).response.user.id === id, 'signs in again')
+
+  // With two-factor on, the archive is refused before the code step (no code-step cookie either).
+  const enabled = withCookies(ip(90), (await signIn()).headers)
+  const setup = await auth.api.enableTwoFactor({ body: { password }, headers: enabled })
+  await auth.api.verifyTOTP({ body: { code: totpFrom((setup as { totpURI: string }).totpURI) }, headers: enabled })
+  ok('twoFactorRedirect' in (await signIn()).response, 'two-factor is on')
+  await archiveUser(id, { by: owner.id })
+  ok((await authCode(signIn())) === 'ACCOUNT_ARCHIVED', 'an archived account with two-factor is refused at the password')
+
+  await deleteUser(id)
+  ok(!(await listUsers()).some((u) => u.id === id), 'an archived account can be deleted')
+})
 
 await check('two-factor: setup needs the password and a code, secrets are stored encrypted, sign-in asks for a code, backup codes work once, trusted browsers, lockouts, required roles, admin reset', async () => {
   // Typed codes are tidied up; anything else is refused before Better Auth sees it.
@@ -2337,7 +2389,7 @@ await check('two-factor: setup needs the password and a code, secrets are stored
   ok((await fieldErrors(saveTwoFactorRoles('editor'))).roles, 'a list is required')
   const saved = await saveTwoFactorRoles(['editor', 'admin', 'editor'])
   ok(saved.after.join() === 'admin,editor', `stored once each, in role order: ${saved.after.join()}`)
-  const editor = { id: 'x', email: 'x@example.test', name: 'X', role: 'editor' as const }
+  const editor = { id: 'x', email: 'x@example.test', name: 'X', role: 'editor' as const, signInMethod: 'password' }
   ok(await needsTwoFactorSetup({ ...editor, twoFactorEnabled: false }), 'an editor without two-factor must set it up')
   ok(!(await needsTwoFactorSetup({ ...editor, twoFactorEnabled: true })), 'an editor with two-factor is fine')
   ok(!(await needsTwoFactorSetup({ ...editor, role: 'developer', twoFactorEnabled: false })), 'roles not ticked are not asked')
@@ -2357,7 +2409,527 @@ await check('two-factor: setup needs the password and a code, secrets are stored
   ok(!(await resetTwoFactor(id)).wasEnabled, 'a second reset changes nothing')
   ok(/no longer exists/.test(await userError(resetTwoFactor('no-such-user'))), 'an unknown account is refused')
 
-  await deleteUser(id)
+  await removeAccount(id)
+})
+
+// --- sign-in providers (OAuth 2 / OIDC) -------------------------------------------------------
+/**
+ * A tiny OpenID Connect provider for the checks: discovery, keys, authorize (answers at once for
+ * whoever `as` names), token (an RS256 ID token carrying the nonce) and userinfo.
+ */
+async function mockOidc() {
+  const { privateKey, publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048 })
+  const jwk = { ...(publicKey.export({ format: 'jwk' }) as Record<string, string>), kid: 'k1', alg: 'RS256', use: 'sig' }
+  const b64 = (value: object | Buffer) => (Buffer.isBuffer(value) ? value : Buffer.from(JSON.stringify(value))).toString('base64url')
+  const codes = new Map<string, { sub: string; email: string; nonce?: string; clientId: string }>()
+  const state = { as: { sub: 'idp-user-1', email: 'someone@idp.example' } }
+  let issuer = ''
+  const server = createServer(async (req, res) => {
+    const url = new URL(req.url ?? '/', issuer)
+    const json = (body: unknown) => {
+      res.writeHead(200, { 'content-type': 'application/json' })
+      res.end(JSON.stringify(body))
+    }
+    if (url.pathname === '/.well-known/openid-configuration') {
+      return json({
+        issuer,
+        authorization_endpoint: `${issuer}/authorize`,
+        token_endpoint: `${issuer}/token`,
+        userinfo_endpoint: `${issuer}/userinfo`,
+        jwks_uri: `${issuer}/jwks`,
+        response_types_supported: ['code'],
+        subject_types_supported: ['public'],
+        id_token_signing_alg_values_supported: ['RS256'],
+        code_challenge_methods_supported: ['S256'],
+        token_endpoint_auth_methods_supported: ['client_secret_basic', 'client_secret_post'],
+      })
+    }
+    if (url.pathname === '/jwks') return json({ keys: [jwk] })
+    if (url.pathname === '/authorize') {
+      const code = randomBytes(16).toString('hex')
+      codes.set(code, { ...state.as, nonce: url.searchParams.get('nonce') ?? undefined, clientId: url.searchParams.get('client_id') ?? '' })
+      const back = new URL(url.searchParams.get('redirect_uri') ?? '')
+      back.searchParams.set('code', code)
+      back.searchParams.set('state', url.searchParams.get('state') ?? '')
+      back.searchParams.set('iss', issuer)
+      res.writeHead(302, { location: back.toString() })
+      return res.end()
+    }
+    if (url.pathname === '/token') {
+      let body = ''
+      for await (const chunk of req) body += chunk
+      const grant = codes.get(new URLSearchParams(body).get('code') ?? '')
+      if (!grant) {
+        res.writeHead(400, { 'content-type': 'application/json' })
+        return res.end(JSON.stringify({ error: 'invalid_grant' }))
+      }
+      const now = Math.floor(Date.now() / 1000)
+      const head = b64({ alg: 'RS256', typ: 'JWT', kid: 'k1' })
+      const claims = b64({ iss: issuer, sub: grant.sub, aud: grant.clientId, iat: now, exp: now + 300, nonce: grant.nonce, email: grant.email, email_verified: true, name: 'IdP Person' })
+      const signature = signData('sha256', Buffer.from(`${head}.${claims}`), privateKey).toString('base64url')
+      return json({ access_token: `at-${grant.sub}`, token_type: 'Bearer', expires_in: 300, id_token: `${head}.${claims}.${signature}` })
+    }
+    if (url.pathname === '/userinfo') return json({ sub: state.as.sub, email: state.as.email, name: 'IdP Person' })
+    res.writeHead(404)
+    res.end()
+  })
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+  const port = (server.address() as { port: number }).port
+  issuer = `http://localhost:${port}`
+  return { issuer, state, close: () => server.close() }
+}
+
+/**
+ * Runs a provider round trip like a browser: the start (sign-in or connect), the provider's
+ * authorize page, then Better Auth's callback route. Returns where the callback sent the browser
+ * and the cookies it set.
+ */
+async function providerRoundTrip(start: { url: string; headers: Headers }, cookies: Headers) {
+  const jar = withCookies(cookies, start.headers)
+  const authorize = await fetch(start.url, { redirect: 'manual' })
+  const callback = authorize.headers.get('location') ?? ''
+  const auth = await getAuth()
+  const response = await auth.handler(new Request(callback, { headers: jar }))
+  return { location: response.headers.get('location') ?? '', headers: withCookies(jar, response.headers) }
+}
+
+await check('sign-in providers: https only, secret encrypted, never an account or a link by email, connect then sign in (counts as two-factor), one link per provider account, archived and disabled refused, delete disconnects', async () => {
+  const idp = await mockOidc()
+  try {
+    // Saving: endpoints are checked, the secret is only stored encrypted.
+    const bad = await fieldErrors(saveAuthProvider(null, { name: 'Bad', kind: 'oidc', discoveryUrl: 'http://idp.example/.well-known/openid-configuration', clientId: 'x' }))
+    ok(bad.discoveryUrl, 'plain http to a real host is refused')
+    ok((await fieldErrors(saveAuthProvider(null, { name: 'Bad', kind: 'oidc', discoveryUrl: 'https://user:pw@idp.example/x', clientId: 'x' }))).discoveryUrl, 'credentials in the address are refused')
+    const manual = await fieldErrors(saveAuthProvider(null, { name: 'Manual', kind: 'oauth2', clientId: 'x' }))
+    ok(manual.authorizationUrl && manual.tokenUrl && manual.userInfoUrl, 'OAuth 2 needs its three endpoints')
+    const versionBefore = await providersVersion()
+    const { provider } = await saveAuthProvider(null, {
+      name: 'Mock IdP',
+      kind: 'oidc',
+      discoveryUrl: `${idp.issuer}/.well-known/openid-configuration`,
+      clientId: 'pet-adopt',
+      clientSecret: 'mock-client-secret',
+      enabled: true,
+    })
+    ok(provider.slug === 'mock-idp' && provider.secretSet && provider.scopes === 'openid email profile', `saved: ${provider.slug} ${provider.scopes}`)
+    ok(provider.redirectUri.endsWith('/api/auth/callback/mock-idp'), `the address to register: ${provider.redirectUri}`)
+    const [stored] = await db.select().from(t.authProviders).where(eq(t.authProviders.id, provider.id))
+    ok(stored.clientSecretEncrypted && !stored.clientSecretEncrypted.includes('mock-client-secret'), 'the client secret is stored encrypted')
+    ok(!('clientSecretEncrypted' in provider), 'the view never carries the secret')
+    ok((await providersVersion()) !== versionBefore, 'saving changes the version other servers watch')
+    const { provider: second } = await saveAuthProvider(null, { name: 'Mock IdP', kind: 'oidc', discoveryUrl: `${idp.issuer}/x`, clientId: 'y' })
+    ok(second.slug === 'mock-idp-2' && !second.enabled, 'names may repeat: the address gets a number; new providers start off')
+    await deleteAuthProvider(second.id)
+    forgetAuth()
+
+    const auth = await getAuth()
+    const base = ip(95)
+    const start = async (headers: Headers) => {
+      const r = await auth.api.signInSocial({ body: { provider: 'mock-idp', callbackURL: '/admin', errorCallbackURL: '/admin/login', disableRedirect: true }, headers, returnHeaders: true })
+      return { url: (r.response as { url: string }).url, headers: r.headers }
+    }
+
+    // A provider account whose email matches an account here is NOT linked by that, and an unknown
+    // one creates nothing.
+    const owner = (await listUsers()).find((u) => u.role === 'admin' && !u.archivedAt)!
+    idp.state.as = { sub: 'idp-owner', email: owner.email }
+    const byEmail = await providerRoundTrip(await start(base), base)
+    ok(byEmail.location.startsWith('/admin/login?error='), `a matching email is not enough: ${byEmail.location}`)
+    ok(!byEmail.headers.get('cookie')?.includes('session_token'), 'and no session')
+    idp.state.as = { sub: 'idp-stranger', email: 'stranger@idp.example' }
+    const usersBefore = (await listUsers()).length
+    const stranger = await providerRoundTrip(await start(base), base)
+    ok(stranger.location.startsWith('/admin/login?error=') && (await listUsers()).length === usersBefore, `a stranger gets no account: ${stranger.location}`)
+
+    // Connecting while signed in (their provider email may differ), then signing in with it.
+    const email = 'provider@example.test'
+    const password = 'provider-password-123'
+    const { id } = await createUser({ email, name: 'Pro Vider', password, role: 'editor' })
+    const signed = await auth.api.signInEmail({ body: { email, password }, headers: base, returnHeaders: true })
+    const session = withCookies(base, signed.headers)
+    idp.state.as = { sub: 'idp-pro', email: 'pro.vider@idp.example' }
+    const link = await auth.api.linkSocialAccount({ body: { provider: 'mock-idp', callbackURL: '/admin/account?connected=mock-idp', errorCallbackURL: '/admin/account', disableRedirect: true }, headers: session, returnHeaders: true })
+    const linked = await providerRoundTrip({ url: (link.response as { url: string }).url, headers: link.headers }, session)
+    ok(linked.location === '/admin/account?connected=mock-idp', `connected: ${linked.location}`)
+    const links = await db.select().from(t.accounts).where(eq(t.accounts.userId, id))
+    const providerLink = links.find((row) => row.providerId === 'mock-idp')
+    ok(providerLink?.accountId === 'idp-pro', 'stored as a link to that provider account')
+    ok(!providerLink?.accessToken || !providerLink.accessToken.includes('at-idp-pro'), 'provider tokens are stored encrypted')
+    ok((await listAuthProviders()).find((p) => p.slug === 'mock-idp')?.connected === 1, 'the admin list counts it')
+
+    const viaProvider = await providerRoundTrip(await start(base), base)
+    ok(viaProvider.location === '/admin', `signed in through the provider: ${viaProvider.location}`)
+    const providerSession = await auth.api.getSession({ headers: viaProvider.headers })
+    ok(providerSession?.user.id === id, 'as the connected account')
+    ok((providerSession?.session as { signInMethod?: string }).signInMethod === 'provider:mock-idp', 'the session records how it signed in')
+    ok((await db.select().from(t.sessions).where(eq(t.sessions.userId, id))).some((row) => row.signInMethod === 'password'), 'password sessions are marked too')
+    await saveTwoFactorRoles(['editor'])
+    const asUser = { id, email, name: 'Pro Vider', role: 'editor' as const, twoFactorEnabled: false }
+    ok(!(await needsTwoFactorSetup({ ...asUser, signInMethod: 'provider:mock-idp' })), 'a provider sign-in counts as two-factor')
+    ok(await needsTwoFactorSetup({ ...asUser, signInMethod: 'password' }), 'a password sign-in still has to set it up')
+    // Changing the password replaces the session; it must still count as a provider sign-in.
+    const changed = await auth.api.changePassword({
+      body: { currentPassword: password, newPassword: 'provider-password-456', revokeOtherSessions: true },
+      headers: viaProvider.headers,
+      returnHeaders: true,
+    })
+    const replaced = await auth.api.getSession({ headers: withCookies(viaProvider.headers, changed.headers) })
+    ok((replaced?.session as { signInMethod?: string } | undefined)?.signInMethod === 'provider:mock-idp', 'a replaced session keeps how it signed in')
+    await saveTwoFactorRoles([])
+    const logged = await db.select().from(t.activityLog).where(eq(t.activityLog.actorId, id))
+    ok(logged.some((row) => row.action === 'account.provider-connect' && row.summary.includes('Mock IdP')), 'connecting is logged')
+    ok(logged.some((row) => row.action === 'auth.sign-in' && row.summary === 'Signed in with Mock IdP'), 'the provider sign-in is logged')
+
+    // That provider account belongs to one account here.
+    const other = await createUser({ email: 'other@example.test', name: 'Oth Er', password, role: 'editor' })
+    const otherSession = withCookies(base, (await auth.api.signInEmail({ body: { email: 'other@example.test', password }, headers: base, returnHeaders: true })).headers)
+    const steal = await auth.api.linkSocialAccount({ body: { provider: 'mock-idp', callbackURL: '/admin/account', errorCallbackURL: '/admin/account', disableRedirect: true }, headers: otherSession, returnHeaders: true })
+    const stolen = await providerRoundTrip({ url: (steal.response as { url: string }).url, headers: steal.headers }, otherSession)
+    ok(stolen.location.includes('error=account_already_linked_to_different_user'), `someone else's provider account cannot be connected: ${stolen.location}`)
+
+    // Archived accounts and disabled providers are refused.
+    await archiveUser(id, { by: owner.id })
+    const archived = await providerRoundTrip(await start(base), base)
+    ok(archived.location.includes(`error=${'ACCOUNT_ARCHIVED'}`), `an archived account is refused: ${archived.location}`)
+    await restoreUser(id)
+    await saveAuthProvider(provider.id, { enabled: false })
+    forgetAuth()
+    const off = await getAuth()
+    ok(
+      (await authCode(off.api.signInSocial({ body: { provider: 'mock-idp', callbackURL: '/admin', disableRedirect: true }, headers: base }))) !== '',
+      'a disabled provider cannot be used',
+    )
+    await saveAuthProvider(provider.id, { enabled: true })
+    forgetAuth()
+
+    // Disconnecting ends it; deleting the provider removes every connection.
+    await disconnectProvider(id, 'mock-idp')
+    const after = await providerRoundTrip(await start(base), base)
+    ok(after.location.startsWith('/admin/login?error='), 'disconnected: no longer signs in')
+    await db.insert(t.accounts).values({ id: 'acct-check', accountId: 'idp-x', providerId: 'mock-idp', userId: other.id, createdAt: new Date(), updatedAt: new Date() })
+    const removed = await deleteAuthProvider(provider.id)
+    forgetAuth()
+    ok(removed.disconnected === 1 && (await db.select().from(t.accounts).where(eq(t.accounts.providerId, 'mock-idp'))).length === 0, 'deleting a provider disconnects everyone')
+    ok(!(await db.select().from(t.accounts).where(eq(t.accounts.userId, id))).every((row) => row.providerId !== 'credential'), 'passwords stay')
+
+    await removeAccount(id)
+    await removeAccount(other.id)
+  } finally {
+    idp.close()
+  }
+})
+
+await check('invites: an account without a password, emailed (or the link to copy), a resend cancels the old link, accepted once, then signs in; expiry, archive and an admin password cancel it; the Invitation email needs {{inviteLink}}', async () => {
+  const email = 'invited@example.test'
+  const { id } = await createUser({ email, name: 'In Vited', role: 'editor', invite: true })
+  const listed = (await listUsers()).find((u) => u.id === id)!
+  ok(listed.invited && !listed.inviteActive, 'invited, with no link yet')
+  ok((await db.select().from(t.accounts).where(eq(t.accounts.userId, id))).length === 0, 'no password at all')
+  const auth = await getAuth()
+  ok((await authCode(auth.api.signInEmail({ body: { email, password: 'any-password-12345' }, headers: ip(97) }))) !== '', 'cannot sign in before accepting')
+
+  // Emailed through the site's sender (a stand-in here), or the link to copy without one.
+  const sent: EmailMessage[] = []
+  const first = await sendInvite(id, 'Ad Min', { send: async (message) => void sent.push(message) })
+  ok(first.sent && sent.length === 1 && sent[0].to === email, 'emailed to them')
+  ok(sent[0].subject.includes('invited') && (sent[0].html ?? '').includes(first.url.replace(/&/g, '&amp;')) && sent[0].text.includes(first.url), 'the email carries the link')
+  ok(sent[0].text.includes('Ad Min') && sent[0].text.includes('Editor') && sent[0].text.includes('7 days'), 'and who invited them, their role and how long it works')
+  ok(first.url.startsWith(`${process.env.NEXT_PUBLIC_SERVER_URL || 'http://localhost:3000'}/admin/invite?token=`), `a link on this site: ${first.url}`)
+  const tokenOf = (url: string) => new URL(url).searchParams.get('token')!
+  ok((await isInviteTokenValid(tokenOf(first.url)))?.name === 'In Vited', 'the link works')
+  const unsent = await sendInvite(id, 'Ad Min', null)
+  ok(!unsent.sent && unsent.problem && unsent.url !== first.url, 'without email: not sent, a link to copy')
+  ok(!(await isInviteTokenValid(tokenOf(first.url))), 'a new invite cancels the older link')
+  const failing = await sendInvite(id, 'Ad Min', { send: async () => { throw new Error('smtp down') } })
+  ok(!failing.sent && /could not be sent/.test(failing.problem ?? ''), 'a failed send still gives the link')
+  const stored = await db.select().from(t.verifications).where(eq(t.verifications.value, id))
+  ok(stored.length === 1 && stored[0].identifier.startsWith('invite:') && !stored[0].identifier.includes(tokenOf(failing.url)), 'one pending invite, stored as a hash')
+  ok((await listUsers()).find((u) => u.id === id)?.inviteActive, 'the list shows it pending')
+
+  // Accepting: checks the password, works once, then they sign in.
+  ok((await fieldErrors(acceptInvite({ token: tokenOf(failing.url), password: 'short' }))).password, 'the password rules apply')
+  ok(/expired or was already used/.test(await userError(acceptInvite({ token: 'x'.repeat(43), password: 'invited-password-1' }))), 'an unknown token is refused')
+  await acceptInvite({ token: tokenOf(failing.url), password: 'invited-password-1' })
+  ok(/expired or was already used/.test(await userError(acceptInvite({ token: tokenOf(failing.url), password: 'another-password-1' }))), 'a link works once')
+  ok((await auth.api.signInEmail({ body: { email, password: 'invited-password-1' }, headers: ip(97) })).user.id === id, 'they sign in with their password')
+  const after = (await listUsers()).find((u) => u.id === id)!
+  ok(!after.invited && !after.inviteActive, 'no longer invited')
+  ok(/already have a password/.test(await userError(sendInvite(id, 'Ad Min', null))), 'no invites once they have a password')
+
+  // Expired links, archiving and an admin's password cancel or end an invite.
+  const second = await createUser({ email: 'invited2@example.test', name: 'Sec Ond', role: 'editor', invite: true })
+  const late = await sendInvite(second.id, 'Ad Min', null)
+  await db.update(t.verifications).set({ expiresAt: new Date(Date.now() - 1000) }).where(eq(t.verifications.value, second.id))
+  ok(!(await isInviteTokenValid(tokenOf(late.url))) && !(await listUsers()).find((u) => u.id === second.id)?.inviteActive, 'an expired invite no longer works')
+  const again = await sendInvite(second.id, 'Ad Min', null)
+  const owner = (await listUsers()).find((u) => u.role === 'admin' && !u.archivedAt)!
+  await archiveUser(second.id, { by: owner.id })
+  ok(!(await isInviteTokenValid(tokenOf(again.url))), 'archiving cancels the invite')
+  ok(/archived/.test(await userError(sendInvite(second.id, 'Ad Min', null))), 'and no new one while archived')
+  await restoreUser(second.id)
+  const third = await sendInvite(second.id, 'Ad Min', null)
+  await resetPassword(second.id, { password: 'admin-set-password-1' })
+  ok(!(await isInviteTokenValid(tokenOf(third.url))) && !(await listUsers()).find((u) => u.id === second.id)?.invited, 'an admin setting a password cancels the invite')
+
+  // The Invitation email: a system email that must carry {{inviteLink}}; other emails cannot use it.
+  const noLink = validateTemplate({ root: { props: { subject: 'Hi' } }, content: [{ type: 'Text', props: { text: 'No link here' } }] }, 'invite')
+  ok(!noLink.ok && noLink.errors.some((e) => /inviteLink/.test(e)), 'an invitation must contain {{inviteLink}}')
+  ok(validateTemplate(DEFAULT_TEMPLATES.invite, 'invite').ok, 'the built-in invitation is valid')
+  const misuse = validateTemplate({ root: { props: { subject: 'Hi' } }, content: [{ type: 'Button', props: { label: 'Go', url: '{{inviteLink}}' } }] }, 'test')
+  ok(!misuse.ok, 'other emails cannot link to {{inviteLink}}')
+  ok((await fieldErrors(createEmailTemplate({ name: 'My invite', purpose: 'invite' }, owner.id))).purpose, 'no library templates for the invitation: it is edited in place')
+
+  await removeAccount(id)
+  await removeAccount(second.id)
+})
+
+await check('profile pictures: checked like uploads, cropped as the browser shows the photo, kept as a 256 px square without metadata, old files removed; a provider picture is used only when there is none, fetched carefully', async () => {
+  const { id } = await createUser({ email: 'avatar@example.test', name: 'Ava Tar', password: 'avatar-password-12', role: 'editor' })
+  const storage = await getStorage()
+  const imageOf = async () => (await listUsers()).find((u) => u.id === id)!.image
+  const fileOf = (url: string | null) => (url ?? '').replace('/media/', '')
+
+  // A 40 x 30 photo: crops must be whole pixels, a square inside the picture, at least 16 px.
+  const photo = await sharp({ create: { width: 40, height: 30, channels: 3, background: '#09f' } }).png().toBuffer()
+  for (const crop of [{ x: 20, y: 0, size: 30 }, { x: 0, y: 0, size: 31 }, { x: -1, y: 0, size: 20 }, { x: 0.5, y: 0, size: 20 }, { x: 0, y: 0, size: 8 }, null]) {
+    ok((await fieldErrors(saveAvatar(id, photo, crop))).crop, `refused crop ${JSON.stringify(crop)}`)
+  }
+  ok((await fieldErrors(saveAvatar(id, Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"/>'), { x: 0, y: 0, size: 16 }))).file, 'SVG is refused')
+  ok((await fieldErrors(saveAvatar(id, Buffer.from('not a picture'), { x: 0, y: 0, size: 16 }))).file, 'junk is refused')
+
+  const first = await saveAvatar(id, photo, { x: 5, y: 0, size: 30 })
+  ok(/^\/media\/avatar-[a-f0-9]{32}\.webp$/.test(first) && (await imageOf()) === first, `stored and set: ${first}`)
+  const stored = await storage.get(fileOf(first))
+  const meta = await sharp(stored!.body).metadata()
+  ok(meta.format === 'webp' && meta.width === AVATAR_SIZE && meta.height === AVATAR_SIZE && !meta.exif, 'a 256 px WebP square with no metadata')
+
+  // A phone photo stored sideways (EXIF orientation 6): 40 x 20 in the file, 20 x 40 upright. The
+  // crop is chosen on the upright picture, as the browser shows it.
+  const sideways = await sharp({ create: { width: 40, height: 20, channels: 3, background: '#f60' } }).jpeg().withMetadata({ orientation: 6 }).toBuffer()
+  const second = await saveAvatar(id, sideways, { x: 0, y: 15, size: 20 })
+  ok((await imageOf()) === second && !(await storage.exists(fileOf(first))), 'replacing deletes the old file')
+
+  ok(await removeAvatar(id), 'removed')
+  ok((await imageOf()) === null && !(await storage.exists(fileOf(second))), 'back to initials, file deleted')
+  ok(!(await removeAvatar(id)), 'nothing to remove twice')
+
+  // A provider picture: only for someone without one, centre-cropped, never from a private address.
+  ok(pictureFromIdToken(`x.${Buffer.from(JSON.stringify({ picture: 'https://img.example/p.png' })).toString('base64url')}.y`) === 'https://img.example/p.png', 'read from the ID token')
+  ok(pictureFromIdToken('not-a-token') === null && pictureFromIdToken(null) === null, 'no token, no picture')
+  ok(await adoptProviderPicture(id, 'https://img.example/p.png', async () => photo), 'used when there is none')
+  const adopted = await imageOf()
+  ok(adopted && (await sharp((await storage.get(fileOf(adopted)))!.body).metadata()).width === AVATAR_SIZE, 'stored the same way')
+  ok(!(await adoptProviderPicture(id, 'https://img.example/q.png', async () => photo)) && (await imageOf()) === adopted, 'a picture someone has is kept')
+  await removeAvatar(id)
+  ok(!(await adoptProviderPicture(id, 'https://img.example/p.png', async () => Buffer.from('junk'))) && (await imageOf()) === null, 'an unreadable picture is not used')
+  ok(!(await adoptProviderPicture(id, 'http://img.example/p.png')) && !(await adoptProviderPicture(id, 'https://127.0.0.1/p.png')) && !(await adoptProviderPicture(id, 'https://localhost/p.png')), 'only https, never a private or local address')
+  for (const address of ['127.0.0.1', '10.1.2.3', '172.16.0.1', '192.168.1.1', '169.254.169.254', '100.64.0.1', '0.0.0.0', '::1', 'fd00::1', 'fe80::1', '::ffff:10.0.0.1']) {
+    ok(isPrivateAddress(address), `${address} is private`)
+  }
+  ok(!isPrivateAddress('93.184.216.34') && !isPrivateAddress('2606:4700::1111'), 'public addresses are fine')
+
+  // Deleting the account deletes its picture.
+  const last = await saveAvatar(id, photo, { x: 0, y: 0, size: 30 })
+  await removeAccount(id)
+  ok(!(await storage.exists(fileOf(last))), 'the picture goes with the account')
+})
+
+await check('email changes: yourself with your password and a link to the new address (the old one is told), confirmed once; an admin at once with notices to both; addresses stay unique; the two emails need their links', async () => {
+  const email = 'mover@example.test'
+  const password = 'mover-password-123'
+  const { id } = await createUser({ email, name: 'Mo Ver', password, role: 'editor' })
+  const auth = await getAuth()
+  const inbox: EmailMessage[] = []
+  const sender = { send: async (message: EmailMessage) => void inbox.push(message) }
+  const tokenIn = (message: EmailMessage) => /token=([A-Za-z0-9_-]{43})/.exec(message.text)?.[1] ?? ''
+
+  // Checks first: password, a real and different address that nobody uses, and the site must email.
+  ok(/cannot send email/.test(await userError(requestEmailChange(id, { email: 'new@example.test', password }, null))), 'without email: ask an admin')
+  ok((await fieldErrors(requestEmailChange(id, { email: 'new@example.test', password: 'wrong-password-1' }, sender))).password, 'the current password is required')
+  ok((await fieldErrors(requestEmailChange(id, { email: 'not an email', password }, sender))).email, 'a real address')
+  ok((await fieldErrors(requestEmailChange(id, { email: email.toUpperCase(), password }, sender))).email, 'a different address')
+  ok((await fieldErrors(requestEmailChange(id, { email: process.env.SEED_ADMIN_EMAIL!, password }, sender))).email, 'nobody else may have it')
+  ok(inbox.length === 0, 'nothing sent for refused requests')
+
+  // A request: the link goes to the new address, a notice to the old one; nothing changes yet.
+  const first = await requestEmailChange(id, { email: 'Mover.New@Example.test', password }, sender)
+  ok(first.email === 'mover.new@example.test', 'stored in lower case')
+  ok(inbox.length === 2 && inbox[0].to === 'mover.new@example.test' && tokenIn(inbox[0]), 'a confirmation link to the new address')
+  ok(inbox[1].to === email && inbox[1].text.includes('mover.new@example.test') && !tokenIn(inbox[1]), 'a notice without the link to the old address')
+  ok((await listUsers()).find((u) => u.id === id)?.email === email, 'nothing changes before it is confirmed')
+  ok((await pendingEmailChange(id))?.email === 'mover.new@example.test', 'the change waits')
+  const stored = (await db.select().from(t.verifications)).filter((row) => row.identifier.startsWith('email-change:'))
+  ok(stored.length === 1 && !stored[0].identifier.includes(tokenIn(inbox[0])), 'one pending change, its token stored as a hash')
+
+  // A second request cancels the first link.
+  const firstToken = tokenIn(inbox[0])
+  await requestEmailChange(id, { email: 'mover.second@example.test', password }, sender)
+  const secondToken = tokenIn(inbox[2])
+  ok(!(await emailChangeFor(firstToken)) && (await emailChangeFor(secondToken))?.email === 'mover.second@example.test', 'a new request cancels the older link')
+
+  // Confirming: once; then the new address signs in and the old one does not.
+  const changed = await confirmEmailChange(secondToken)
+  ok(changed.from === email && changed.to === 'mover.second@example.test', 'confirmed')
+  ok(/expired or was already used/.test(await userError(confirmEmailChange(secondToken))), 'a link works once')
+  ok((await auth.api.signInEmail({ body: { email: 'mover.second@example.test', password }, headers: ip(98) })).user.id === id, 'signs in with the new address')
+  ok((await authCode(auth.api.signInEmail({ body: { email, password }, headers: ip(98) }))) !== '', 'not with the old one')
+  ok(!(await pendingEmailChange(id)), 'nothing pending any more')
+
+  // Expired and cancelled links.
+  await requestEmailChange(id, { email: 'mover.third@example.test', password }, sender)
+  const third = tokenIn(inbox[inbox.length - 2])
+  await db.update(t.verifications).set({ expiresAt: new Date(Date.now() - 1000) }).where(like(t.verifications.identifier, 'email-change:%'))
+  ok(!(await emailChangeFor(third)) && /expired/.test(await userError(confirmEmailChange(third))), 'an expired link does nothing')
+  await requestEmailChange(id, { email: 'mover.fourth@example.test', password }, sender)
+  await cancelEmailChange(id)
+  ok(!(await pendingEmailChange(id)), 'cancelled')
+
+  // An admin: at once, unique, and both addresses are told. The person's own form cannot do it.
+  await updateUser(id, { name: 'Mo Ver', email: 'sneaky@example.test' }, { canChangeRole: false })
+  ok((await listUsers()).find((u) => u.id === id)?.email === 'mover.second@example.test', 'the name form ignores an email')
+  ok((await fieldErrors(updateUser(id, { name: 'Mo Ver', email: process.env.SEED_ADMIN_EMAIL! }, { canChangeRole: true }))).email, 'an admin cannot pick a taken address')
+  ok((await fieldErrors(updateUser(id, { name: 'Mo Ver', email: '' }, { canChangeRole: true }))).email, 'or an empty one')
+  const unchanged = await updateUser(id, { name: 'Mo Ver', email: 'MOVER.second@example.test' }, { canChangeRole: true })
+  ok(unchanged.email === null, 'the same address in other case is no change')
+  const byAdmin = await updateUser(id, { name: 'Mo Ver', email: 'mover.admin@example.test' }, { canChangeRole: true })
+  ok(byAdmin.email?.from === 'mover.second@example.test' && byAdmin.email.to === 'mover.admin@example.test', 'changed at once')
+  const before = inbox.length
+  ok((await sendEmailChangeNotice({ name: 'Mo Ver' }, byAdmin.email!, 'Ad Min', [byAdmin.email!.from, byAdmin.email!.to], sender)) === 2, 'both addresses are told')
+  ok(inbox.slice(before).every((message) => message.text.includes('Ad Min')), 'who asked for it')
+
+  // The two emails: the confirmation must carry {{confirmLink}}, which no other email may use.
+  ok(validateTemplate(DEFAULT_TEMPLATES['email-change'], 'email-change').ok && validateTemplate(DEFAULT_TEMPLATES['email-changed'], 'email-changed').ok, 'the built-in emails are valid')
+  const missing = validateTemplate({ root: { props: { subject: 'Hi' } }, content: [{ type: 'Text', props: { text: 'No link' } }] }, 'email-change')
+  ok(!missing.ok && missing.errors.some((e) => /confirmLink/.test(e)), 'a confirmation must contain {{confirmLink}}')
+  ok(!validateTemplate({ root: { props: { subject: 'Hi' } }, content: [{ type: 'Button', props: { label: 'Go', url: '{{confirmLink}}' } }] }, 'email-changed').ok, 'the notice cannot carry the link')
+
+  await removeAccount(id)
+})
+
+await check('deleting accounts: your own request closes it at once and deletes it after 30 days (an admin can restore it); every deletion anonymises the activity log, removes the picture and counters, and leaves other people alone', async () => {
+  const owner = (await listUsers()).find((u) => u.role === 'admin' && !u.archivedAt)!
+  const ownerActor = { id: owner.id, name: owner.name, role: owner.role }
+  const email = 'leaver@example.test'
+  const password = 'leaver-password-123'
+  const { id } = await createUser({ email, name: 'Lee Ver', password, role: 'editor' })
+  const auth = await getAuth()
+
+  // History about them: their own entries, an admin's entry about them, a failed sign-in on them (with
+  // an address), then a rename, so their entries carry two names. Another person shares the old name.
+  const twin = await createUser({ email: 'twin@example.test', name: 'Lee Ver', password, role: 'editor' })
+  await recordActivity({ actor: { id, name: 'Lee Ver', role: 'editor' }, action: 'pet.update', area: 'pets', summary: 'Updated the pet “Rex”', subject: { id: 42, label: 'Rex' }, fields: ['name'], client: '203.0.113.7' })
+  await recordActivity({ actor: ownerActor, action: 'user.create', area: 'users', summary: 'Added the account “Lee Ver” as Editor', subject: { id, label: 'Lee Ver' } })
+  await recordActivity({ actor: null, action: 'auth.sign-in-failed', area: 'sign-in', summary: 'Failed sign-in to the account “Lee Ver” (wrong password)', subject: { id, label: 'Lee Ver' }, client: '198.51.100.9' })
+  await updateUser(id, { name: 'Lee Renamed' }, { canChangeRole: false })
+  await recordActivity({ actor: { id, name: 'Lee Renamed', role: 'editor' }, action: 'page.update', area: 'pages', summary: 'Saved a draft of “About”', client: '203.0.113.7' })
+  await recordActivity({ actor: { id: twin.id, name: 'Lee Ver', role: 'editor' }, action: 'pet.update', area: 'pets', summary: 'Updated the pet “Lee Ver”', subject: { id: 43, label: 'Lee Ver' } })
+  const signedIn = withCookies(ip(99), (await auth.api.signInEmail({ body: { email, password }, headers: ip(99), returnHeaders: true })).headers)
+  const picture = await saveAvatar(id, await sharp({ create: { width: 20, height: 20, channels: 3, background: '#0a0' } }).png().toBuffer(), { x: 0, y: 0, size: 20 })
+  await consumeAttempt(`chpw:${id}`, PASSWORD_CHANGE_RULE)
+
+  // Asking: the password, not the last admin; then closed at once with a date.
+  ok((await fieldErrors(requestOwnDeletion(id, { password: 'wrong-password-12' }))).password, 'the password is checked')
+  // The last active admin cannot delete their own account: made certain here (other admins are made
+  // editors for the moment), not left to whoever happens to be an admin at this point of the run.
+  const otherAdmins = (await listUsers()).filter((u) => u.role === 'admin' && !u.archivedAt && u.id !== owner.id)
+  for (const other of otherAdmins) await updateUser(other.id, { name: other.name, role: 'editor' }, { canChangeRole: true })
+  ok(/last admin/.test(await userError(requestOwnDeletion(owner.id, { password: process.env.SEED_ADMIN_PASSWORD! }))), 'the last admin cannot delete their account')
+  ok(!(await listUsers()).find((u) => u.id === owner.id)?.archivedAt, 'and stays active')
+  // Two admins asking at the same moment: exactly one gets through, one admin stays.
+  await updateUser(twin.id, { name: 'Lee Ver', role: 'admin' }, { canChangeRole: true })
+  const both = await Promise.allSettled([requestOwnDeletion(owner.id, { password: process.env.SEED_ADMIN_PASSWORD! }), requestOwnDeletion(twin.id, { password })])
+  ok(both.filter((r) => r.status === 'fulfilled').length === 1, 'two admins deleting themselves at once: only one gets through')
+  ok((await listUsers()).filter((u) => u.role === 'admin' && !u.archivedAt).length === 1, 'one active admin remains')
+  for (const user of await listUsers()) if (user.deleteAfter && (user.id === owner.id || user.id === twin.id)) await restoreUser(user.id)
+  await updateUser(twin.id, { name: 'Lee Ver', role: 'editor' }, { canChangeRole: true })
+  for (const other of otherAdmins) await updateUser(other.id, { name: other.name, role: 'admin' }, { canChangeRole: true })
+  const asked = await requestOwnDeletion(id, { password })
+  const days = (asked.deleteAfter.getTime() - Date.now()) / 86_400_000
+  ok(days > DELETION_GRACE_DAYS - 0.01 && days <= DELETION_GRACE_DAYS, `deleted in ${DELETION_GRACE_DAYS} days`)
+  const listed = (await listUsers()).find((u) => u.id === id)!
+  ok(listed.archivedAt && listed.deleteAfter, 'closed now, with its date')
+  ok(!(await auth.api.getSession({ headers: signedIn })), 'signed out everywhere')
+  ok((await authCode(auth.api.signInEmail({ body: { email, password }, headers: ip(99) }))) === 'ACCOUNT_ARCHIVED', 'cannot sign in')
+
+  // An admin can restore it (cancelling the deletion), and the person can ask again.
+  await restoreUser(id)
+  ok(!(await listUsers()).find((u) => u.id === id)?.deleteAfter, 'restoring cancels the deletion')
+  await requestOwnDeletion(id, { password })
+  ok((await purgeDueDeletions()) === 0 && (await listUsers()).some((u) => u.id === id), 'nothing is deleted before its date')
+
+  // After the 30 days: deleted, and the log is anonymised.
+  ok((await purgeDueDeletions(new Date(Date.now() + (DELETION_GRACE_DAYS + 1) * 86_400_000))) === 1, 'deleted on its date')
+  ok(!(await listUsers()).some((u) => u.id === id), 'the account is gone')
+  ok(!(await getStorage().then((s) => s.exists(picture.replace('/media/', '')))), 'its picture is gone')
+  ok((await db.select().from(t.rateLimits).where(like(t.rateLimits.key, `%${id}%`))).length === 0, 'its attempt counters are gone')
+  const log = await db.select().from(t.activityLog)
+  const mentions = (row: (typeof log)[number]) => [row.actorName, row.subjectLabel, row.summary].some((text) => text?.includes('Lee Renamed'))
+  ok(!log.some((row) => row.actorId === id || row.subjectId === id), 'no entry points at the account any more')
+  ok(!log.some(mentions), 'their newer name is nowhere in the log')
+  // Earlier checks deleted accounts too: find this person's label from their own entry.
+  const label = log.find((row) => row.action === 'pet.update' && row.summary === 'Updated the pet “Rex”' && row.actorName?.startsWith('Deleted user'))?.actorName
+  const theirs = log.filter((row) => label && (row.actorName === label || row.subjectLabel === label))
+  ok(label && theirs.length === 5, `their entries carry one anonymous label: ${label} (${theirs.length} entries)`)
+  ok(new Set(theirs.map((row) => (row.actorName === label ? row.actorId : row.subjectId))).size === 1, 'and one id that links to nothing, so they still group together')
+  ok(theirs.every((row) => row.client === null), 'their client addresses are cleared')
+  ok(theirs.some((row) => row.action === 'pet.update' && row.summary === 'Updated the pet “Rex”' && (row.fields ?? []).includes('name')), 'what was done stays')
+  ok(theirs.some((row) => row.action === 'user.create' && row.summary === `Added the account “${label}” as Editor`), 'names inside summaries are replaced')
+  ok(theirs.some((row) => row.action === 'auth.sign-in-failed' && !row.summary.includes('Lee Ver')), 'including under their older name')
+  ok(theirs.some((row) => row.action === 'user.delete' && row.actorId === null && row.summary.includes(label!)), 'the automatic deletion is logged without the name')
+  const twinRows = log.filter((row) => row.actorId === twin.id)
+  ok(twinRows.length === 1 && twinRows[0].actorName === 'Lee Ver' && twinRows[0].summary === 'Updated the pet “Lee Ver”', 'someone else with the same name is untouched')
+
+  // An admin's deletion anonymises the same way.
+  await archiveUser(twin.id, { by: owner.id })
+  const ghost = await deleteUser(twin.id)
+  const after = await db.select().from(t.activityLog).where(eq(t.activityLog.actorId, ghost.id))
+  ok(after.length === 1 && after[0].actorName === ghost.label && !after[0].summary.includes('Lee Ver'), 'an admin deletion anonymises too')
+
+  ok(validateTemplate(DEFAULT_TEMPLATES['account-deletion'], 'account-deletion').ok, 'the Account deletion email is valid')
+})
+
+await check('confirmed emails: new accounts start unconfirmed and cannot change anything until they confirm (only while the site can send email); the link, an accepted invite or a confirmed change confirm; an admin email change unconfirms', async () => {
+  const inbox: EmailMessage[] = []
+  const sender = { send: async (message: EmailMessage) => void inbox.push(message) }
+  const tokenIn = (message: EmailMessage) => /token=([A-Za-z0-9_-]{43})/.exec(message.text)?.[1] ?? ''
+  const verified = async (id: string) => (await listUsers()).find((u) => u.id === id)!.emailVerified
+
+  const { id } = await createUser({ email: 'confirmme@example.test', name: 'Con Firm', password: 'confirm-password-1', role: 'editor' })
+  ok(!(await verified(id)), 'a new account starts unconfirmed')
+  ok(await needsEmailConfirmation({ emailVerified: false }, true), 'unconfirmed and the site can email: changes wait')
+  ok(!(await needsEmailConfirmation({ emailVerified: false }, false)), 'without email the rule is paused (nobody could confirm)')
+  ok(!(await needsEmailConfirmation({ emailVerified: true }, true)), 'confirmed: nothing waits')
+  ok(!(await needsEmailConfirmation({}, true)), 'sessions without the field count as confirmed')
+
+  // The link: to the current address, once.
+  ok(/cannot send email/.test(await userError(requestEmailVerification(id, null))), 'no link without email')
+  const asked = await requestEmailVerification(id, sender)
+  ok(asked.email === 'confirmme@example.test' && inbox.at(-1)?.to === 'confirmme@example.test' && /Confirm your email/.test(inbox.at(-1)!.subject), 'a "Confirm your email" link to their address')
+  const token = tokenIn(inbox.at(-1)!)
+  const page = await emailChangeFor(token)
+  ok(page?.email === 'confirmme@example.test' && page.isChange === false, 'the page knows it is a confirmation, not a change')
+  const done = await confirmEmailChange(token)
+  ok(done.from === done.to && (await verified(id)), 'confirmed, same address')
+  ok(/expired or was already used/.test(await userError(confirmEmailChange(token))), 'a link works once')
+  ok(/already confirmed/.test(await userError(requestEmailVerification(id, sender))), 'nothing to confirm twice')
+
+  // An admin's new address is not confirmed; confirming a change confirms it.
+  await updateUser(id, { name: 'Con Firm', email: 'confirm.admin@example.test' }, { canChangeRole: true })
+  ok(!(await verified(id)), 'an admin email change unconfirms')
+  await requestEmailChange(id, { email: 'confirm.self@example.test', password: 'confirm-password-1' }, sender)
+  const changeToken = tokenIn(inbox.find((m) => m.to === 'confirm.self@example.test')!)
+  await confirmEmailChange(changeToken)
+  ok(await verified(id), 'confirming a change confirms the new address')
+
+  // An accepted invite confirms.
+  const invited = await createUser({ email: 'confirm.invite@example.test', name: 'In Vite', role: 'editor', invite: true })
+  const invite = await sendInvite(invited.id, 'Ad Min', null)
+  await acceptInvite({ token: new URL(invite.url).searchParams.get('token')!, password: 'invited-password-9' })
+  ok(await verified(invited.id), 'accepting an invite confirms the address')
+
+  ok(validateTemplate(DEFAULT_TEMPLATES['email-verify'], 'email-verify').ok, 'the Confirm your email email is valid')
+  await removeAccount(id)
+  await removeAccount(invited.id)
 })
 
 // FK enforcement is on (SQLite needs a pragma)

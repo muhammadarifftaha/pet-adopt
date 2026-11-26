@@ -7,15 +7,18 @@ import { headers } from 'next/headers'
 
 import { getDatabase } from '@/db/client'
 
-import { recordActivity, recordFailedSignIn } from '../activity'
-import { getAuth, MIN_PASSWORD_LENGTH } from '../auth'
-import { isAuthError } from '../auth-errors'
+import { recordActivity, recordArchivedSignIn, recordFailedSignIn } from '../activity'
+import { ACCOUNT_ARCHIVED, getAuth, MIN_PASSWORD_LENGTH } from '../auth'
+import { authErrorCode, isAuthError } from '../auth-errors'
+import { removeAvatar, saveAvatar } from '../avatars'
 import { asRecord, Fields, logError, run, UserError, ValidationError, type ActionResult } from '../result'
 import { getSessionUser, requireUser } from '../session'
 import { clearAttempts, guardPasswordChange, guardSignIn } from '../throttle'
 import { rememberPendingSignIn } from '../two-factor'
 import type { SessionUser, SignInResult } from '../types'
-import { listUsers, updateUser } from '../users'
+import { DELETION_GRACE_DAYS, listUsers, requestOwnDeletion, updateUser } from '../users'
+import { getEmailSender } from '../email'
+import { renderPurposeEmail } from '../email-templates'
 
 const MAX_PASSWORD_LENGTH = 128
 
@@ -55,12 +58,18 @@ export async function signInAction(input: { email: string; password: string }): 
         return { twoFactor: true }
       }
       const user = (result as { user: { id: string; email: string; name: string; role?: string | null; twoFactorEnabled?: boolean | null } }).user
-      const signedIn: SessionUser = { id: user.id, email: user.email, name: user.name, role: asRole(user.role), twoFactorEnabled: Boolean(user.twoFactorEnabled) }
+      const signedIn: SessionUser = { id: user.id, email: user.email, name: user.name, role: asRole(user.role), twoFactorEnabled: Boolean(user.twoFactorEnabled), signInMethod: 'password' }
       await recordActivity({ actor: signedIn, action: 'auth.sign-in', area: 'sign-in', summary: 'Signed in' })
       return { twoFactor: false, user: signedIn }
     } catch (error) {
       if (isAuthError(error)) {
-        // A wrong password, an unknown email and a disabled account all look the same.
+        // The password was right but the account is archived (the session hook in auth.ts). Only
+        // someone who knows the password learns this, so it can say so.
+        if (authErrorCode(error) === ACCOUNT_ARCHIVED) {
+          await recordArchivedSignIn(normalized)
+          throw new UserError('This account is archived. Ask an admin to restore it.')
+        }
+        // A wrong password and an unknown email look the same.
         if (error.status === 401 || error.status === 'UNAUTHORIZED') {
           await recordFailedSignIn(normalized)
           throw new UserError('Incorrect email or password.')
@@ -146,5 +155,59 @@ export async function changePasswordAction(input: { currentPassword: string; new
       }
       throw error
     }
+  })
+}
+
+/**
+ * Your profile picture: FormData with `file` and the square to keep (`x`, `y`, `size`, in pixels of
+ * the upright picture, from the crop tool). Only the 256 px square is kept.
+ */
+export async function uploadAvatarAction(form: FormData): Promise<ActionResult<{ image: string }>> {
+  return run(async () => {
+    const user = await requireUser()
+    const file = form.get('file')
+    if (!(file instanceof Blob)) throw new ValidationError({ file: 'Choose a picture.' })
+    const crop = { x: Number(form.get('x')), y: Number(form.get('y')), size: Number(form.get('size')) }
+    const image = await saveAvatar(user.id, Buffer.from(await file.arrayBuffer()), crop)
+    await recordActivity({ actor: user, action: 'account.avatar', area: 'account', summary: 'Changed their profile picture' })
+    return { image }
+  })
+}
+
+/** Removes your profile picture (back to your initials). */
+export async function removeAvatarAction(): Promise<ActionResult> {
+  return run(async () => {
+    const user = await requireUser()
+    if (await removeAvatar(user.id)) await recordActivity({ actor: user, action: 'account.avatar', area: 'account', summary: 'Removed their profile picture' })
+  })
+}
+
+/**
+ * Deletes your own account (agreed with the owner): `{ password }`. It is closed at once (you are
+ * signed out everywhere and cannot sign in) and deleted for good DELETION_GRACE_DAYS later, when
+ * your name also leaves the activity log; until then an admin can restore it. You get an email
+ * with the date when the site can send email.
+ */
+export async function requestAccountDeletionAction(input: { password: string }): Promise<ActionResult<{ deleteAfter: Date }>> {
+  return run(async () => {
+    const user = await requireUser()
+    const { deleteAfter, name, email } = await requestOwnDeletion(user.id, input)
+    await recordActivity({
+      actor: user,
+      action: 'account.delete-request',
+      area: 'account',
+      summary: `Asked to delete their own account (closed now, deleted after ${DELETION_GRACE_DAYS} days unless an admin restores it)`,
+    })
+    const sender = await getEmailSender()
+    if (sender) {
+      try {
+        const date = new Intl.DateTimeFormat('en-GB', { dateStyle: 'long' }).format(deleteAfter)
+        const message = await renderPurposeEmail({ purpose: 'account-deletion', values: { name, date, days: String(DELETION_GRACE_DAYS) } })
+        await sender.send({ to: email, subject: message.subject, text: message.text, html: message.html })
+      } catch (error) {
+        logError(error, 'account deletion email failed')
+      }
+    }
+    return { deleteAfter }
   })
 }

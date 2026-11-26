@@ -49,12 +49,22 @@ type Announce = (text: string, isError?: boolean) => void
 /** Short names for the kinds of templates people make. */
 const TYPE_LABELS: Record<EmailPurpose, string> = {
   'password-reset': 'System email',
+  invite: 'System email',
+  'email-verify': 'System email',
+  'email-change': 'System email',
+  'email-changed': 'System email',
+  'account-deletion': 'System email',
   test: 'System email',
   'team-notification': 'Team notification',
   'visitor-message': 'Message to a visitor',
 }
 const TYPE_HINTS: Record<EmailPurpose, string> = {
   'password-reset': '',
+  invite: '',
+  'email-verify': '',
+  'email-change': '',
+  'email-changed': '',
+  'account-deletion': '',
   test: '',
   'team-notification': 'To your team; can list the details',
   'visitor-message': 'To someone outside the team; never repeats what they typed',

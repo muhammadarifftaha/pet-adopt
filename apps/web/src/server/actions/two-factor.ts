@@ -97,7 +97,7 @@ export async function verifyTwoFactorAction(input: { code: string; trustDevice?:
         : await auth.api.verifyBackupCode({ body: { code: backup as string, trustDevice }, headers: requestHeaders })
       await forgetPendingSignIn()
       const user = result.user as { id: string; email: string; name: string; role?: string | null }
-      const signedIn: SessionUser = { id: user.id, email: user.email, name: user.name, role: asRole(user.role), twoFactorEnabled: true }
+      const signedIn: SessionUser = { id: user.id, email: user.email, name: user.name, role: asRole(user.role), twoFactorEnabled: true, signInMethod: 'password' }
       let summary = 'Signed in'
       if (backup) summary = `Signed in with a backup code (${(await backupCodesLeft(user.id)) ?? 0} left)`
       await recordActivity({ actor: signedIn, action: 'auth.sign-in', area: 'sign-in', summary })

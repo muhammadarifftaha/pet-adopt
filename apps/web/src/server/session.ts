@@ -18,8 +18,20 @@ export const getSessionUser = cache(async (): Promise<SessionUser | null> => {
   const auth = await getAuth()
   const session = await auth.api.getSession({ headers: requestHeaders })
   if (!session?.user) return null
-  const { id, email, name, role, twoFactorEnabled } = session.user as { id: string; email: string; name: string; role?: string | null; twoFactorEnabled?: boolean | null }
-  return { id, email, name, role: asRole(role), twoFactorEnabled: Boolean(twoFactorEnabled) }
+  const signInMethod = (session.session as { signInMethod?: string | null }).signInMethod || 'password'
+  const { id, email, name, role, twoFactorEnabled, archivedAt, image, emailVerified } = session.user as {
+    id: string
+    emailVerified?: boolean | null
+    image?: string | null
+    email: string
+    name: string
+    role?: string | null
+    twoFactorEnabled?: boolean | null
+    archivedAt?: Date | string | null
+  }
+  // Archiving deletes the account's sessions; this also covers one made at that same moment.
+  if (archivedAt) return null
+  return { id, email, name, role: asRole(role), twoFactorEnabled: Boolean(twoFactorEnabled), signInMethod, image: image ?? null, emailVerified: emailVerified !== false }
 })
 
 /**
@@ -37,7 +49,15 @@ export async function requirePermission(permission: Permission): Promise<Session
   const user = await requireUser()
   // Their role must use two-factor and they have not set it up: nothing else until they do.
   if (await needsTwoFactorSetup(user)) throw new UserError('Set up two-factor sign-in first (your role requires it).')
-  if (can(user.role, permission)) return user
+  if (can(user.role, permission)) {
+    // Every account confirms its email before it changes anything (viewing is fine).
+    // Loaded lazily: email-change reaches the plugin registry, whose host imports this file.
+    const changes = permission.endsWith(':edit') || permission.endsWith(':export')
+    if (changes && (await (await import('./email-change')).needsEmailConfirmation(user))) {
+      throw new UserError('Confirm your email first: use “Send confirmation link” at the top of the admin.')
+    }
+    return user
+  }
   const role = ROLE_INFO[user.role].label
   if (permission === 'personalData:export' || permission === 'activity:export') throw new UserError(`Your role (${role}) cannot download this.`)
   const [area] = permission.split(':') as [string]

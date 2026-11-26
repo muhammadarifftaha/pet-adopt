@@ -29,3 +29,28 @@ export const newPasswordSchema = (minLength: number) =>
     });
 
 export type NewPasswordSchemaType = z.infer<ReturnType<typeof newPasswordSchema>>;
+
+/** Account page: your own name (the server trims it and checks the same limit). */
+export const profileSchema = z.object({
+  name: z.string().trim().min(1, "Enter your name").max(80, "Use at most 80 characters"),
+});
+
+export type ProfileSchemaType = z.infer<typeof profileSchema>;
+
+/** Account page: change your password. The minimum comes from the server (`MIN_PASSWORD_LENGTH`). */
+export const changePasswordSchema = (minLength: number) =>
+  z
+    .object({
+      currentPassword: z.string().min(1, "Enter your current password"),
+      newPassword: z
+        .string()
+        .min(minLength, `Use at least ${minLength} characters`)
+        .max(128, "Use at most 128 characters"),
+      confirm: z.string(),
+    })
+    .refine((v) => v.newPassword === v.confirm, {
+      path: ["confirm"],
+      message: "The passwords do not match",
+    });
+
+export type ChangePasswordSchemaType = z.infer<ReturnType<typeof changePasswordSchema>>;

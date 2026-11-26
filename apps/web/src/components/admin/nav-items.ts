@@ -31,11 +31,14 @@ export const ADMIN_NAV: AdminNavItem[] = [
   { href: '/admin/pets', label: 'Pets', permission: 'pets:view', section: 'content' },
   { href: '/admin/pages', label: 'Pages', permission: 'pages:view', section: 'content' },
   { href: '/admin/media', label: 'Media', permission: 'media:view', section: 'content' },
-  // Settings, in the order agreed with the owner: Email, Theme, Users, Activity, Site settings.
+  // Settings, in the order agreed with the owner: Email, Theme, Users, Authentication, Activity,
+  // Site settings.
   // Email: sending (SMTP) and the email templates.
   { href: '/admin/email', label: 'Email', permission: 'settings:view', section: 'settings' },
   { href: '/admin/theme', label: 'Theme', permission: 'theme:view', section: 'settings' },
   { href: '/admin/users', label: 'Users', permission: 'users:view', section: 'settings' },
+  // Sign-in rules: which roles must use two-factor, and the archived accounts.
+  { href: '/admin/authentication', label: 'Authentication', permission: 'users:view', section: 'settings' },
   // Everyone sees their own entries; admins and audit see everyone's.
   { href: '/admin/activity', label: 'Activity', permission: 'activity:own', section: 'settings' },
   // "Site settings", not "Settings": it sits under the Settings heading.

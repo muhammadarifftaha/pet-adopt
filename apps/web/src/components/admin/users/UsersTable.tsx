@@ -1,8 +1,9 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import React from "react";
-import { FiShieldOff, FiTrash2 } from "react-icons/fi";
+import { FiArchive, FiImage, FiShieldOff } from "react-icons/fi";
 
 import {
   AlertDialog,
@@ -14,17 +15,17 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@pet-adopt/ui/components/alert-dialog";
-import { Avatar, AvatarFallback } from "@pet-adopt/ui/components/avatar";
+import { UserAvatar } from "@/components/admin/UserAvatar";
 import { Badge } from "@pet-adopt/ui/components/badge";
 import { Button } from "@pet-adopt/ui/components/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@pet-adopt/ui/components/table";
-import { initialsOf } from "@/lib/admin/initials";
 import { useViewOnly } from "@/components/admin/view-only";
 import { ROLE_INFO, ROLES } from "@pet-adopt/plugin-sdk";
-import { deleteUserAction } from "@/server/actions/users";
+import { archiveUserAction, removeUserAvatarAction } from "@/server/actions/users";
 import { resetUserTwoFactorAction } from "@/server/actions/two-factor";
 import type { UserListItem } from "@/server/users";
 
+import { ResendInviteDialog } from "./InviteDialogs";
 import { AddUserDialog, EditUserDialog, PasswordDialog, ResetLinkDialog } from "./UserDialogs";
 
 // The admin list of accounts. Every rule (the last admin stays, roles, password length) is
@@ -51,11 +52,14 @@ export function UsersTable({ users, meId, minPasswordLength }: { users: UserList
     },
     [announce, router],
   );
-  const admins = users.filter((user) => user.role === "admin").length;
+  // Archived accounts cannot sign in; they are listed on Authentication > Archived accounts.
+  const active = users.filter((user) => !user.archivedAt);
+  const archived = users.filter((user) => user.archivedAt);
+  const admins = active.filter((user) => user.role === "admin").length;
   // View-only roles (audit) see who has access; adding, editing and deleting are for admins.
   const viewOnly = useViewOnly();
   // "1 admin, 2 editors, 1 audit": only the roles someone has, in the usual order.
-  const roleCounts = ROLES.map((role) => [role, users.filter((user) => user.role === role).length] as const)
+  const roleCounts = ROLES.map((role) => [role, active.filter((user) => user.role === role).length] as const)
     .filter(([, n]) => n > 0)
     .map(([role, n]) => `${n} ${ROLE_INFO[role].label.toLowerCase()}${n === 1 || role === "audit" ? "" : "s"}`)
     .join(", ");
@@ -69,17 +73,26 @@ export function UsersTable({ users, meId, minPasswordLength }: { users: UserList
     return (
       <>
         <EditUserDialog user={user} isMe={isMe} onDone={done} />
-        <ResetLinkDialog user={user} onDone={(text) => announce(text)} />
+        {/* Not accepted yet: a new invite, not a reset link. */}
+        {user.invited ? <ResendInviteDialog user={user} onDone={done} /> : <ResetLinkDialog user={user} onDone={(text) => announce(text)} />}
         <PasswordDialog user={user} isMe={isMe} minPasswordLength={minPasswordLength} onDone={done} />
         {user.twoFactorEnabled && !isMe ? <ResetTwoFactor user={user} announce={announce} onDone={done} /> : null}
-        <DeleteUser user={user} isMe={isMe} isLastAdmin={user.role === "admin" && admins <= 1} announce={announce} onDeleted={deleted} />
+        {user.image && !isMe ? <RemovePicture user={user} announce={announce} onDone={done} /> : null}
+        <ArchiveUser user={user} isMe={isMe} isLastAdmin={user.role === "admin" && admins <= 1} announce={announce} onArchived={deleted} />
       </>
     );
   };
   const badges = (user: UserListItem) => (
     <>
       {user.id === meId ? <Badge variant="outline">You</Badge> : null}
-      {user.banned ? <Badge variant="destructive">Banned</Badge> : null}
+      {!user.invited && !user.emailVerified ? (
+        <Badge variant="outline" title="They have not confirmed their email yet, so they cannot make changes">
+          Email not confirmed
+        </Badge>
+      ) : null}
+      {user.invited ? (
+        <Badge variant="outline">{user.inviteActive ? "Invited" : "Invite expired"}</Badge>
+      ) : null}
       {user.twoFactorEnabled ? (
         <Badge variant="secondary" title="Two-factor sign-in is on">
           2FA<span className="sr-only"> (two-factor sign-in on)</span>
@@ -90,9 +103,7 @@ export function UsersTable({ users, meId, minPasswordLength }: { users: UserList
   // Initials, as in the header's user menu (accounts have no pictures yet). Hidden from screen
   // readers: the name beside it says the same.
   const avatar = (user: UserListItem) => (
-    <Avatar aria-hidden="true">
-      <AvatarFallback>{initialsOf(user.name, user.email)}</AvatarFallback>
-    </Avatar>
+    <UserAvatar name={user.name} email={user.email} image={user.image} />
   );
   const roleBadge = (user: UserListItem) => (
     <Badge variant={user.role === "admin" ? "default" : user.role === "audit" ? "outline" : "secondary"}>{ROLE_INFO[user.role].label}</Badge>
@@ -102,7 +113,15 @@ export function UsersTable({ users, meId, minPasswordLength }: { users: UserList
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center gap-3">
         <p className="mr-auto text-sm text-muted-foreground">
-          {users.length} {users.length === 1 ? "account" : "accounts"}: {roleCounts}
+          {active.length} {active.length === 1 ? "account" : "accounts"}: {roleCounts}
+          {archived.length ? (
+            <>
+              , plus{" "}
+              <Link href="/admin/authentication/archived" className="underline underline-offset-4">
+                {archived.length} archived
+              </Link>
+            </>
+          ) : null}
         </p>
         {viewOnly ? null : <AddUserDialog minPasswordLength={minPasswordLength} onDone={done} />}
       </div>
@@ -121,7 +140,7 @@ export function UsersTable({ users, meId, minPasswordLength }: { users: UserList
       {/* Phones: one card per account, with its buttons underneath (a table would hide them
           off-screen). From sm up: the table. Only one is displayed, so assistive tech gets one. */}
       <ul className="flex flex-col gap-3 sm:hidden" aria-label="Accounts">
-        {users.map((user) => (
+        {active.map((user) => (
           <li key={user.id} className="flex flex-col gap-2 rounded-lg border p-3">
             <span className="flex flex-wrap items-center gap-2">
               {avatar(user)}
@@ -153,7 +172,7 @@ export function UsersTable({ users, meId, minPasswordLength }: { users: UserList
             </TableRow>
           </TableHeader>
           <TableBody>
-            {users.map((user) => (
+            {active.map((user) => (
                 <TableRow key={user.id}>
                   <TableCell>
                     <span className="flex flex-wrap items-center gap-2">
@@ -175,68 +194,75 @@ export function UsersTable({ users, meId, minPasswordLength }: { users: UserList
           </TableBody>
         </Table>
       </div>
+
     </div>
   );
 }
 
-function DeleteUser({
+/**
+ * Archives an account (it cannot sign in; restorable). Not your own, and not the last active admin:
+ * those buttons stay reachable and say why (the server refuses too).
+ */
+function ArchiveUser({
   user,
   isMe,
   isLastAdmin,
   announce,
-  onDeleted,
+  onArchived,
 }: {
   user: UserListItem;
   isMe: boolean;
   isLastAdmin: boolean;
   announce: Announce;
-  onDeleted: (message: string) => void;
+  onArchived: (message: string) => void;
 }) {
   const [open, setOpen] = React.useState(false);
   const [pending, startTransition] = React.useTransition();
 
-  // The last admin cannot be deleted (the server refuses too). The button stays reachable and says why.
-  if (isLastAdmin) {
+  const blocked = isMe
+    ? "You cannot archive your own account. Ask another admin."
+    : isLastAdmin
+      ? "The last admin account cannot be archived. Make someone else an admin first."
+      : null;
+  if (blocked) {
     return (
-      <Button variant="destructive" size="sm" aria-disabled className="cursor-not-allowed opacity-50" onClick={() => announce("The last admin account cannot be deleted. Make someone else an admin first.", true)}>
-        <FiTrash2 aria-hidden />
-        Delete
-        <span className="sr-only">{user.name}: not possible, this is the last admin</span>
+      <Button variant="outline" size="sm" aria-disabled className="cursor-not-allowed opacity-50" onClick={() => announce(blocked, true)}>
+        <FiArchive aria-hidden />
+        Archive
+        <span className="sr-only">{user.name}: not possible, {isMe ? "this is you" : "this is the last admin"}</span>
       </Button>
     );
   }
 
-  function remove() {
+  function archive() {
     if (pending) return;
     startTransition(async () => {
-      const result = await deleteUserAction(user.id);
+      const result = await archiveUserAction(user.id);
       setOpen(false);
-      if (result.ok) onDeleted(`${user.name} was deleted.`);
+      if (result.ok) onArchived(`${user.name} was archived.`);
       else announce(result.error, true);
     });
   }
 
   return (
     <AlertDialog open={open} onOpenChange={setOpen}>
-      {/* The dialog's own trigger, so closing it ("Keep", Escape) returns focus here. */}
-      <AlertDialogTrigger render={<Button variant="destructive" size="sm" aria-disabled={pending || undefined} />}>
-        <FiTrash2 aria-hidden />
-        Delete
+      <AlertDialogTrigger render={<Button variant="outline" size="sm" aria-disabled={pending || undefined} />}>
+        <FiArchive aria-hidden />
+        Archive
         <span className="sr-only">{user.name}</span>
       </AlertDialogTrigger>
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>{isMe ? "Delete your own account?" : `Delete ${user.name}?`}</AlertDialogTitle>
+          <AlertDialogTitle>Archive {user.name}?</AlertDialogTitle>
           <AlertDialogDescription>
-            {isMe
-              ? "You will be signed out at once and cannot sign in again. Pets, pages and images you made stay. This cannot be undone."
-              : `${user.email} can no longer sign in, and is signed out everywhere. Pets, pages and images they made stay. This cannot be undone.`}
+            {user.email} is signed out everywhere and can no longer sign in. Their name stays on what they made and in the activity log. You can restore the
+            account later, or delete it for good.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel>Keep</AlertDialogCancel>
-          <Button variant="destructive" aria-disabled={pending || undefined} onClick={remove}>
-            {pending ? "Deleting…" : isMe ? "Delete my account" : "Delete account"}
+          <Button variant="destructive" aria-disabled={pending || undefined} onClick={archive}>
+            {pending ? "Archiving…" : "Archive account"}
           </Button>
         </AlertDialogFooter>
       </AlertDialogContent>
@@ -278,6 +304,44 @@ function ResetTwoFactor({ user, announce, onDone }: { user: UserListItem; announ
           <AlertDialogCancel>Keep it on</AlertDialogCancel>
           <Button variant="destructive" aria-disabled={pending || undefined} onClick={reset}>
             {pending ? "Turning off…" : "Turn off two-factor"}
+          </Button>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}
+
+/** Removes someone's profile picture (for example an unsuitable one); they can upload another. */
+function RemovePicture({ user, announce, onDone }: { user: UserListItem; announce: Announce; onDone: (message: string) => void }) {
+  const [open, setOpen] = React.useState(false);
+  const [pending, startTransition] = React.useTransition();
+
+  function remove() {
+    if (pending) return;
+    startTransition(async () => {
+      const result = await removeUserAvatarAction(user.id);
+      setOpen(false);
+      if (result.ok) onDone(`The profile picture of ${user.name} was removed.`);
+      else announce(result.error, true);
+    });
+  }
+
+  return (
+    <AlertDialog open={open} onOpenChange={setOpen}>
+      <AlertDialogTrigger render={<Button variant="outline" size="sm" aria-disabled={pending || undefined} />}>
+        <FiImage aria-hidden />
+        Remove picture
+        <span className="sr-only">of {user.name}</span>
+      </AlertDialogTrigger>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Remove the profile picture of {user.name}?</AlertDialogTitle>
+          <AlertDialogDescription>Their initials are shown instead. They can upload another one on their Account page.</AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Keep</AlertDialogCancel>
+          <Button variant="destructive" aria-disabled={pending || undefined} onClick={remove}>
+            {pending ? "Removing…" : "Remove picture"}
           </Button>
         </AlertDialogFooter>
       </AlertDialogContent>

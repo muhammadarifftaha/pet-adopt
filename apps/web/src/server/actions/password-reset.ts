@@ -4,6 +4,7 @@ import { headers } from 'next/headers'
 import { after } from 'next/server'
 
 
+import { acceptInvite } from '../invites'
 import { createResetLink, prepareResetEmail, resetPasswordWithToken } from '../password-reset'
 import { quoted, recordActivity } from '../activity'
 import { getEmailSender } from '../email'
@@ -41,6 +42,15 @@ export async function resetPasswordWithTokenAction(input: { token: string; passw
       summary: 'Set a new password with a reset link (signed out everywhere)',
       subject: { id: user.id, label: user.name },
     })
+  })
+}
+
+/** `{ token, password }` from an invite link (/admin/invite): they choose their first password. */
+export async function acceptInviteAction(input: { token: string; password: string }): Promise<ActionResult> {
+  return run(async () => {
+    const user = await acceptInvite(input)
+    // Nobody is signed in: the link proved who they are, so the entry is theirs.
+    await recordActivity({ actor: user, action: 'auth.invite-accepted', area: 'account', summary: 'Accepted the invite and chose a password', subject: { id: user.id, label: user.name } })
   })
 }
 

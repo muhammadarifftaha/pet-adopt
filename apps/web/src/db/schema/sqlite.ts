@@ -9,7 +9,8 @@
 //
 // The first five tables belong to Better Auth (src/server/auth.ts). They match what
 // `npx @better-auth/cli generate` produces for the Drizzle adapter with `usePlural` and the
-// admin plugin; regenerate and compare if you upgrade Better Auth or add a plugin.
+// two-factor plugin, plus our own `role` and `archived_at` on users; regenerate and compare if you
+// upgrade Better Auth or add a plugin.
 import { sql } from 'drizzle-orm'
 import { index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
 
@@ -37,12 +38,16 @@ export const users = sqliteTable('users', {
     .default(nowMs)
     .$onUpdate(() => new Date())
     .notNull(),
+  // Ours, not a plugin's: declared to Better Auth as additional fields in src/server/auth.ts.
   role: text('role'),
-  banned: integer('banned', { mode: 'boolean' }).default(false),
-  banReason: text('ban_reason'),
-  banExpires: timestamp('ban_expires'),
   // Better Auth's two-factor plugin: true once an authenticator app is set up and confirmed.
   twoFactorEnabled: integer('two_factor_enabled', { mode: 'boolean' }).default(false),
+  // Set when an admin archives the account (src/server/users.ts): it cannot sign in, keeps its name
+  // on what it made, and can be restored, or then deleted.
+  archivedAt: timestamp('archived_at'),
+  // Set when the person asked to delete their own account: archived now, deleted for good after this
+  // (src/server/users.ts, purgeDueDeletions). An admin's restore clears it.
+  deleteAfter: timestamp('delete_after'),
 })
 
 export const sessions = sqliteTable(
@@ -56,11 +61,13 @@ export const sessions = sqliteTable(
       .$onUpdate(() => new Date())
       .notNull(),
     ipAddress: text('ip_address'),
+    // How this session signed in: 'password' (with the code when two-factor is on) or
+    // 'provider:<id>' (a sign-in provider, which counts as two-factor; src/server/auth.ts).
+    signInMethod: text('sign_in_method'),
     userAgent: text('user_agent'),
     userId: text('user_id')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
-    impersonatedBy: text('impersonated_by'),
   },
   (t) => [index('sessions_userId_idx').on(t.userId)],
 )
@@ -346,6 +353,30 @@ export const pluginMigrations = sqliteTable(
 )
 
 // --- Email -------------------------------------------------------------------------------
+
+// Sign-in providers (OAuth 2 / OpenID Connect) admins add on Authentication > Sign-in providers
+// (src/server/auth-providers.ts). `slug` is the provider's id in Better Auth and in the callback
+// address (/api/auth/callback/<slug>), fixed once created. The client secret is only stored
+// encrypted (src/server/secret-box.ts). People connect a provider to their own account first
+// (Better Auth's `accounts` rows, providerId = slug); a provider never creates accounts.
+export const authProviders = sqliteTable('auth_providers', {
+  id: id(),
+  slug: text('slug').notNull().unique(),
+  name: text('name').notNull(),
+  // 'oidc' (discovery URL) or 'oauth2' (the three endpoints by hand).
+  kind: text('kind').notNull(),
+  discoveryUrl: text('discovery_url'),
+  authorizationUrl: text('authorization_url'),
+  tokenUrl: text('token_url'),
+  userInfoUrl: text('user_info_url'),
+  clientId: text('client_id').notNull(),
+  clientSecretEncrypted: text('client_secret_encrypted'),
+  // Space-separated.
+  scopes: text('scopes').notNull(),
+  enabled: flag('enabled'),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+})
 
 // The built-in SMTP sender's settings (src/server/email.ts), one row (id 1), edited in
 // Email > Sending. SMTP_* / EMAIL_* environment variables override single fields. The password is

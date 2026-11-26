@@ -1,0 +1,1 @@
+ALTER TABLE `users` ADD `delete_after` integer;

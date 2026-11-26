@@ -11,12 +11,14 @@
 // to write one is logged and never undoes or fails the change. Inside `withTransaction` the insert
 // joins the open transaction, so code that needs the change and its entry to commit together can
 // call it there.
-import { csvCell, type Role } from '@pet-adopt/plugin-sdk'
+import { asRole, csvCell, type Role } from '@pet-adopt/plugin-sdk'
+import { randomBytes } from 'node:crypto'
+
 import { and, desc, eq, gte, lt, max, or, sql, type SQL } from 'drizzle-orm'
 import { isEqual } from 'es-toolkit'
 import { headers } from 'next/headers'
 
-import { getDatabase } from '@/db/client'
+import { getDatabase, type Db, type Schema } from '@/db/client'
 import { isActivityArea, type ActivityArea } from '@/lib/activity'
 
 import { getPageById } from './pages'
@@ -248,6 +250,8 @@ export async function purgeOldActivitySometimes(): Promise<void> {
   if (Date.now() - purgeState.last < PURGE_EVERY_MS) return
   purgeState.last = Date.now()
   await purgeOldActivity().catch((error) => logError(error, 'could not purge old activity'))
+  // Accounts whose owners asked to delete them, after their 30 days (users.ts).
+  await import('./users').then((users) => users.purgeDueDeletionsSometimes()).catch((error) => logError(error, 'could not delete accounts that are due'))
 }
 
 // --- Helpers for the actions ---------------------------------------------------------------
@@ -283,6 +287,45 @@ export async function recordPageActivity(
 }
 
 /** A failed sign-in. The typed email is never stored; it only finds the account it was meant for. */
+/**
+ * An entry for something a sign-in provider did in its callback route (sign-in, connecting it),
+ * with the account as the actor. `summary` gets the provider's name.
+ */
+export async function recordProviderActivity(userId: string, action: string, providerSlug: string, summary: (provider: string) => string): Promise<void> {
+  try {
+    const { db, t } = await getDatabase()
+    const [user] = await db.select({ id: t.users.id, name: t.users.name, role: t.users.role }).from(t.users).where(eq(t.users.id, userId)).limit(1)
+    if (!user) return
+    const [provider] = await db.select({ name: t.authProviders.name }).from(t.authProviders).where(eq(t.authProviders.slug, providerSlug)).limit(1)
+    await recordActivity({
+      actor: { id: user.id, name: user.name, role: asRole(user.role) },
+      action,
+      area: action.startsWith('auth.') ? 'sign-in' : 'account',
+      summary: summary(provider?.name ?? providerSlug),
+    })
+  } catch (error) {
+    logError(error, `could not record ${action}`)
+  }
+}
+
+/** A sign-in with the right password to an archived account (refused). */
+export async function recordArchivedSignIn(email: string): Promise<void> {
+  try {
+    const { db, t } = await getDatabase()
+    const [account] = await db.select({ id: t.users.id, name: t.users.name }).from(t.users).where(eq(t.users.email, email.trim().toLowerCase().slice(0, 200))).limit(1)
+    if (!account) return
+    await recordActivity({
+      actor: null,
+      action: 'auth.sign-in-archived',
+      area: 'sign-in',
+      summary: `Refused a sign-in to the archived account ${quoted(account.name)} (the password was right)`,
+      subject: { id: account.id, label: account.name },
+    })
+  } catch (error) {
+    logError(error, 'could not record a sign-in to an archived account')
+  }
+}
+
 export async function recordFailedSignIn(email: string, client?: string | null): Promise<void> {
   try {
     const { db, t } = await getDatabase()
@@ -302,4 +345,37 @@ export async function recordFailedSignIn(email: string, client?: string | null):
   } catch (error) {
     logError(error, 'could not record a failed sign-in')
   }
+}
+
+/**
+ * Anonymises a deleted account's entries (agreed with the owner): what was done and when stays (action,
+ * area, time, role, field names); who did it does not. On every entry the person made or that is
+ * about them, their id becomes a new random id that links to nothing (so their entries still group
+ * together), their name becomes "Deleted user <tag>" (also inside summaries, under every name the
+ * entries recorded), and the client address is cleared. Runs inside the deletion's transaction.
+ */
+export async function anonymiseActivity(tx: Db, t: Schema, userId: string, currentName: string): Promise<{ id: string; label: string }> {
+  const label = `Deleted user ${randomBytes(2).toString('hex')}`
+  const ghostId = `deleted-${randomBytes(12).toString('hex')}`
+  const theirs = or(eq(t.activityLog.actorId, userId), eq(t.activityLog.subjectId, userId))
+  // Entries keep the name as it was, so a renamed person appears under older names too.
+  const recorded = await tx
+    .selectDistinct({ actor: t.activityLog.actorName, subject: t.activityLog.subjectLabel, actorId: t.activityLog.actorId })
+    .from(t.activityLog)
+    .where(theirs)
+  const names = new Set<string>([currentName])
+  for (const row of recorded) {
+    if (row.actorId === userId && row.actor) names.add(row.actor)
+    if (row.actorId !== userId && row.subject) names.add(row.subject)
+  }
+  for (const name of names) {
+    if (!name) continue
+    await tx
+      .update(t.activityLog)
+      .set({ summary: sql`replace(${t.activityLog.summary}, ${quoted(name)}, ${quoted(label)})` })
+      .where(theirs)
+  }
+  await tx.update(t.activityLog).set({ actorId: ghostId, actorName: label, client: null }).where(eq(t.activityLog.actorId, userId))
+  await tx.update(t.activityLog).set({ subjectId: ghostId, subjectLabel: label, client: null }).where(eq(t.activityLog.subjectId, userId))
+  return { id: ghostId, label }
 }
