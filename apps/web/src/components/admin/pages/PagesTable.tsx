@@ -49,7 +49,7 @@ import {
   TableRow,
 } from "@pet-adopt/ui/components/table";
 import { cn } from "@/lib/utils";
-import { isSystemPageSlug } from "@/puck/data";
+import { isSystemPageSlug, PET_PAGE_SLUG } from "@/puck/data";
 import {
   archivePageAction,
   deletePageAction,
@@ -63,7 +63,8 @@ import { PageDetails } from "./PageDetails";
 // page's saved versions. Lifecycle: a page is archived first (off the site, read-only), then it
 // can be restored or deleted for good; the server enforces the same rule.
 
-export const pagePath = (slug: string) => (slug === "home" ? "/" : `/${slug}`);
+// The Pet page template has no address of its own: it draws every pet's page, /pets/<pet>.
+export const pagePath = (slug: string) => (slug === "home" ? "/" : slug === PET_PAGE_SLUG ? "/pets/<pet>" : `/${slug}`);
 
 // Module scope: Table v9 needs stable features and columns.
 const features = tableFeatures({
@@ -138,6 +139,8 @@ const columns = helper.columns([
         <code className="text-sm">{pagePath(row.original.slug)}</code>
         {row.original.slug === "home" ? (
           <span className="text-xs text-muted-foreground">Homepage</span>
+        ) : row.original.slug === PET_PAGE_SLUG ? (
+          <span className="text-xs text-muted-foreground">Every pet&rsquo;s page</span>
         ) : null}
       </span>
     ),
@@ -146,7 +149,10 @@ const columns = helper.columns([
     id: "live",
     header: "Live page",
     cell: ({ row }) =>
-      row.original.state === "published" ? (
+      row.original.slug === PET_PAGE_SLUG ? (
+        // A template: there is no one live page to open. Its preview is the pet pages themselves.
+        <span className="text-sm text-muted-foreground">{row.original.state === "published" ? "On every pet’s page" : "Not live"}</span>
+      ) : row.original.state === "published" ? (
         <a
           href={pagePath(row.original.slug)}
           target="_blank"

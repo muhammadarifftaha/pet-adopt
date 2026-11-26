@@ -202,6 +202,8 @@ export const pets = sqliteTable(
     healthNotesDoc: text('health_notes_doc', { mode: 'json' }).$type<RichTextDoc>(),
     temperament: text('temperament', { mode: 'json' }).$type<string[]>().notNull().default(sql`'[]'`),
     goodWith: text('good_with', { mode: 'json' }).$type<string[]>().notNull().default(sql`'[]'`),
+    // Personality notes, a rich-text JSON document like the health notes (no legacy text column).
+    personalityNotesDoc: text('personality_notes_doc', { mode: 'json' }).$type<RichTextDoc>(),
     // Legacy plain text, like `healthNotes` above: read as a document when `descriptionDoc` is empty,
     // never written any more.
     description: text('description'),

@@ -94,6 +94,20 @@ p { margin: 0 0 1em; }
 .section { padding: calc(48px * var(--density)) 0; }
 .spacing-sm { padding: calc(24px * var(--density)) 0; }
 .spacing-lg { padding: calc(80px * var(--density)) 0; }
+/* Padding above and below a block, chosen per block (src/puck/padding.tsx): overrides the padding of
+   the block's outer element. Scaled down on small screens like .section. */
+.block-pad { --pad-scale: 1; }
+.block-pad[data-pt='none'] > * { padding-top: 0; }
+.block-pad[data-pt='sm'] > * { padding-top: calc(24px * var(--density) * var(--pad-scale)); }
+.block-pad[data-pt='md'] > * { padding-top: calc(48px * var(--density) * var(--pad-scale)); }
+.block-pad[data-pt='lg'] > * { padding-top: calc(80px * var(--density) * var(--pad-scale)); }
+.block-pad[data-pt='xl'] > * { padding-top: calc(120px * var(--density) * var(--pad-scale)); }
+.block-pad[data-pb='none'] > * { padding-bottom: 0; }
+.block-pad[data-pb='sm'] > * { padding-bottom: calc(24px * var(--density) * var(--pad-scale)); }
+.block-pad[data-pb='md'] > * { padding-bottom: calc(48px * var(--density) * var(--pad-scale)); }
+.block-pad[data-pb='lg'] > * { padding-bottom: calc(80px * var(--density) * var(--pad-scale)); }
+.block-pad[data-pb='xl'] > * { padding-bottom: calc(120px * var(--density) * var(--pad-scale)); }
+@media (max-width: 800px) { .block-pad { --pad-scale: 0.75; } }
 .section-tint { background: var(--tint); }
 .section-dark { background: var(--band-bg); color: var(--band-ink); }
 .section-dark a:not(.btn) { color: var(--band-link); }
@@ -104,6 +118,11 @@ p { margin: 0 0 1em; }
 .link-more { font-weight: 600; text-decoration: none; }
 .prose { max-width: 720px; }
 .prose ul, .prose ol { padding-left: 1.4em; margin: 0 0 1em; }
+/* Bullets and numbers for lists of content. The live site loads Tailwind, whose reset removes them
+   (ul, ol { list-style: none }); the page builder does not, so without this they showed only there. */
+.prose ul, .pet-profile-list ul, .form-summary ul { list-style: disc; }
+.prose ol, .pet-profile-list ol { list-style: decimal; }
+.prose ul ul, .pet-profile-list ul ul { list-style: circle; }
 .prose li > p { margin: 0; }
 .align-center .prose { margin-left: auto; margin-right: auto; }
 .notice { padding: 12px 16px; background: var(--tint); border-radius: var(--radius); }
@@ -365,6 +384,9 @@ p { margin: 0 0 1em; }
 .pet-profile-list .minor-heading { margin: 1em 0 0.25em; }
 .pet-profile-list ul { margin: 0; padding-left: 1.25em; }
 .pet-profile-list .rich-text p, .pet-profile-list p { margin: 0 0 0.5em; }
+/* Rich text lists (health notes) spaced like the plain lists beside them: a list item holds a <p>. */
+.pet-profile-list .pet-notes ul, .pet-profile-list .pet-notes ol { margin: 0 0 0.5em; padding-left: 1.25em; }
+.pet-profile-list .pet-notes li > p { margin: 0; }
 .pet-profiles > article + article { margin-top: calc(56px * var(--density)); padding-top: calc(56px * var(--density)); border-top: 1px solid var(--line); }
 .section-head + .pet-profiles { margin-top: 8px; }
 
@@ -403,3 +425,57 @@ p { margin: 0 0 1em; }
 .form-actions .btn[aria-disabled="true"] { opacity: 0.6; cursor: not-allowed; }
 /* The honeypot: off screen, not display:none (some bots skip hidden inputs). aria-hidden in the markup. */
 .form-hp { position: absolute; left: -10000px; width: 1px; height: 1px; overflow: hidden; }
+
+/* Pet page template (src/puck/pet-page-config.tsx): the details block's lists and the adopt button. */
+.pet-page-lists { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0 calc(24px * var(--density)); }
+.pet-page-lists-rows { grid-template-columns: minmax(0, 1fr); }
+/* "Gap between rows" (Pet health / Pet personality); Default keeps the headings' own spacing. */
+.pet-page-lists[data-row-gap='sm'] { row-gap: calc(12px * var(--density)); }
+.pet-page-lists[data-row-gap='md'] { row-gap: calc(24px * var(--density)); }
+.pet-page-lists[data-row-gap='lg'] { row-gap: calc(40px * var(--density)); }
+.pet-page-button { margin-top: 20px; }
+/* Pet gallery: a large photo and a strip of thumbnails (shadcn Carousel, keyed to data-slot as above). */
+.pet-gallery-block { display: grid; gap: 12px; }
+.pet-gallery-main { aspect-ratio: 4 / 3; border-radius: var(--radius); }
+.pet-gallery-strip { position: relative; }
+.pet-gallery-strip [data-slot='carousel-content'] { overflow: hidden; }
+.pet-gallery-strip [data-slot='carousel-content'] > div { display: flex; gap: 10px; margin-left: 0; }
+.pet-gallery-strip [data-slot='carousel-item'] { min-width: 0; flex: 0 0 calc((100% - 40px) / 5); padding-left: 0; }
+.pet-gallery-thumb {
+  position: relative; display: block; width: 100%; aspect-ratio: 1; padding: 0; overflow: hidden; cursor: pointer;
+  border: 2px solid transparent; border-radius: var(--radius-sm); background: var(--placeholder); opacity: 0.7;
+}
+.pet-gallery-thumb img { object-fit: cover; }
+.pet-gallery-thumb:hover { opacity: 1; }
+.pet-gallery-thumb[aria-pressed='true'] { opacity: 1; border-color: var(--primary-text); }
+.pet-gallery-thumb:focus-visible { outline: 3px solid var(--primary-text); outline-offset: 2px; opacity: 1; }
+.pet-gallery-strip [data-slot='carousel-previous'], .pet-gallery-strip [data-slot='carousel-next'] {
+  position: absolute; top: 50%; transform: translateY(-50%); display: inline-flex; align-items: center; justify-content: center;
+  width: 32px; height: 32px; padding: 0; border-radius: 999px; border: 1px solid var(--line-strong);
+  background: var(--surface); color: var(--ink); box-shadow: var(--shadow-card); cursor: pointer;
+}
+.pet-gallery-strip [data-slot='carousel-previous'] { left: 4px; }
+.pet-gallery-strip [data-slot='carousel-next'] { right: 4px; }
+/* Embla disables a button when there is nothing to scroll to: hide it then (all thumbnails fit). */
+.pet-gallery-strip [data-slot='carousel-previous']:disabled, .pet-gallery-strip [data-slot='carousel-next']:disabled { display: none; }
+.pet-gallery-strip [data-slot='carousel-previous'] svg, .pet-gallery-strip [data-slot='carousel-next'] svg { width: 16px; height: 16px; }
+.pet-gallery-strip .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+@media (max-width: 480px) {
+  .pet-gallery-strip [data-slot='carousel-item'] { flex-basis: calc((100% - 20px) / 3); }
+}
+
+/* Pet summary with the main photo beside it (left or right); stacked, photo first, when narrow. */
+.pet-summary-media { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: calc(32px * var(--density)); align-items: center; }
+.pet-summary-media[data-photo='right'] .pet-summary-photo { order: 2; }
+.pet-summary-photo { aspect-ratio: 4 / 3; }
+/* "Main photo shape": rounded (the theme's small corner, above), sharp, or round (a circle, so the
+   photo is cropped square, centred in its column and kept to a sensible size). */
+.pet-summary-photo[data-shape='sharp'] { border-radius: 0; }
+.pet-summary-photo[data-shape='round'] { aspect-ratio: 1; border-radius: 50%; width: min(100%, 420px); justify-self: center; }
+.pet-summary-text .facts { margin-bottom: 0; }
+@media (max-width: 800px) {
+  .pet-summary-media { grid-template-columns: minmax(0, 1fr); }
+  .pet-summary-media[data-photo='right'] .pet-summary-photo { order: 0; }
+}
+.pet-status-notice { margin-bottom: 0; }
+.pet-page-top { display: flex; flex-direction: column; gap: 12px; padding-top: 24px; }

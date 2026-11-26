@@ -5,9 +5,10 @@ import { notFound, redirect } from 'next/navigation'
 import React from 'react'
 
 import { BuilderContent } from '@/components/site/BuilderContent'
-import { getSettings } from '@/lib/queries'
+import { getPetPagePreview, getSettings } from '@/lib/queries'
 import { forcedModeCss, resolveTheme } from '@/lib/theme'
-import { isPuckData } from '@/puck/data'
+import { listPetChoicesAction } from '@/puck/actions'
+import { isPuckData, PET_PAGE_SLUG } from '@/puck/data'
 import { getPageById, getPageVersionData } from '@/server/pages'
 import { getSessionUser } from '@/server/session'
 
@@ -15,17 +16,18 @@ import { getSessionUser } from '@/server/session'
 //   /edit/3/preview             the latest draft (or what is live, if it was never edited)
 //   /edit/3/preview?version=7   saved version 7
 //   ...&mode=dark               in the theme's dark colours (the editor layout is light only)
+//   ...&pet=12                  the Pet page template drawn for pet 12 (default: the newest visible pet)
 // The admin pages table shows it in a small iframe. Never cached or indexed.
 export const dynamic = 'force-dynamic'
 export const metadata: Metadata = { title: 'Preview', robots: { index: false, follow: false } }
 
 type Args = {
   params: Promise<{ id: string }>
-  searchParams: Promise<{ version?: string | string[]; mode?: string | string[] }>
+  searchParams: Promise<{ version?: string | string[]; mode?: string | string[]; pet?: string | string[] }>
 }
 
 export default async function PreviewPage({ params, searchParams }: Args) {
-  const [{ id }, { version, mode }] = await Promise.all([params, searchParams])
+  const [{ id }, { version, mode, pet: petParam }] = await Promise.all([params, searchParams])
   const pageId = Number(id)
   if (!Number.isSafeInteger(pageId) || pageId < 1) notFound()
 
@@ -57,10 +59,18 @@ export default async function PreviewPage({ params, searchParams }: Args) {
       </main>
     )
   }
+  // The Pet page template is drawn for a pet, like on the site.
+  let pet = undefined
+  if (page.slug === PET_PAGE_SLUG) {
+    const asked = typeof petParam === 'string' && /^\d{1,9}$/.test(petParam) ? Number(petParam) : null
+    const choices = asked === null ? await listPetChoicesAction() : []
+    const petId = asked ?? (choices.find((choice) => !choice.note) ?? choices[0])?.id
+    pet = petId ? ((await getPetPagePreview(petId)) ?? undefined) : undefined
+  }
   return (
     <main>
       {darkStyle}
-      <BuilderContent data={data as Data} title={page.title} />
+      <BuilderContent data={data as Data} title={pet?.name ?? page.title} pet={pet} />
     </main>
   )
 }

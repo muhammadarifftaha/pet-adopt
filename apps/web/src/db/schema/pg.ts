@@ -200,6 +200,8 @@ export const pets = pgTable(
     healthNotesDoc: jsonb('health_notes_doc').$type<RichTextDoc>(),
     temperament: jsonb('temperament').$type<string[]>().notNull().default(sql`'[]'::jsonb`),
     goodWith: jsonb('good_with').$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+    // Personality notes, a rich-text JSON document like the health notes (no legacy text column).
+    personalityNotesDoc: jsonb('personality_notes_doc').$type<RichTextDoc>(),
     // Legacy plain text, like `healthNotes` above: read as a document when `descriptionDoc` is empty,
     // never written any more.
     description: text('description'),

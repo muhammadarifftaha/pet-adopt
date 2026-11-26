@@ -162,6 +162,13 @@
       "when": 1795691521170,
       "tag": "0022_soft_pixie",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1795698875399,
+      "tag": "0023_fluffy_quasar",
+      "breakpoints": true
     }
   ]
 }

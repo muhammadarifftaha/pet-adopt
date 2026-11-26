@@ -1,4 +1,4 @@
-import { getPetSpotlight, getSettings, queryCatalog, queryPetCards, queryPetProfiles, type CatalogParams } from '@/lib/queries'
+import { getPetSpotlight, getSettings, queryCatalog, queryPetCards, queryPetProfiles, similarPets, type CatalogParams, type PetPageData } from '@/lib/queries'
 import type { SiteSetting } from '@/server/types'
 
 import { fetchPublicForm } from './forms'
@@ -16,7 +16,7 @@ export function toSiteMeta(settings: SiteSetting): PuckSiteMetadata['site'] {
 }
 
 /** Server-side metadata for Puck: site settings plus direct (no network) pet queries. */
-export async function buildSiteMetadata(searchParams?: CatalogParams): Promise<PuckSiteMetadata> {
+export async function buildSiteMetadata(searchParams?: CatalogParams, pet?: PetPageData | null): Promise<PuckSiteMetadata> {
   const settings = await getSettings()
   return {
     site: toSiteMeta(settings),
@@ -26,5 +26,7 @@ export async function buildSiteMetadata(searchParams?: CatalogParams): Promise<P
     fetchCatalog: (params) => queryCatalog(params),
     fetchForm: (id) => fetchPublicForm(id),
     searchParams,
+    pet,
+    fetchSimilarPets: (current, limit) => similarPets(current, limit),
   }
 }

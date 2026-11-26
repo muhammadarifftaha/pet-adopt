@@ -286,6 +286,27 @@ export async function recordPageActivity(
   await recordActivity({ actor, action, area: 'pages', summary: summary(quoted(title)), subject: { id: pageId, label: title }, fields: extra.fields })
 }
 
+/**
+ * Whether this person already has an entry of this kind about this subject in the last `withinMs`.
+ * The page builder's autosave uses it to log a draft at most every 15 minutes, not every few
+ * seconds. A failed read counts as "no", so the entry is written rather than lost.
+ */
+export async function recordedRecently(actorId: string, action: string, subjectId: number | string, withinMs: number): Promise<boolean> {
+  try {
+    const { db, t } = await getDatabase()
+    const since = new Date(Date.now() - withinMs)
+    const [row] = await db
+      .select({ id: t.activityLog.id })
+      .from(t.activityLog)
+      .where(and(eq(t.activityLog.actorId, actorId), eq(t.activityLog.action, action), eq(t.activityLog.subjectId, String(subjectId)), gte(t.activityLog.at, since)))
+      .limit(1)
+    return Boolean(row)
+  } catch (error) {
+    logError(error, 'could not check recent activity')
+    return false
+  }
+}
+
 /** A failed sign-in. The typed email is never stored; it only finds the account it was meant for. */
 /**
  * An entry for something a sign-in provider did in its callback route (sign-in, connecting it),

@@ -187,6 +187,29 @@ export async function queryPetList(filters: PetFilters = {}): Promise<PetSummary
 }
 
 /**
+ * "More pets like this" on a pet's page (agreed with the owner): available, listed pets other than
+ * this one, the same species first, then the same state, then any other, newest first within each.
+ * The one place that decides the order, so a later signal (visitor behaviour, say) is added here
+ * and the block and the page stay as they are.
+ */
+export async function rankSimilarPets(pet: { id: number; species: string; state: string | null }, limit: number): Promise<PetSummary[]> {
+  const want = wholeNumber(limit, 3, 1, 12)
+  const base: PetFilters = { status: PetStatus.Available, limit: want + 1 }
+  const tiers: PetFilters[] = [{ ...base, species: pet.species }, ...(pet.state ? [{ ...base, state: pet.state }] : []), base]
+  const picked: PetSummary[] = []
+  const seen = new Set<number>([pet.id])
+  for (const filters of tiers) {
+    for (const row of await queryPetList(filters)) {
+      if (picked.length >= want) return picked
+      if (seen.has(row.id)) continue
+      seen.add(row.id)
+      picked.push(row)
+    }
+  }
+  return picked
+}
+
+/**
  * The pets a visitor can pick in a form ("Which pet are you applying for?"): listed (the same
  * public rule as every listing) and not adopted, by name. Pending ones are marked.
  */
@@ -259,6 +282,7 @@ function toPet(row: PetRow, photos: MediaItem[], seoImage: MediaItem | null): Pe
     healthNotes: row.healthNotesDoc ?? (row.healthNotes ? plainTextToDoc(row.healthNotes) : null),
     temperament: row.temperament ?? [],
     goodWith: row.goodWith ?? [],
+    personalityNotes: row.personalityNotesDoc ?? null,
     // The document, or an old plain-text description turned into one.
     description: row.descriptionDoc ?? (row.description ? plainTextToDoc(row.description) : null),
     videoUrl: row.videoUrl,
@@ -382,6 +406,9 @@ export async function savePet(id: number | null, raw: unknown): Promise<{ id: nu
   }
   put('temperament', f.list('temperament', TEMPERAMENTS))
   put('goodWith', f.list('goodWith', GOOD_WITH))
+  // A rich-text document (or plain text), like the health notes, with the same length cap.
+  const personalityNotes = f.richText('personalityNotes')
+  if (personalityNotes !== undefined) put('personalityNotesDoc', personalityNotes)
   // Same as the health notes: a document (or plain text), written to the document column; the legacy text column is cleared.
   const description = f.richText('description', { maxChars: DESCRIPTION_MAX_CHARS })
   if (description !== undefined) {

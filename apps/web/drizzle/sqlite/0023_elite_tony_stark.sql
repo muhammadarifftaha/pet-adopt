@@ -1,0 +1,1 @@
+ALTER TABLE `pets` ADD `personality_notes_doc` text;

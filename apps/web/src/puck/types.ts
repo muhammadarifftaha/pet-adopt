@@ -1,6 +1,6 @@
 import type { SocialLink } from '@/components/site/SocialIcons'
 import type { PublicForm } from '@pet-adopt/plugin-form-builder/server'
-import type { CatalogData, CatalogParams, PetCardData, PetFilters, PetSpotlightData } from '@/lib/queries'
+import type { CatalogData, CatalogParams, PetCardData, PetFilters, PetPageData, PetSpotlightData } from '@/lib/queries'
 
 /** What the media picker stores in a block. */
 export type MediaValue = { id: number | string; url: string; alt: string } | null
@@ -29,4 +29,11 @@ export type PuckSiteMetadata = {
   fetchForm?: (id: number) => Promise<PublicForm | null>
   /** The page's query string (filters, page number), on the live site only. */
   searchParams?: CatalogParams
+  /**
+   * The Pet page template only: the pet whose page is drawn (on the site, the one in the address; in
+   * the editor, the "Preview with" pet). Null in the editor until a pet is picked.
+   */
+  pet?: PetPageData | null
+  /** The Pet page template's "More pets like this" (the ranking is rankSimilarPets). */
+  fetchSimilarPets?: (pet: { id: number; species: string; state: string | null }, limit: number) => Promise<PetCardData[]>
 }

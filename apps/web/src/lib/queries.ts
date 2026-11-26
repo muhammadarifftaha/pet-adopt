@@ -157,6 +157,7 @@ export type PetSpotlightData = PetCardData & {
   goodWith: string[]
   description: RichTextDoc | null
   healthNotes: RichTextDoc | null
+  personalityNotes: RichTextDoc | null
 }
 
 const STORY_CHARS = 280
@@ -182,6 +183,7 @@ function toSpotlight(pet: Pet): PetSpotlightData {
     goodWith: pet.goodWith.map((value) => labelFor(GOOD_WITH, value)),
     description: pet.description,
     healthNotes: pet.healthNotes,
+    personalityNotes: pet.personalityNotes,
   }
 }
 
@@ -202,6 +204,57 @@ export async function queryPetProfiles(filters: PetFilters = {}): Promise<PetSpo
     const full = await Promise.all(list.map((summary) => pets.getPetById(summary.id)))
     return full.filter(visible).map(toSpotlight)
   }, [] as PetSpotlightData[])
+}
+
+/**
+ * Everything a pet's page shows (the Pet page template's blocks read it, src/puck/pet-page-config.tsx):
+ * the profile, every photo, and labels for the facts.
+ */
+export type PetPageData = PetSpotlightData & {
+  statusLabel: string
+  photos: Array<{ url: string; alt: string }>
+  sizeLabel: string | null
+  ageLabel: string | null
+  location: string | null
+  state: string | null
+  unlisted: boolean
+}
+
+function toPetPage(pet: Pet): PetPageData {
+  return {
+    ...toSpotlight(pet),
+    statusLabel: labelFor(STATUSES, pet.status),
+    photos: pet.photos.map(mediaOf).filter((m): m is { url: string; alt: string } => Boolean(m)),
+    sizeLabel: pet.size ? labelFor(SIZES, pet.size) : null,
+    ageLabel: pet.ageDescription || (pet.ageGroup ? labelFor(AGE_GROUPS, pet.ageGroup) : null),
+    location: pet.location,
+    state: pet.state,
+    unlisted: pet.unlisted,
+  }
+}
+
+/**
+ * A pet's page by its address: unlisted pets open by link (the page sets noindex), adopted ones
+ * too (their page says so). Null when there is no such pet.
+ */
+export async function getPetPage(slug: string): Promise<PetPageData | null> {
+  return safely(async () => {
+    const pet = await pets.getPetBySlug(slug)
+    return pet ? toPetPage(pet) : null
+  }, null)
+}
+
+/** Any pet by id, for previewing the Pet page template in the editor. */
+export async function getPetPagePreview(id: number): Promise<PetPageData | null> {
+  return safely(async () => {
+    const pet = await pets.getPetById(id)
+    return pet ? toPetPage(pet) : null
+  }, null)
+}
+
+/** "More pets like this" for one pet (the ranking is pets.rankSimilarPets). */
+export async function similarPets(pet: { id: number; species: string; state: string | null }, limit: number): Promise<PetCardData[]> {
+  return safely(async () => (await pets.rankSimilarPets(pet, limit)).map(toPetCard), [] as PetCardData[])
 }
 
 /** The query string of a catalogue page, as Next gives it. */

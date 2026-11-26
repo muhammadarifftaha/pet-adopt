@@ -2,6 +2,7 @@ import Image from 'next/image'
 import Link from 'next/link'
 import React from 'react'
 import type { Config, Fields } from '@puckeditor/core'
+import { withPadding } from './padding'
 
 import { PetCard } from '@/components/site/PetCard'
 import { CopyButton } from '@/components/site/CopyButton'
@@ -60,9 +61,9 @@ const alignField = {
   ],
 } as const
 
-type HeadingStyle = 'normal' | 'display'
+export type HeadingStyle = 'normal' | 'display'
 
-const headingStyleField = {
+export const headingStyleField = {
   type: 'radio',
   label: 'Heading size',
   options: [
@@ -72,7 +73,7 @@ const headingStyleField = {
 } as const
 
 /** The class for a block heading: the usual size, or the very large display size. */
-const headingClass = (style: HeadingStyle | undefined, base = '') => [base, style === 'display' ? 'heading-display' : ''].filter(Boolean).join(' ') || undefined
+export const headingClass = (style: HeadingStyle | undefined, base = '') => [base, style === 'display' ? 'heading-display' : ''].filter(Boolean).join(' ') || undefined
 
 type ButtonStyle = 'primary' | 'outline' | 'dark'
 
@@ -107,7 +108,7 @@ const buttonClass = (style?: ButtonStyle, width?: 'auto' | 'full') =>
  * which reads as 2 (a Hero, as 1). The tag follows the level; the size follows the class
  * (hero-title, block-heading, item-heading, minor-heading), so structure never changes the look.
  */
-type Level = { headingLevel?: 1 | 2 }
+export type Level = { headingLevel?: 1 | 2 }
 
 /** A Hero's heading: <h1>, or <h2> when another heading is already the page's <h1>. */
 function HeroTitle({ level, style, children }: { level?: 1 | 2; style?: HeadingStyle; children: React.ReactNode }) {
@@ -136,7 +137,7 @@ const mediaField = (label: string) =>
     ),
   }) as const
 
-function Section({
+export function Section({
   background = 'none',
   spacing = 'md',
   align = 'left',
@@ -470,7 +471,10 @@ export type PuckComponents = {
 // Blocks are plain presentational components, with no hooks or client-only code.
 // ---------------------------------------------------------------------------
 
-export const config: Config<PuckComponents> = {
+const blocks: Config<PuckComponents> = {
+  // No page fields: Puck's default "title" was never used (the title is on Page settings), and the
+  // page builder shows its preview controls there instead (PageEditor's FieldsPanel).
+  root: { fields: {} },
   categories: {
     layout: { title: 'Sections', components: ['Hero', 'TextSection', 'ImageText', 'Features', 'CallToAction'] },
     media: { title: 'Media', components: ['ImageGallery', 'ImageCarousel', 'Video'] },
@@ -1741,3 +1745,5 @@ export const config: Config<PuckComponents> = {
   },
 }
 
+/** Every block, with the Padding option added to each (src/puck/padding.tsx). */
+export const config: Config<PuckComponents> = withPadding(blocks)

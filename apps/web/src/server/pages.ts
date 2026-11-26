@@ -21,7 +21,7 @@ import { getDatabase, type Db, type Schema } from '@/db/client'
 import type * as S from '@/db/schema/sqlite'
 import { RESERVED_SLUGS } from '@/lib/options'
 import { safeRevalidate } from '@/lib/revalidate'
-import { DEFAULT_HOME_DATA, DEFAULT_PETS_DATA, isPuckData, isSystemPageSlug, stripControlChars, stripTransient } from '@/puck/data'
+import { DEFAULT_HOME_DATA, DEFAULT_PET_PAGE_DATA, DEFAULT_PETS_DATA, isPuckData, PET_PAGE_SLUG, isSystemPageSlug, stripControlChars, stripTransient } from '@/puck/data'
 
 import { getMediaByIds } from './media'
 import { asRecord, Fields, isUniqueViolation, UserError, ValidationError } from './result'
@@ -37,7 +37,11 @@ export const PETS_SLUG = 'pets'
 /** How many snapshots each page keeps. */
 export const KEEP_VERSIONS = 50
 
-const toPath = (slug: string) => (slug === 'home' ? '/' : `/${slug}`)
+/**
+ * What to refresh when a page changes: its address, or for the Pet page template (no address of its
+ * own) every pet's page.
+ */
+const toPath = (slug: string): string | [string, 'page'] => (slug === 'home' ? '/' : slug === PET_PAGE_SLUG ? ['/pets/[slug]', 'page'] : `/${slug}`)
 /** Serialises writes to one page, so version numbers cannot collide. */
 const pageLock = (id: number) => `pages:${id}`
 
@@ -665,6 +669,8 @@ async function assertNotSystem(id: number, verb: 'archived' | 'deleted') {
 export const HOME_ID = 1
 /** The Pets page's id. */
 export const PETS_ID = 2
+/** The Pet page template's id. */
+export const PET_PAGE_ID = 3
 
 type SystemPage = { slug: string; id: number; title: string; data: Data; path: string; label: string; fallback: string }
 
@@ -672,6 +678,7 @@ type SystemPage = { slug: string; id: number; title: string; data: Data; path: s
 const SYSTEM_PAGES: SystemPage[] = [
   { slug: HOME_SLUG, id: HOME_ID, title: 'Home', data: DEFAULT_HOME_DATA, path: '/', label: 'The homepage', fallback: 'homepage' },
   { slug: PETS_SLUG, id: PETS_ID, title: 'Adoptable pets', data: DEFAULT_PETS_DATA, path: '/pets', label: 'The Pets page', fallback: 'catalogue' },
+  { slug: PET_PAGE_SLUG, id: PET_PAGE_ID, title: 'Pet page', data: DEFAULT_PET_PAGE_DATA, path: '/pets', label: 'The Pet page template', fallback: 'pet page layout' },
 ]
 
 /**
@@ -750,6 +757,8 @@ async function ensureSystemPage(def: SystemPage): Promise<'created' | 'moved' | 
 export const ensureHomePage = () => ensureSystemPage(SYSTEM_PAGES[0])
 /** The Pets page at id 2 (see ensureSystemPage). */
 export const ensurePetsPage = () => ensureSystemPage(SYSTEM_PAGES[1])
+/** The Pet page template at id 3 (see ensureSystemPage). */
+export const ensurePetPageTemplate = () => ensureSystemPage(SYSTEM_PAGES[2])
 
 /** Every system page, in order. Runs on start, in the seed, and when the pages list loads. */
 export async function ensureSystemPages(): Promise<void> {
