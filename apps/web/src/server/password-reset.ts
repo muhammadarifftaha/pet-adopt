@@ -14,7 +14,7 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto'
 
 import { and, eq, gt, like, lt } from 'drizzle-orm'
 
-import type { EmailSender } from '@pet-adopt/plugin-sdk'
+import { asRole, type EmailSender, type Role } from '@pet-adopt/plugin-sdk'
 
 import { getDatabase } from '@/db/client'
 
@@ -70,7 +70,7 @@ export async function isResetTokenValid(token: unknown): Promise<boolean> {
 const EXPIRED = 'This reset link has expired or was already used. Ask for a new one.'
 
 /** `{ token, password }`. Sets the new password, ends every session, and uses up the link. */
-export async function resetPasswordWithToken(raw: unknown): Promise<void> {
+export async function resetPasswordWithToken(raw: unknown): Promise<{ id: string; name: string; role: Role }> {
   const input = asRecord(raw)
   const token = typeof input.token === 'string' ? input.token : ''
   if (!TOKEN.test(token)) throw new UserError(EXPIRED)
@@ -82,7 +82,7 @@ export async function resetPasswordWithToken(raw: unknown): Promise<void> {
   const ctx = await (await getAuth()).$context
   const hash = await ctx.password.hash(pass as string)
   const { t, withTransaction } = await getDatabase()
-  const email = await withTransaction(async (tx) => {
+  const user = await withTransaction(async (tx) => {
     // Deleting the row is what claims the link: two requests with the same token cannot both get it.
     const [claimed] = await tx
       .delete(t.verifications)
@@ -90,17 +90,18 @@ export async function resetPasswordWithToken(raw: unknown): Promise<void> {
       .returning({ userId: t.verifications.value })
     if (!claimed) throw new UserError(EXPIRED)
     const [user] = await tx
-      .select({ id: t.users.id, email: t.users.email, banned: t.users.banned })
+      .select({ id: t.users.id, email: t.users.email, name: t.users.name, role: t.users.role, banned: t.users.banned })
       .from(t.users)
       .where(eq(t.users.id, claimed.userId))
       .limit(1)
     if (!user || user.banned) throw new UserError(EXPIRED)
     await writeCredential(tx, t, user.id, hash)
     await tx.delete(t.sessions).where(eq(t.sessions.userId, user.id))
-    return user.email
+    return user
   })
   // They proved who they are, so earlier wrong guesses should not keep them out.
-  await clearLockoutsFor(email).catch((error) => logError(error, 'could not clear sign-in lockouts after a reset'))
+  await clearLockoutsFor(user.email).catch((error) => logError(error, 'could not clear sign-in lockouts after a reset'))
+  return { id: user.id, name: user.name, role: asRole(user.role) }
 }
 
 /**

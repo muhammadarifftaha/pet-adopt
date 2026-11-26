@@ -33,7 +33,7 @@ export async function requirePermission(permission: Permission): Promise<Session
   const user = await requireUser()
   if (can(user.role, permission)) return user
   const role = ROLE_INFO[user.role].label
-  if (permission === 'personalData:export') throw new UserError(`Your role (${role}) cannot download this.`)
+  if (permission === 'personalData:export' || permission === 'activity:export') throw new UserError(`Your role (${role}) cannot download this.`)
   const [area] = permission.split(':') as [string]
   // Say "view only" when they can see it but not do this, so the message matches the screen.
   const viewOnly = permission !== `${area}:view` && can(user.role, `${area}:view` as Permission)

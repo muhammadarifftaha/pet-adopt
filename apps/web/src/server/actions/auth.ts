@@ -5,14 +5,24 @@ import { asRole } from '@pet-adopt/plugin-sdk'
 import { APIError } from 'better-auth/api'
 import { headers } from 'next/headers'
 
+import { recordActivity, recordFailedSignIn } from '../activity'
 import { getAuth, MIN_PASSWORD_LENGTH } from '../auth'
 import { asRecord, Fields, logError, run, UserError, ValidationError, type ActionResult } from '../result'
 import { getSessionUser, requireUser } from '../session'
 import { clearAttempts, guardPasswordChange, guardSignIn } from '../throttle'
 import type { SessionUser } from '../types'
-import { updateUser } from '../users'
+import { listUsers, updateUser } from '../users'
 
 const MAX_PASSWORD_LENGTH = 128
+
+/**
+ * Better Auth's errors. Not `instanceof APIError` alone: inside the Next bundle the error Better Auth
+ * throws can come from another copy of the class than the one `better-auth/api` gives us, and the
+ * check fails (a wrong password then showed "Something went wrong" and was not logged).
+ */
+function isAuthError(error: unknown): error is APIError {
+  return error instanceof APIError || (error instanceof Error && error.name === 'APIError' && 'status' in error)
+}
 
 /** Sign in with email and password. On success the session cookie is already set. */
 export async function signInAction(input: { email: string; password: string }): Promise<ActionResult<SessionUser>> {
@@ -37,11 +47,16 @@ export async function signInAction(input: { email: string; password: string }): 
       })
       await clearAttempts(keys)
       const user = result.user as { id: string; email: string; name: string; role?: string | null }
-      return { id: user.id, email: user.email, name: user.name, role: asRole(user.role) } as SessionUser
+      const signedIn: SessionUser = { id: user.id, email: user.email, name: user.name, role: asRole(user.role) }
+      await recordActivity({ actor: signedIn, action: 'auth.sign-in', area: 'sign-in', summary: 'Signed in' })
+      return signedIn
     } catch (error) {
-      if (error instanceof APIError) {
+      if (isAuthError(error)) {
         // A wrong password, an unknown email and a disabled account all look the same.
-        if (error.status === 401 || error.status === 'UNAUTHORIZED') throw new UserError('Incorrect email or password.')
+        if (error.status === 401 || error.status === 'UNAUTHORIZED') {
+          await recordFailedSignIn(normalized)
+          throw new UserError('Incorrect email or password.')
+        }
         // Anything else (a rejected origin, a server error) is not the person's mistake. Say so, and
         // log it, instead of telling them their password is wrong.
         logError(error, 'sign-in failed')
@@ -54,8 +69,10 @@ export async function signInAction(input: { email: string; password: string }): 
 
 export async function signOutAction(): Promise<ActionResult> {
   return run(async () => {
+    const user = await getSessionUser()
     const auth = await getAuth()
     await auth.api.signOut({ headers: await headers() })
+    if (user) await recordActivity({ actor: user, action: 'auth.sign-out', area: 'sign-in', summary: 'Signed out' })
   })
 }
 
@@ -74,6 +91,11 @@ export async function updateProfileAction(input: { name: string }): Promise<Acti
   return run(async () => {
     const user = await requireUser()
     await updateUser(user.id, { name: asRecord(input).name }, { canChangeRole: false })
+    // Not getSessionUser(): it is cached for the request and still has the old name.
+    const after = (await listUsers()).find((item) => item.id === user.id)
+    if (after && after.name !== user.name) {
+      await recordActivity({ actor: { ...user, name: after.name }, action: 'account.update', area: 'account', summary: 'Changed their own name', fields: ['name'] })
+    }
   })
 }
 
@@ -100,8 +122,9 @@ export async function changePasswordAction(input: { currentPassword: string; new
         headers: await headers(),
       })
       await clearAttempts(keys)
+      await recordActivity({ actor: user, action: 'account.password', area: 'account', summary: 'Changed their own password (signed out on other devices)' })
     } catch (error) {
-      if (error instanceof APIError) {
+      if (isAuthError(error)) {
         // Only a wrong current password is the person's mistake; an expired session or a server
         // error is not.
         if (error.status === 400 || error.status === 'BAD_REQUEST' || error.status === 401 || error.status === 'UNAUTHORIZED') {

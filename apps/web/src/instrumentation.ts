@@ -52,6 +52,11 @@ export async function register() {
     logError(error, 'Could not create the system pages')
   }
 
+  // Activity log entries older than ACTIVITY_LOG_DAYS (default 365). Never throws; it runs again at
+  // most hourly while someone reads the log.
+  const { purgeOldActivitySometimes } = await import('@/server/activity')
+  await purgeOldActivitySometimes()
+
   // A plugin added since the last `pnpm migrate` (PostgreSQL) has no tables yet: say so now, not on
   // the first request that needs them. Its admin screens show the same notice.
   await import('@/plugins/host') // the services plugins reach through `host()`

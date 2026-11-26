@@ -14,6 +14,7 @@ import {
   type PetSpotlightData,
 } from '@/lib/queries'
 import { fetchPublicForm, type PublicForm } from '@/puck/forms'
+import { recordPageActivity } from '@/server/activity'
 import { publishPage, saveDraft } from '@/server/pages'
 import { assertId, toFailure } from '@/server/result'
 import { requirePermission } from '@/server/session'
@@ -28,6 +29,9 @@ async function persist(id: number, data: Data, publish: boolean, baseVersion?: n
     const pageId = assertId(id)
     const base = typeof baseVersion === 'number' && Number.isFinite(baseVersion) ? baseVersion : undefined
     const { version } = publish ? await publishPage(pageId, data, base, user.id) : await saveDraft(pageId, data, base, user.id)
+    await (publish
+      ? recordPageActivity(user, pageId, 'page.publish', (title) => `Published the page ${title}`)
+      : recordPageActivity(user, pageId, 'page.draft', (title) => `Saved a draft of the page ${title}`))
     return { ok: true, message: publish ? 'Published. The live page is updated.' : 'Draft saved.', version }
   } catch (error) {
     return { ok: false, message: toFailure(error).error }

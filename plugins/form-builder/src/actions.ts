@@ -23,6 +23,17 @@ import {
   type FormSummary,
 } from './server'
 
+// Changes (and downloads of responses) go into the site's activity log with host().recordActivity,
+// after they succeed. Reading and marking responses as read are not logged.
+const quoted = (name: string | null | undefined) => `“${(name ?? '').trim() || 'untitled'}”`
+
+/** Which of the form's settings differ (names only: the log holds no values). */
+function changed(before: FormRecord | null, after: FormRecord): string[] {
+  if (!before) return []
+  const labels: Record<string, string> = { name: 'name', description: 'description', fields: 'questions', settings: 'settings', isOpen: 'open or closed' }
+  return Object.keys(labels).filter((key) => JSON.stringify(before[key as keyof FormRecord]) !== JSON.stringify(after[key as keyof FormRecord])).map((key) => labels[key])
+}
+
 // --- Signed-in team (admins and editors) ---------------------------------------------------
 
 export async function listFormsAction(): Promise<ActionResult<FormSummary[]>> {
@@ -43,7 +54,10 @@ export async function getFormAction(id: number): Promise<ActionResult<FormRecord
 export async function createFormAction(input: unknown): Promise<ActionResult<{ id: number }>> {
   return host().run(async () => {
     await host().requirePermission(accessPermission('all', 'edit'))
-    return createForm(input)
+    const created = await createForm(input)
+    const form = await getForm(created.id)
+    await host().recordActivity({ action: 'form-builder.form.create', summary: `Created the form ${quoted(form?.name)}`, subject: { id: created.id, label: form?.name } })
+    return created
   })
 }
 
@@ -51,7 +65,16 @@ export async function createFormAction(input: unknown): Promise<ActionResult<{ i
 export async function updateFormAction(id: number, input: unknown): Promise<ActionResult<FormRecord>> {
   return host().run(async () => {
     await host().requirePermission(accessPermission('all', 'edit'))
-    return updateForm(toFormId(id), input)
+    const formId = toFormId(id)
+    const before = await getForm(formId)
+    const after = await updateForm(formId, input)
+    await host().recordActivity({
+      action: 'form-builder.form.update',
+      summary: `Updated the form ${quoted(after.name)}`,
+      subject: { id: formId, label: after.name },
+      fields: changed(before, after),
+    })
+    return after
   })
 }
 
@@ -59,7 +82,10 @@ export async function updateFormAction(id: number, input: unknown): Promise<Acti
 export async function deleteFormAction(id: number): Promise<ActionResult> {
   return host().run(async () => {
     await host().requirePermission(accessPermission('all', 'edit'))
-    await deleteForm(toFormId(id))
+    const formId = toFormId(id)
+    const before = await getForm(formId)
+    await deleteForm(formId)
+    await host().recordActivity({ action: 'form-builder.form.delete', summary: `Deleted the form ${quoted(before?.name)} and its responses`, subject: { id: formId, label: before?.name } })
   })
 }
 
@@ -81,7 +107,17 @@ export async function markResponsesReadAction(formId: number, ids?: number[]): P
 export async function deleteResponsesAction(formId: number, ids: number[]): Promise<ActionResult<number>> {
   return host().run(async () => {
     await host().requirePermission(accessPermission('personalData', 'edit'))
-    return deleteResponses(toFormId(formId), ids)
+    const id = toFormId(formId)
+    const removed = await deleteResponses(id, ids)
+    if (removed > 0) {
+      const form = await getForm(id)
+      await host().recordActivity({
+        action: 'form-builder.responses.delete',
+        summary: `Deleted ${removed} ${removed === 1 ? 'response' : 'responses'} to the form ${quoted(form?.name)}`,
+        subject: { id, label: form?.name },
+      })
+    }
+    return removed
   })
 }
 
@@ -89,7 +125,11 @@ export async function deleteResponsesAction(formId: number, ids: number[]): Prom
 export async function exportResponsesCsvAction(formId: number): Promise<ActionResult<{ filename: string; csv: string }>> {
   return host().run(async () => {
     await host().requirePermission('personalData:export')
-    return exportResponsesCsv(toFormId(formId))
+    const id = toFormId(formId)
+    const file = await exportResponsesCsv(id)
+    const form = await getForm(id)
+    await host().recordActivity({ action: 'form-builder.responses.export', summary: `Downloaded the responses to the form ${quoted(form?.name)} (CSV)`, subject: { id, label: form?.name } })
+    return file
   })
 }
 

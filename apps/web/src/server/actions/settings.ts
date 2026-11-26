@@ -1,5 +1,6 @@
 'use server'
 
+import { changedFields, recordActivity } from '../activity'
 import { run, type ActionResult } from '../result'
 import { requirePermission } from '../session'
 import { getSettings, updateSettings } from '../settings'
@@ -18,7 +19,11 @@ export async function getSettingsAction(): Promise<ActionResult<SiteSetting>> {
  */
 export async function updateSettingsAction(input: unknown): Promise<ActionResult<SiteSetting>> {
   return run(async () => {
-    await requirePermission('settings:edit')
-    return updateSettings(input)
+    const user = await requirePermission('settings:edit')
+    const before = await getSettings()
+    const after = await updateSettings(input)
+    const fields = changedFields(before, after)
+    if (fields.length) await recordActivity({ actor: user, action: 'settings.update', area: 'settings', summary: 'Changed the site settings', fields })
+    return after
   })
 }
