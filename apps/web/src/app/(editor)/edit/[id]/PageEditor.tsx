@@ -72,6 +72,8 @@ type EditorState = {
   running: SaveKind | null
   /** null when the site has no dark mode (no switch shown). */
   dark: boolean | null
+  /** The theme's dark colours scoped to the canvas, or null without dark mode. */
+  darkCss: string | null
   onDarkChange: (dark: boolean) => void
   readOnly: boolean
   /** The Pet page template's "Preview with" picker; null on every other page. */
@@ -84,14 +86,33 @@ const useEditor = () => {
   return value
 }
 
-function CanvasWrapper({ children }: { children: React.ReactNode }) {
-  const { dark } = useEditor()
+// Inside Puck's iframe (`overrides.iframe`): the canvas is a real document of the chosen viewport's
+// width, so the site's @media rules apply as on a phone or tablet. Puck copies the editor page's
+// styles in (`syncHostStyles`): the site CSS, fonts and theme. The "Dark preview" colours are
+// added here, scoped to this wrapper, because they must reach the blocks and nothing else.
+function CanvasFrame({ children }: { children: React.ReactNode; document?: Document }) {
+  const { dark, darkCss } = useEditor()
   return (
     <div className="editor-canvas" data-mode={dark ? 'dark' : 'light'}>
+      {/* Constant CSS from validated theme values (forcedModeCss), scoped to this wrapper. */}
+      {darkCss ? <style dangerouslySetInnerHTML={{ __html: darkCss }} /> : null}
       {children}
     </div>
   )
 }
+
+// Module-level, like VIEWPORTS: Puck picks a default viewport again whenever the iframe or viewport
+// settings it gets are a new object, so an inline `{ enabled: true }` reset the chosen viewport on
+// every render (every edit and save).
+const IFRAME = { enabled: true }
+
+// The viewport switcher under the canvas: widths around the site's own breakpoints (480 and 800 px).
+const VIEWPORTS = [
+  { width: 390, height: 'auto' as const, icon: 'Smartphone' as const, label: 'Phone' },
+  { width: 768, height: 'auto' as const, icon: 'Tablet' as const, label: 'Tablet' },
+  { width: 1280, height: 'auto' as const, icon: 'Monitor' as const, label: 'Laptop' },
+  { width: '100%' as const, height: 'auto' as const, icon: 'FullWidth' as const, label: 'Full width' },
+]
 
 // The address "View live" opens, or null while there is none: the page is not live, or (Pet page
 // template, which has no address of its own) no pet is picked; then it opens the previewed pet's page.
@@ -429,7 +450,7 @@ function useDraftSaver({
 }
 
 // Module-level, so it is the same object on every render (see EditorContext).
-const OVERRIDES = { preview: CanvasWrapper, headerActions: HeaderActions, fields: FieldsPanel }
+const OVERRIDES = { iframe: CanvasFrame, headerActions: HeaderActions, fields: FieldsPanel }
 
 // Every editing permission off: blocks cannot be dragged, added, changed, removed or copied, and
 // Puck shows every field read-only (custom fields get `readOnly` too, see the pickers).
@@ -477,7 +498,7 @@ export function PageEditor({ pageId, title, slug, status: initialStatus, version
     [choices, pet, loadingPet],
   )
   const editor = useMemo<EditorState>(
-    () => ({ pageId, slug, status, save, saveState, running, nothingToPublish, dark: darkCss ? dark : null, onDarkChange: setDark, readOnly, petPicker }),
+    () => ({ pageId, slug, status, save, saveState, running, nothingToPublish, dark: darkCss ? dark : null, darkCss, onDarkChange: setDark, readOnly, petPicker }),
     [pageId, slug, status, save, saveState, running, nothingToPublish, darkCss, dark, readOnly, petPicker],
   )
   // Blocks read site settings and fetch live pets through Puck's metadata. Memoised: Puck copies a
@@ -498,8 +519,6 @@ export function PageEditor({ pageId, title, slug, status: initialStatus, version
 
   return (
     <EditorContext.Provider value={editor}>
-    {/* Constant CSS from validated theme values, scoped to the canvas wrapper. */}
-    {darkCss && <style dangerouslySetInnerHTML={{ __html: darkCss }} />}
     {toast}
     <Puck
       config={isPetPage ? PET_PAGE_CONFIG : SITE_CONFIG}
@@ -508,9 +527,10 @@ export function PageEditor({ pageId, title, slug, status: initialStatus, version
       onChange={saver.onChange}
       headerTitle={title}
       headerPath={isPetPage ? '/pets/…' : slug === 'home' ? '/' : `/${slug}`}
-      // The preview renders in the page itself so it picks up the site's real styles.
-      iframe={{ enabled: false }}
-      // Wraps the canvas so the site's dark colours can apply to the blocks only, not to the editor.
+      // The canvas is an iframe (Puck copies this page's styles into it), so the viewport switcher
+      // under it shows the site at phone and tablet widths with its real @media rules.
+      iframe={IFRAME}
+      viewports={VIEWPORTS}
       // The header buttons replace Puck's default Publish (the deprecated `renderHeaderActions`).
       overrides={OVERRIDES}
       plugins={PLUGINS}

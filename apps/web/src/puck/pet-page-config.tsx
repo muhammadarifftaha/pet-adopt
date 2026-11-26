@@ -41,6 +41,8 @@ type PetSummaryProps = Level & {
   headingStyle?: HeadingStyle
   /** The pet's main photo beside the summary. Missing means none (the original look). */
   photo?: 'none' | 'left' | 'right'
+  /** The main photo's shape. Missing (or anything unknown) means rounded, the original look. */
+  photoShape?: 'rounded' | 'sharp' | 'round'
   showStatus?: boolean
   showFacts?: boolean
 }
@@ -214,11 +216,20 @@ const petBlocks: Config<PetPageComponents> = {
             { label: 'Right', value: 'right' },
           ],
         },
+        photoShape: {
+          type: 'radio',
+          label: 'Main photo shape',
+          options: [
+            { label: 'Rounded', value: 'rounded' },
+            { label: 'Sharp', value: 'sharp' },
+            { label: 'Round', value: 'round' },
+          ],
+        },
         showStatus: toggle('Status badge'),
         showFacts: toggle('Facts (species, breed, sex, age, size, colour, location)'),
       } as Fields<PetSummaryProps>,
-      defaultProps: { headingStyle: 'normal', photo: 'none', showStatus: true, showFacts: true },
-      render: ({ headingLevel, headingStyle, photo, showStatus, showFacts, puck }) => {
+      defaultProps: { headingStyle: 'normal', photo: 'none', photoShape: 'rounded', showStatus: true, showFacts: true },
+      render: ({ headingLevel, headingStyle, photo, photoShape, showStatus, showFacts, puck }) => {
         const pet = petOf(puck)
         if (!pet) return puck.isEditing ? <NoPet what="The pet’s name, status and facts" /> : <></>
         // The pet's name is the page's heading: <h1> on the site (the first heading of the page).
@@ -249,7 +260,7 @@ const petBlocks: Config<PetPageComponents> = {
         return (
           <Section>
             <div className="pet-summary-media" data-photo={photo}>
-              <div className="pet-photo pet-summary-photo">
+              <div className="pet-photo pet-summary-photo" data-shape={photoShape === 'sharp' || photoShape === 'round' ? photoShape : undefined}>
                 <Image src={main.url} alt={main.alt || pet.name} fill priority sizes="(max-width: 800px) 100vw, 45vw" />
               </div>
               <div className="pet-summary-text">{summary}</div>

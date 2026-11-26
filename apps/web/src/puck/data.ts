@@ -113,7 +113,7 @@ export const DEFAULT_PET_PAGE_DATA: Data = {
   zones: {},
   content: [
     { type: 'PetGallery', props: { id: 'pet-gallery', thumbnails: 'below' } },
-    { type: 'PetSummary', props: { id: 'pet-summary', headingStyle: 'normal', photo: 'none', showStatus: true, showFacts: true } },
+    { type: 'PetSummary', props: { id: 'pet-summary', headingStyle: 'normal', photo: 'none', photoShape: 'rounded', showStatus: true, showFacts: true } },
     { type: 'PetDescription', props: { id: 'pet-description', showButton: true, buttonLabel: '' } },
     { type: 'PetHealth', props: { id: 'pet-health', heading: 'Health', showChecks: true, showNotes: true, layout: 'columns', rowGap: 'default' } },
     { type: 'PetPersonality', props: { id: 'pet-personality', heading: 'Personality', showTemperament: true, showGoodWith: true, showNotes: true, layout: 'columns', rowGap: 'default' } },
