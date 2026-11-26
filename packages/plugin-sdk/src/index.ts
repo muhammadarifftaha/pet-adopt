@@ -288,12 +288,12 @@ export type Plugin = {
   /** Its own tables and the migrations that create them. */
   storage?: PluginStorage
   /**
-   * Which of the site's email templates it uses, for the "Used by" column of Settings > Email
+   * Which of the site's email templates it uses, for the "Used by" column of Email > Sending
    * templates and the warning before one is deleted. Server-only; a failure leaves the column empty.
    */
   emailTemplateUsage?: () => Promise<EmailTemplateUse[]>
   /**
-   * Default templates this plugin ships. Each is created in Settings > Email templates at server
+   * Default templates this plugin ships. Each is created in Email > Templates at server
    * start if missing (as `<plugin name>:<key>`), can be edited and restored but not deleted, and is
    * what `sendTemplatedEmail({ fallback })` uses when no other template is picked, so the plugin's
    * emails always have a template.
@@ -424,7 +424,7 @@ export type PluginHost = {
   /** Logs an error without the values a failed database query carries. Never log error objects yourself. */
   logError(error: unknown, context?: string): void
   /**
-   * Sends an email through the site's templates (Settings > Email templates): a team notification
+   * Sends an email through the site's templates (Email > Templates): a team notification
    * or a message to a visitor. Uses the template `templateId` when it exists and has that purpose,
    * else the built-in one. `details` are only used for team notifications (a message to a visitor
    * never repeats what someone typed). Resolves false when the site cannot send email; rejects when

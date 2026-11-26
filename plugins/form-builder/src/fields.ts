@@ -57,7 +57,7 @@ export type FormSettings = {
   successMessage?: string
   /** Where to email each new response, when the site can send email. */
   notifyEmail?: string
-  /** The site's email template for that notification (Settings > Templates); missing: the default. */
+  /** The site's email template for that notification (Email > Templates); missing: the default. */
   notifyTemplateId?: number
   /**
    * Email the visitor a confirmation, to the address they gave in this Email question (opt-in).

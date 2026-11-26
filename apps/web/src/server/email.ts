@@ -1,5 +1,5 @@
 // The site's email (password reset links, form notifications, test emails). Agreed with the owner:
-//  - Built in: a generic SMTP sender, configured in Settings > Email by admins and developers
+//  - Built in: a generic SMTP sender, configured in Email > Sending by admins and developers
 //    (`settings:edit`; audit can view). Every provider that matters offers SMTP.
 //  - Environment variables override single fields (SMTP_HOST, SMTP_PORT, SMTP_SECURITY, SMTP_USER,
 //    SMTP_PASSWORD, EMAIL_FROM, EMAIL_REPLY_TO); the form shows those read-only.
@@ -339,8 +339,26 @@ function smtpStatus(smtp: ResolvedSmtp): EmailStatus {
       { label: 'Server', value: config.host ? `${config.host}:${config.port}` : 'Not set' },
       { label: 'Sender', value: config.fromAddress ? (config.fromName ? `${config.fromName} <${config.fromAddress}>` : config.fromAddress) : 'Not set' },
     ],
-    setup: 'Fill in Settings > Email, or set the SMTP_* and EMAIL_FROM environment variables.',
+    setup: 'Fill in Email > Sending, or set the SMTP_* and EMAIL_FROM environment variables.',
   }
+}
+
+/** `localhost`, `*.localhost`, 127.x.x.x or ::1: a mail server on this machine (Mailpit, say). */
+export function isLoopbackHost(host: string | null | undefined): boolean {
+  const name = (host ?? '').trim().toLowerCase().replace(/^\[|\]$/g, '')
+  return name === 'localhost' || name.endsWith('.localhost') || /^127(\.\d{1,3}){3}$/.test(name) || name === '::1'
+}
+
+/**
+ * Whether test emails go to a mail server on this machine: the built-in SMTP sender is in use (no
+ * ready email plugin) and its host is a loopback address. Then nothing leaves the machine, so test
+ * sends are not limited (agreed with the owner: designing templates against Mailpit needs many).
+ */
+export async function sendsToLocalServer(): Promise<boolean> {
+  const plugin = getEmailPlugin()
+  if (plugin && (!plugin.sender.status || plugin.sender.status().ready)) return false
+  const smtp = await resolveSmtp()
+  return smtp.ready && isLoopbackHost(smtp.config.host)
 }
 
 /**

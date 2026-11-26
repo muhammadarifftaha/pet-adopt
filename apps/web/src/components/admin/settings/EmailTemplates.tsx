@@ -32,7 +32,7 @@ import {
 } from '@/server/actions/email-templates'
 import type { EmailTemplateSummary } from '@/server/email-templates'
 
-// Settings > Email templates, as one table:
+// Email > Templates, as one table:
 //  - System emails first (password reset, test email): one each, edited in place, with "Restore
 //    default" (back to the built-in version).
 //  - Then every other template, as many as people like. A template is used only where something

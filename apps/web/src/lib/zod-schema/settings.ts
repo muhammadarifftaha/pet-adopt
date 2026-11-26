@@ -10,7 +10,8 @@ import type { SiteSetting } from "@/server/types";
 // has its own screen (/admin/theme).
 
 const MAX_LIST_ITEMS = 20;
-const mediaRef = z.object({ id: z.number().int().positive(), thumbnailUrl: z.string(), alt: z.string() });
+// `url` is the original: logos and icons are previewed whole (thumbnails are 4:3 crops).
+const mediaRef = z.object({ id: z.number().int().positive(), url: z.string(), thumbnailUrl: z.string(), alt: z.string() });
 const check = (result: true | string) => result === true;
 const platformValues = SOCIAL_PLATFORMS.map((option) => option.value) as [string, ...string[]];
 
@@ -67,8 +68,8 @@ export function settingsToFormValues(settings: SiteSetting): SettingsFormValues 
   return {
     siteName: settings.siteName ?? "",
     tagline: settings.tagline ?? "",
-    logo: settings.logo ? { id: settings.logo.id, thumbnailUrl: settings.logo.thumbnailUrl, alt: settings.logo.alt } : null,
-    favicon: settings.favicon ? { id: settings.favicon.id, thumbnailUrl: settings.favicon.thumbnailUrl, alt: settings.favicon.alt } : null,
+    logo: settings.logo ? { id: settings.logo.id, url: settings.logo.url, thumbnailUrl: settings.logo.thumbnailUrl, alt: settings.logo.alt } : null,
+    favicon: settings.favicon ? { id: settings.favicon.id, url: settings.favicon.url, thumbnailUrl: settings.favicon.thumbnailUrl, alt: settings.favicon.alt } : null,
     allowModeToggle: settings.allowModeToggle,
     whatsappNumber: settings.whatsappNumber ?? "",
     whatsappMessage: settings.whatsappMessage ?? "",

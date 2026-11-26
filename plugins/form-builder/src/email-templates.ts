@@ -1,6 +1,6 @@
 import type { PluginEmailTemplate } from '@pet-adopt/plugin-sdk'
 
-// The form builder's default email templates, seeded into Settings > Email templates at start (as
+// The form builder's default email templates, seeded into Email > Templates at start (as
 // `form-builder:notification` and `form-builder:confirmation`). People can edit and restore them,
 // not delete them, and a form that picks no other template uses them, so a form's emails always
 // have a template. The layouts use the site's template blocks (Heading, Text, Details); {{title}} is

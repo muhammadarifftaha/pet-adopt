@@ -29,7 +29,7 @@ export const formBuilder = definePlugin<{ title?: string } | void>((options) => 
   description: 'Build forms for the site, such as adoption applications or volunteer sign-ups, and read the responses.',
   storage: formBuilderStorage,
   // Its default email templates (seeded at start; forms that pick no other use them), and which forms
-  // use which template (the "Used by" column of Settings > Email templates).
+  // use which template (the "Used by" column of Email > Templates).
   emailTemplates: FORM_EMAIL_TEMPLATES,
   emailTemplateUsage,
   screens: [

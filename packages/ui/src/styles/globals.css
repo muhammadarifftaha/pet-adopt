@@ -43,11 +43,13 @@
     --color-sidebar-ring: var(--primary-text);
     --color-sidebar-border: var(--line);
     --color-sidebar-accent-foreground: var(--ink);
-    --color-sidebar-accent: var(--tint);
+    /* Hover and the current item: a visible step from the sidebar colour (--sidebar-accent, theme.ts). */
+    --color-sidebar-accent: var(--sidebar-accent, var(--tint));
     --color-sidebar-primary-foreground: var(--on-primary);
     --color-sidebar-primary: var(--primary);
     --color-sidebar-foreground: var(--ink);
-    --color-sidebar: var(--surface);
+    /* Slightly darker than the page in light mode, the surface in dark (--sidebar-bg, src/lib/theme.ts). */
+    --color-sidebar: var(--sidebar-bg, var(--surface));
     /* Not driven by the site theme: shadcn's defaults. */
     --color-chart-5: var(--chart-5);
     --color-chart-4: var(--chart-4);

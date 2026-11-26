@@ -323,7 +323,7 @@ export const pluginMigrations = pgTable(
 // --- Email -------------------------------------------------------------------------------
 
 // The built-in SMTP sender's settings (src/server/email.ts), one row (id 1), edited in
-// Settings > Email. SMTP_* / EMAIL_* environment variables override single fields. The password is
+// Email > Sending. SMTP_* / EMAIL_* environment variables override single fields. The password is
 // only stored encrypted (AES-256-GCM, key derived from BETTER_AUTH_SECRET; src/server/secret-box.ts)
 // and never sent back to a browser.
 export const emailSettings = pgTable('email_settings', {

@@ -112,6 +112,7 @@ export function formFieldFor(serverField: string): FieldName | null {
 
 const toRef = (media: MediaItem): PetFormMedia => ({
   id: media.id,
+  url: media.url,
   thumbnailUrl: media.thumbnailUrl,
   alt: media.alt,
 });

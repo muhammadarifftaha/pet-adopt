@@ -12,6 +12,7 @@ import {
   SidebarTrigger,
 } from "@pet-adopt/ui/components/sidebar";
 import { getSettings } from "@/lib/queries";
+import { resolveTheme } from "@/lib/theme";
 import { getPluginNav } from "@/plugins/registry";
 import type { SessionUser } from "@/server/types";
 
@@ -34,7 +35,7 @@ export async function AdminShell({
   const [cookieStore, settings] = await Promise.all([cookies(), getSettings()]);
   const defaultOpen = cookieStore.get("sidebar_state")?.value !== "false";
   // The site's own name and logo (Settings > Brand), so owners see whose admin this is.
-  const logo = settings.logo?.thumbnailUrl ? settings.logo : null;
+  const logo = settings.logo?.url ? settings.logo : null;
 
   return (
     <SidebarProvider defaultOpen={defaultOpen}>
@@ -55,7 +56,8 @@ export async function AdminShell({
             {/* Decorative: the site name beside it is the link's text. */}
             {logo ? (
               <Image
-                src={logo.thumbnailUrl}
+                // The original, scaled to fit (thumbnails are 4:3 crops that cut a logo's edges).
+                src={logo.url}
                 alt=""
                 width={32}
                 height={32}
@@ -64,7 +66,7 @@ export async function AdminShell({
             ) : null}
             <span className="flex min-w-0 flex-col leading-tight">
               <span className="truncate font-semibold">{settings.siteName}</span>
-              <span className="text-xs text-muted-foreground">Admin</span>
+              <span className="text-xs text-sidebar-foreground/70">Admin</span>
             </span>
           </Link>
         </SidebarHeader>
@@ -72,7 +74,8 @@ export async function AdminShell({
           {/* Plugin screens from pet-adopt.config.ts get their own group. Only plain data crosses to the client nav. */}
           <AdminNav
             items={ADMIN_NAV}
-            pluginItems={[...getPluginNav(), { href: "/admin/plugins", label: "All plugins", permission: "plugins:view" }]}
+            pluginItems={getPluginNav()}
+            pluginsHref="/admin/plugins"
             role={user.role}
           />
         </SidebarContent>
@@ -86,7 +89,7 @@ export async function AdminShell({
         <header className="sticky top-0 z-50 flex h-14 items-center gap-2 border-b bg-background px-3">
           <SidebarTrigger />
           <div className="ml-auto">
-            <UserMenu user={user} />
+            <UserMenu user={user} canSwitchMode={resolveTheme(settings).allowModeToggle} />
           </div>
         </header>
         <main id="main-content" tabIndex={-1} className="flex-1 p-4 md:p-6">

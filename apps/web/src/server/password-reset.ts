@@ -130,7 +130,7 @@ export async function prepareResetEmail(
         .limit(1)
       if (!user || user.banned) return
       const { url } = await createResetLink(user.id)
-      // Settings > Templates: the default "Password reset" template, or the built-in one.
+      // Email > Templates: the default "Password reset" template, or the built-in one.
       const email = await renderPurposeEmail({ purpose: 'password-reset', values: { name: user.name, resetLink: url, minutes: String(Math.round(RESET_TTL_MS / 60_000)) } })
       await sender.send({ to: address, subject: email.subject, text: email.text, html: email.html })
     } catch (error) {

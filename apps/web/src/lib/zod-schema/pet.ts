@@ -53,6 +53,8 @@ const optionalDate = z
 /** An image chosen from the media library: just what the form needs to show it. */
 const mediaRef = z.object({
   id: z.number().int().positive(),
+  /** The original (logos and icons are previewed whole; thumbnails are 4:3 crops). */
+  url: z.string(),
   thumbnailUrl: z.string(),
   alt: z.string(),
 });

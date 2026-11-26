@@ -35,7 +35,7 @@ export const PURPOSE_INFO: Record<
   },
   test: {
     label: 'Test email',
-    description: 'Sent by “Send a test email” in Settings > Email.',
+    description: 'Sent by “Send a test email” in Email > Sending.',
     placeholders: { senderName: 'Who sent the test' },
     required: [],
     details: false,

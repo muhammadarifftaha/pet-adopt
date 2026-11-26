@@ -3,7 +3,7 @@
 import { isEmailPurpose, isSystemPurpose, PURPOSE_INFO, type EmailPurpose } from '@/lib/email-template'
 
 import { quoted, recordActivity, type Actor } from '../activity'
-import { getEmailSender } from '../email'
+import { getEmailSender, sendsToLocalServer } from '../email'
 import {
   createEmailTemplate,
   deleteEmailTemplate,
@@ -22,7 +22,7 @@ import { assertId, describeError, run, UserError, ValidationError, type ActionRe
 import { requirePermission } from '../session'
 import { consumeAttempt } from '../throttle'
 
-// Settings > Templates and the email builder. Whoever can change the settings (admins and
+// Email > Templates and the email builder. Whoever can change the settings (admins and
 // developers) builds templates; audit can look. Every change is in the activity log.
 
 const TEST_RULE = { max: 5, windowMs: 15 * 60 * 1000 }
@@ -122,7 +122,8 @@ export async function restoreSeededTemplateAction(id: number): Promise<ActionRes
 
 /**
  * The builder's "Send test": the layout as it is now (saved or not), filled with sample values, to
- * `to`. Shares the test-email limit (5 per 15 minutes per person).
+ * `to`. Shares the test-email limit (5 per 15 minutes per person), except with a mail server on this
+ * machine.
  */
 export async function sendEmailTemplateTestAction(purpose: EmailPurpose, data: unknown, to: string): Promise<ActionResult<{ to: string }>> {
   return run(async () => {
@@ -132,8 +133,9 @@ export async function sendEmailTemplateTestAction(purpose: EmailPurpose, data: u
     if (!address || address.length > 254 || !EMAIL.test(address)) throw new ValidationError({ to: 'Enter an email address, like name@example.com.' })
     const email = await renderTemplatePreview(purpose, data)
     const sender = await getEmailSender()
-    if (!sender) throw new UserError('Email is not set up yet, so nothing can be sent. Set it up in Settings, Email.')
-    await consumeAttempt(`emailtest:${user.id}`, TEST_RULE)
+    if (!sender) throw new UserError('Email is not set up yet, so nothing can be sent. Set it up on the Email page.')
+    // A mail server on this machine (Mailpit) sends nothing anywhere: no limit there.
+    if (!(await sendsToLocalServer())) await consumeAttempt(`emailtest:${user.id}`, TEST_RULE)
     try {
       await sender.send({ to: address, subject: `[Test] ${email.subject}`, text: email.text, html: email.html })
     } catch (error) {

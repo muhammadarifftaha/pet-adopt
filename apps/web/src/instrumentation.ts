@@ -57,7 +57,7 @@ export async function register() {
   const { purgeOldActivitySometimes } = await import('@/server/activity')
   await purgeOldActivitySometimes()
 
-  // Plugins' default email templates (Settings > Email templates), created if missing. Never throws.
+  // Plugins' default email templates (Email > Templates), created if missing. Never throws.
   const { ensurePluginTemplates } = await import('@/server/email-templates')
   await ensurePluginTemplates()
 

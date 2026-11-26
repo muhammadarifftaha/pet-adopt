@@ -13,7 +13,7 @@ import { EmailEditor } from './EmailEditor'
 export const dynamic = 'force-dynamic'
 export const metadata: Metadata = { title: 'Email builder', robots: { index: false, follow: false } }
 
-// The email builder (Settings > Email templates). Admins and developers edit; audit looks through it
+// The email builder (Email > Templates). Admins and developers edit; audit looks through it
 // read-only.
 // `id` is a library template's number, or the name of one of the site's own emails
 // (/edit/email/password-reset, /edit/email/test), which are edited in place.
