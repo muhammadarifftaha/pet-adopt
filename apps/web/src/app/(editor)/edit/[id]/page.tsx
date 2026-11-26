@@ -1,3 +1,4 @@
+import { can } from '@pet-adopt/plugin-sdk'
 import type { Data } from '@puckeditor/core'
 import type { Metadata } from 'next'
 import { notFound, redirect } from 'next/navigation'
@@ -22,6 +23,10 @@ export default async function EditPage({ params }: { params: Promise<{ id: strin
 
   const user = await getSessionUser()
   if (!user) redirect(`/admin/login?redirect=${encodeURIComponent(`/edit/${pageId}`)}`)
+  if (!can(user.role, 'pages:view')) redirect('/admin')
+  // View-only roles (audit) get the builder read-only: they can look through every block and its
+  // settings, and nothing can be dragged, added, changed or saved (the server refuses saves too).
+  const readOnly = !can(user.role, 'pages:edit')
 
   const page = await getPageById(pageId)
   if (!page) notFound()
@@ -44,6 +49,7 @@ export default async function EditPage({ params }: { params: Promise<{ id: strin
       initialData={initialData}
       site={toSiteMeta(settings)}
       darkCss={darkCss}
+      readOnly={readOnly}
     />
   )
 }

@@ -1,3 +1,4 @@
+import { can } from '@pet-adopt/plugin-sdk'
 import type { Data } from '@puckeditor/core'
 import type { Metadata } from 'next'
 import { notFound, redirect } from 'next/navigation'
@@ -30,6 +31,7 @@ export default async function PreviewPage({ params, searchParams }: Args) {
 
   const user = await getSessionUser()
   if (!user) redirect(`/admin/login?redirect=${encodeURIComponent(`/edit/${pageId}/preview`)}`)
+  if (!can(user.role, 'pages:view')) redirect('/admin')
 
   const page = await getPageById(pageId)
   if (!page) notFound()

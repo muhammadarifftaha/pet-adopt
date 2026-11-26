@@ -1,5 +1,6 @@
 'use client'
 
+import { useViewOnly, ViewOnlyFieldset } from '@/components/admin/view-only'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import React from 'react'
@@ -57,6 +58,8 @@ const presetChoice = (base: string, key: StyleKey): string | undefined =>
   base in PRESETS ? (PRESETS[base as PresetKey] as Record<StyleKey, string>)[key] : undefined
 
 export function ThemeEditor({ theme, isActive }: { theme: ThemeRecord; isActive: boolean }) {
+  // View-only roles (audit) see the theme's settings and preview; the fields are off and there is no Save.
+  const viewOnly = useViewOnly()
   const router = useRouter()
   const initial = React.useMemo(() => JSON.stringify({ name: theme.name, base: theme.base, settings: theme.settings }), [theme])
   const [name, setName] = React.useState(theme.name)
@@ -175,6 +178,7 @@ export function ThemeEditor({ theme, isActive }: { theme: ThemeRecord; isActive:
         }}
         className="flex flex-col gap-6"
       >
+        <ViewOnlyFieldset className="flex flex-col gap-6">
         {general ? (
           <p role="alert" className="rounded-md border border-destructive/50 bg-destructive/5 p-3 text-sm text-destructive">
             {general}
@@ -254,11 +258,15 @@ export function ThemeEditor({ theme, isActive }: { theme: ThemeRecord; isActive:
           )
         })}
 
+        </ViewOnlyFieldset>
+
         <div className="flex flex-wrap items-center gap-3 border-t pt-4">
-          <Button type="submit" aria-disabled={saving} className={cn(saving && 'opacity-50')}>
-            {saving ? 'Saving…' : 'Save theme'}
-          </Button>
-          {!isActive ? (
+          {viewOnly ? null : (
+            <Button type="submit" aria-disabled={saving} className={cn(saving && 'opacity-50')}>
+              {saving ? 'Saving…' : 'Save theme'}
+            </Button>
+          )}
+          {viewOnly ? (isActive ? <Badge>In use on the site</Badge> : null) : !isActive ? (
             <Button type="button" variant="outline" aria-disabled={saving} onClick={() => void save(true)}>
               Save and use on the site
             </Button>

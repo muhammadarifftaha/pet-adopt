@@ -1,5 +1,6 @@
 "use client";
 
+import { useViewOnly } from "@/components/admin/view-only";
 import { useRouter } from "next/navigation";
 import React from "react";
 import useSWR from "swr";
@@ -36,6 +37,7 @@ export function PageDetails({
   /** The site has a dark theme (its light/dark toggle is on), so offer a dark preview. */
   darkMode?: boolean;
 }) {
+  const viewOnly = useViewOnly();
   const router = useRouter();
   // Bumped after a restore so the preview reloads with the new draft.
   const [previewKey, setPreviewKey] = React.useState(0);
@@ -174,7 +176,7 @@ export function PageDetails({
                     View
                     <span className="sr-only">version {v.number} (opens in a new tab)</span>
                   </a>
-                  {!archived && index > 0 ? (
+                  {!archived && !viewOnly && index > 0 ? (
                     <Button
                       variant="ghost"
                       size="sm"

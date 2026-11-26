@@ -1,3 +1,4 @@
+import { accessOf, accessPermission, can } from '@pet-adopt/plugin-sdk'
 import { Card, CardContent, CardHeader, CardTitle } from '@pet-adopt/ui/components/card'
 import { getPluginWidgets } from '@/plugins/registry'
 import { getPluginStorageStatus } from '@/plugins/storage'
@@ -16,7 +17,7 @@ export async function PluginWidgets() {
       () => getPluginWidgets().map((w) => w.plugin), // cannot tell: leave plugin cards out rather than break the dashboard
     ),
   )
-  const widgets = getPluginWidgets().filter((w) => (!w.adminOnly || user.role === 'admin') && !notReady.has(w.plugin))
+  const widgets = getPluginWidgets().filter((w) => can(user.role, accessPermission(accessOf(w), 'view')) && !notReady.has(w.plugin))
   if (widgets.length === 0) return null
 
   return (

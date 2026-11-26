@@ -2,7 +2,8 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { PageHeader } from "@/components/admin/PageHeader";
 import { buttonVariants } from "@pet-adopt/ui/components/button";
-import { unwrap } from "@/lib/admin/unwrap";
+import { requirePermissionPage, unwrap } from "@/lib/admin/unwrap";
+import { can } from "@pet-adopt/plugin-sdk";
 import {
   listPetsAction,
   listSpeciesOptionsAction,
@@ -12,6 +13,7 @@ import { FiPlus } from "react-icons/fi";
 import { loadPetSearchParams } from "./search-params";
 import FilterBar from "@/components/admin/pets/FilterBar";
 import PetList from "@/components/admin/pets/PetList";
+import { ViewOnly } from "@/components/admin/view-only";
 
 export const metadata: Metadata = { title: "Pets" };
 
@@ -24,6 +26,8 @@ export default async function PetsPage({
 }: {
   searchParams: Promise<SearchParams>;
 }) {
+  const user = await requirePermissionPage("pets:view");
+  const canEdit = can(user.role, "pets:edit");
   const filters = await loadPetSearchParams(searchParams);
   const [speciesOptions, initialData] = await Promise.all([
     listSpeciesOptionsAction().then(unwrap),
@@ -40,10 +44,12 @@ export default async function PetsPage({
       <PageHeader
         title="Pets"
         actions={
-          <Link href="/admin/pets/new" className={buttonVariants()}>
-            <FiPlus className="h-4 w-4" />
-            Add pet
-          </Link>
+          canEdit ? (
+            <Link href="/admin/pets/new" className={buttonVariants()}>
+              <FiPlus className="h-4 w-4" />
+              Add pet
+            </Link>
+          ) : null
         }
       />
 
@@ -53,7 +59,9 @@ export default async function PetsPage({
         initialData={initialData}
       />
 
-      <PetList initialFilters={filters} initialData={initialData} />
+      <ViewOnly value={!canEdit}>
+        <PetList initialFilters={filters} initialData={initialData} />
+      </ViewOnly>
     </>
   );
 }

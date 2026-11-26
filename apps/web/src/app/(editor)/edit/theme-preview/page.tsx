@@ -1,3 +1,4 @@
+import { can } from '@pet-adopt/plugin-sdk'
 import type { Data } from '@puckeditor/core'
 import type { Metadata } from 'next'
 import { redirect } from 'next/navigation'
@@ -81,6 +82,7 @@ const SAMPLE: Data = {
 export default async function ThemePreviewPage() {
   const user = await getSessionUser()
   if (!user) redirect('/admin/login?redirect=%2Fadmin%2Ftheme')
+  if (!can(user.role, 'theme:view')) redirect('/admin')
   return (
     <main>
       <BuilderContent data={SAMPLE} title="Theme preview" />

@@ -12,11 +12,14 @@ import Image from "next/image";
 import { StatusBadge } from "../StatusBadge";
 import { capitalize } from "es-toolkit";
 import Link from "next/link";
-import { FiEdit, FiMapPin, FiTrash } from "react-icons/fi";
+import { FiEdit, FiEye, FiMapPin, FiTrash } from "react-icons/fi";
+import { useViewOnly } from "@/components/admin/view-only";
 import { Button, buttonVariants } from "@pet-adopt/ui/components/button";
 import { PetSummary } from "@/server/types";
 
 export default function PetCard({ pet }: { pet: PetSummary }) {
+  // Roles that can view pets but not change them (audit) get View, and no Delete.
+  const viewOnly = useViewOnly();
   return (
     <Card key={pet.id} className="relative mx-auto w-full pt-0">
       <Image
@@ -46,13 +49,17 @@ export default function PetCard({ pet }: { pet: PetSummary }) {
           href={`/admin/pets/${pet.id}`}
           className={buttonVariants({ variant: "outline" })}
         >
-          <FiEdit className="h-4 w-4" />
-          Edit
+          {viewOnly ? <FiEye className="h-4 w-4" aria-hidden /> : <FiEdit className="h-4 w-4" aria-hidden />}
+          {viewOnly ? "View" : "Edit"}
+          <span className="sr-only">{pet.name}</span>
         </Link>
-        <Button variant="destructive" className="cursor-pointer">
-          <FiTrash className="h-4 w-4" />
-          Delete
-        </Button>
+        {viewOnly ? null : (
+          <Button variant="destructive" className="cursor-pointer">
+            <FiTrash className="h-4 w-4" aria-hidden />
+            Delete
+            <span className="sr-only">{pet.name}</span>
+          </Button>
+        )}
       </CardFooter>
     </Card>
   );

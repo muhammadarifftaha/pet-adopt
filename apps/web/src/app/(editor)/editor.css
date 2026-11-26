@@ -38,6 +38,9 @@
 .media-picker-preview { display: block; width: 100%; max-height: 140px; object-fit: cover; border-radius: 6px; }
 .media-picker-empty { padding: 20px; text-align: center; border: 1px dashed var(--puck-color-grey-08); border-radius: 6px; color: var(--puck-color-text-muted); font-size: 13px; }
 .media-picker-actions { display: flex; gap: 8px; margin-top: 8px; }
+/* Wraps the picker's controls so read-only mode (view-only roles) can disable them all at once. */
+.media-picker-fieldset { margin: 0; padding: 0; border: 0; min-width: 0; }
+.media-picker-fieldset:disabled button { opacity: 0.5; cursor: not-allowed; }
 .media-picker button { padding: 4px 10px; border: 1px solid var(--puck-color-grey-08); background: var(--puck-color-white); color: var(--puck-color-text); border-radius: 6px; cursor: pointer; font: inherit; font-size: 13px; }
 .media-picker-panel { margin-top: 8px; padding: 8px; border: 1px solid var(--puck-color-grey-09); border-radius: 6px; background: var(--puck-color-grey-12); }
 .media-picker-upload { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; font-size: 13px; }

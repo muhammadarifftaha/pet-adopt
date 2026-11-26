@@ -1,3 +1,4 @@
+import { can, type Permission } from '@pet-adopt/plugin-sdk'
 import { notFound, redirect } from 'next/navigation'
 
 import type { ActionResult } from '@/server/result'
@@ -26,10 +27,10 @@ export function parseId(value: string): number {
   return Number(value)
 }
 
-/** Admin-only screens (Settings, Users). Editors are sent back to the dashboard. */
-export async function requireAdminPage(): Promise<SessionUser> {
+/** A screen that needs `permission` (`pets:view`, `users:view`...). Others go back to the dashboard. */
+export async function requirePermissionPage(permission: Permission): Promise<SessionUser> {
   const user = await getSessionUser()
   if (!user) redirect('/admin/login')
-  if (user.role !== 'admin') redirect('/admin')
+  if (!can(user.role, permission)) redirect('/admin')
   return user
 }

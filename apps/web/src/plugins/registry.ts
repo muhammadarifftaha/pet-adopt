@@ -3,7 +3,7 @@ import { FiMail } from 'react-icons/fi'
 import type { AdminNavItem, NavIcon } from '@/components/admin/nav-items'
 
 import config from '../../pet-adopt.config'
-import type { EmailSender, Plugin, PluginMigration, PluginScreen, PluginStorage, PluginWidget } from '@pet-adopt/plugin-sdk'
+import { accessOf, accessPermission, type EmailSender, type Plugin, type PluginAccess, type PluginMigration, type PluginScreen, type PluginStorage, type PluginWidget } from '@pet-adopt/plugin-sdk'
 import { IconError, toNavIcon } from './icon'
 import { storageProblems } from './storage-rules'
 // Register what plugins reach through the SDK: `storage.open()` and `host()`.
@@ -35,7 +35,7 @@ export type PluginInfo = {
   href: string
   hasOwnHome: boolean
   /** Its menu-visible screens (no parameters, not hidden). */
-  screens: Array<{ title: string; href: string; adminOnly: boolean }>
+  screens: Array<{ title: string; href: string; access: PluginAccess }>
   widgets: string[]
   /** It sends the site's email. */
   email: boolean
@@ -152,7 +152,7 @@ function build(): Registry {
       hasOwnHome: own.some((screen) => screen.segments.length === 0),
       screens: own
         .filter((screen) => !screen.hidden && !screen.segments.some((segment) => segment.startsWith(':')))
-        .map((screen) => ({ title: screen.title, href: screen.href, adminOnly: Boolean(screen.adminOnly) })),
+        .map((screen) => ({ title: screen.title, href: screen.href, access: accessOf(screen) })),
       widgets: (plugin.dashboardWidgets ?? []).map((widget) => widget.title),
       email: email?.plugin === plugin.name,
       storage: plugin.storage !== undefined,
@@ -175,10 +175,10 @@ function registry(): Registry {
 export function getPluginNav(): AdminNavItem[] {
   const { infos, screens } = registry()
   return infos.flatMap((info) => {
-    const overview: AdminNavItem[] = info.hasOwnHome ? [] : [{ href: info.href, label: info.title, adminOnly: true, icon: info.email ? MAIL_ICON : undefined }]
+    const overview: AdminNavItem[] = info.hasOwnHome ? [] : [{ href: info.href, label: info.title, permission: 'plugins:view', icon: info.email ? MAIL_ICON : undefined }]
     const own = screens
       .filter((s) => s.plugin === info.name && !s.hidden && !s.segments.some((seg) => seg.startsWith(':')))
-      .map((s) => ({ href: s.href, label: s.nav?.label ?? s.title, adminOnly: s.adminOnly, icon: s.navIcon }))
+      .map((s) => ({ href: s.href, label: s.nav?.label ?? s.title, permission: accessPermission(accessOf(s), 'view'), icon: s.navIcon }))
     return [...overview, ...own]
   })
 }

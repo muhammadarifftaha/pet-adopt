@@ -1,3 +1,4 @@
+import { ROLE_INFO, ROLES as SDK_ROLES } from '@pet-adopt/plugin-sdk'
 // Single source of truth for the select options used by the CMS and the public filters.
 
 export const SPECIES = [
@@ -104,12 +105,8 @@ export const GOOD_WITH = [
   { label: 'Other pets', value: 'other-pets' },
 ] as const
 
-// Roles for the people who sign in. Admins also manage users and site settings; editors manage
-// pets, pages and media.
-export const ROLES = [
-  { label: 'Admin', value: 'admin' },
-  { label: 'Editor', value: 'editor' },
-] as const
+// Roles for the people who sign in, as options. What each may do is the table in the plugin SDK.
+export const ROLES = SDK_ROLES.map((value) => ({ value, label: ROLE_INFO[value].label }))
 
 export const SOCIAL_PLATFORMS = [
   { label: 'Instagram', value: 'instagram' },

@@ -8,7 +8,7 @@ import { listFormChoicesAction } from './actions'
 
 // The Form block's "Form" field: a plain <select> of the form builder's forms (the editor has no
 // Tailwind, so a native control keeps it simple and accessible). Stores the form's id, or null.
-export function FormPicker({ id, value, onChange }: { id?: string; value: number | null; onChange: (value: number | null) => void }) {
+export function FormPicker({ id, value, onChange, readOnly = false }: { id?: string; value: number | null; onChange: (value: number | null) => void; readOnly?: boolean }) {
   const { data, error } = useSWR('puck-form-choices', () => listFormChoicesAction())
   return (
     // Puck draws no label for a custom field: FieldLabel adds a real <label> around the select.
@@ -16,6 +16,8 @@ export function FormPicker({ id, value, onChange }: { id?: string; value: number
       <select
         id={id}
         value={value ?? ''}
+        // Puck passes readOnly to custom fields when editing is off (view-only roles).
+        disabled={readOnly}
         onChange={(event) => onChange(event.target.value ? Number(event.target.value) : null)}
         aria-busy={!data && !error}
       >

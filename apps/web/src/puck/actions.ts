@@ -5,7 +5,7 @@ import { listForms } from '@pet-adopt/plugin-form-builder/server'
 import { desc } from 'drizzle-orm'
 
 import { getDatabase } from '@/db/client'
-import { requireUser } from '@/server/session'
+import { requirePermission } from '@/server/session'
 
 // Server actions used by block fields in the page builder (signed in only).
 
@@ -14,7 +14,7 @@ export type PetChoice = { id: number; name: string; note: string | null }
 /** Every pet, newest first, for the Pet spotlight's picker. Adopted and link-only pets are marked:
  *  the block hides itself for them on the live page. */
 export async function listPetChoicesAction(): Promise<PetChoice[]> {
-  await requireUser()
+  await requirePermission('pages:view')
   const { db, t } = await getDatabase()
   const rows = await db
     .select({ id: t.pets.id, name: t.pets.name, status: t.pets.status, unlisted: t.pets.unlisted })
@@ -32,7 +32,7 @@ export type FormChoice = { id: number; name: string; note: string | null }
 
 /** Every form of the form builder, for the Form block's picker. Closed forms are marked. */
 export async function listFormChoicesAction(): Promise<FormChoice[]> {
-  await requireUser()
+  await requirePermission('pages:view')
   const forms = await listForms()
   return forms.map((form) => ({ id: form.id, name: form.name, note: form.isOpen ? null : 'closed' }))
 }

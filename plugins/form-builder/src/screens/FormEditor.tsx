@@ -76,7 +76,7 @@ function toPayload(drafts: Draft[]): FormField[] {
   })
 }
 
-export function FormEditor({ form }: { form: EditorForm }) {
+export function FormEditor({ form, readOnly = false, canSeeResponses = true }: { form: EditorForm; readOnly?: boolean; canSeeResponses?: boolean }) {
   const router = useRouter()
   const [name, setName] = useState(form.name)
   const [description, setDescription] = useState(form.description ?? '')
@@ -216,10 +216,15 @@ export function FormEditor({ form }: { form: EditorForm }) {
         <Link href={BASE} className="underline underline-offset-4">
           All forms
         </Link>
-        <span aria-hidden="true">·</span>
-        <Link href={responsesHref(form.id)} className="underline underline-offset-4">
-          {form.responses} {form.responses === 1 ? 'response' : 'responses'}
-        </Link>
+        {/* Responses are personal data: no link for roles that cannot open them (developers). */}
+        {canSeeResponses ? (
+          <>
+            <span aria-hidden="true">·</span>
+            <Link href={responsesHref(form.id)} className="underline underline-offset-4">
+              {form.responses} {form.responses === 1 ? 'response' : 'responses'}
+            </Link>
+          </>
+        ) : null}
       </div>
 
       {summary && (
@@ -242,6 +247,13 @@ export function FormEditor({ form }: { form: EditorForm }) {
         </div>
       )}
 
+      {/* View-only roles (audit): every control below is off; the server refuses changes too. */}
+      <fieldset disabled={readOnly} className="m-0 flex min-w-0 flex-col gap-6 border-0 p-0">
+      {readOnly ? (
+        <p className="rounded-md border bg-muted px-3 py-2 text-sm">
+          <span className="font-medium">View only.</span> Your role can view this form but not change it.
+        </p>
+      ) : null}
       <Card>
         <CardHeader>
           <CardTitle>Details</CardTitle>
@@ -442,7 +454,9 @@ export function FormEditor({ form }: { form: EditorForm }) {
           </div>
         </CardContent>
       </Card>
+      </fieldset>
 
+      {readOnly ? null : (
       <div className="flex flex-wrap items-center gap-3">
         <Button type="button" onClick={save} aria-disabled={pending || undefined}>
           {pending ? 'Saving…' : 'Save form'}
@@ -469,6 +483,7 @@ export function FormEditor({ form }: { form: EditorForm }) {
           </AlertDialogContent>
         </AlertDialog>
       </div>
+      )}
     </div>
   )
 }

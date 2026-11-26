@@ -4,7 +4,7 @@ import { getSettings } from '@/lib/queries'
 import { getEmailSender } from '@/plugins/registry'
 
 import { describeError, run, UserError, ValidationError, type ActionResult } from '../result'
-import { requireAdmin } from '../session'
+import { requirePermission } from '../session'
 import { consumeAttempt } from '../throttle'
 
 // The email plugin page's "Send a test email". Admins only, a few per admin at a time (the same
@@ -15,7 +15,7 @@ const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 export async function sendTestEmailAction(to: string): Promise<ActionResult<{ to: string }>> {
   return run(async () => {
-    const user = await requireAdmin()
+    const user = await requirePermission('plugins:edit')
     const address = typeof to === 'string' ? to.trim() : ''
     if (!address || address.length > 254 || !EMAIL.test(address)) throw new ValidationError({ to: 'Enter an email address, like name@example.com.' })
 

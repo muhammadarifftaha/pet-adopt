@@ -21,6 +21,8 @@ type Props = {
   site: PuckSiteMetadata['site']
   /** CSS for the canvas in dark mode (built on the server from checked theme values), or null when the site has no dark mode. */
   darkCss: string | null
+  /** View-only roles (audit): everything can be looked at, nothing changed or saved. */
+  readOnly?: boolean
 }
 
 // What the header buttons and the canvas wrapper need. Passed through context so the `overrides`
@@ -35,6 +37,7 @@ type EditorState = {
   /** null when the site has no dark mode (no switch shown). */
   dark: boolean | null
   onDarkChange: (dark: boolean) => void
+  readOnly: boolean
 }
 const EditorContext = createContext<EditorState | null>(null)
 const useEditor = () => {
@@ -55,7 +58,7 @@ function CanvasWrapper({ children }: { children: React.ReactNode }) {
 // Replaces Puck's own Publish button (its `children`). `useGetPuck` reads the layout at the moment
 // of the click, so typing in the editor does not re-render the header.
 function HeaderActions() {
-  const { pageId, slug, status, version, onVersion, dark, onDarkChange } = useEditor()
+  const { pageId, slug, status, version, onVersion, dark, onDarkChange, readOnly } = useEditor()
   const getPuck = useGetPuck()
   const [pending, startTransition] = useTransition()
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null)
@@ -88,12 +91,19 @@ function HeaderActions() {
           View live
         </a>
       )}
-      <button type="button" disabled={pending} onClick={() => run(saveDraftAction)}>
-        Save draft
-      </button>
-      <button type="button" className="editor-primary" disabled={pending} onClick={() => run(publishAction)}>
-        {pending ? 'Working…' : 'Publish'}
-      </button>
+      {readOnly ? (
+        // No Save or Publish: say why, in the header where those buttons usually are.
+        <span className="editor-msg">View only: your role cannot change pages.</span>
+      ) : (
+        <>
+          <button type="button" disabled={pending} onClick={() => run(saveDraftAction)}>
+            Save draft
+          </button>
+          <button type="button" className="editor-primary" disabled={pending} onClick={() => run(publishAction)}>
+            {pending ? 'Working…' : 'Publish'}
+          </button>
+        </>
+      )}
     </div>
   )
 }
@@ -101,13 +111,17 @@ function HeaderActions() {
 // Module-level, so it is the same object on every render (see EditorContext).
 const OVERRIDES = { preview: CanvasWrapper, headerActions: HeaderActions }
 
-export function PageEditor({ pageId, title, slug, status, version: initialVersion, initialData, site, darkCss }: Props) {
+// Every editing permission off: blocks cannot be dragged, added, changed, removed or copied, and
+// Puck shows every field read-only (custom fields get `readOnly` too, see the pickers).
+const READ_ONLY = { drag: false, duplicate: false, delete: false, edit: false, insert: false }
+
+export function PageEditor({ pageId, title, slug, status, version: initialVersion, initialData, site, darkCss, readOnly = false }: Props) {
   const [version, setVersion] = useState(initialVersion)
   // How the canvas looks only; nothing about it is saved with the page.
   const [dark, setDark] = useState(false)
   const editor = useMemo<EditorState>(
-    () => ({ pageId, slug, status, version, onVersion: setVersion, dark: darkCss ? dark : null, onDarkChange: setDark }),
-    [pageId, slug, status, version, darkCss, dark],
+    () => ({ pageId, slug, status, version, onVersion: setVersion, dark: darkCss ? dark : null, onDarkChange: setDark, readOnly }),
+    [pageId, slug, status, version, darkCss, dark, readOnly],
   )
   // Blocks read site settings and fetch live pets through Puck's metadata.
   const metadata: PuckSiteMetadata = { site, fetchPets: fetchPetsAction, fetchPet: fetchPetSpotlightAction, fetchPetProfiles: fetchPetProfilesAction, fetchCatalog: () => fetchCatalogAction(), fetchForm: fetchFormAction }
@@ -127,6 +141,7 @@ export function PageEditor({ pageId, title, slug, status, version: initialVersio
       // Wraps the canvas so the site's dark colours can apply to the blocks only, not to the editor.
       // The header buttons replace Puck's default Publish (the deprecated `renderHeaderActions`).
       overrides={OVERRIDES}
+      permissions={readOnly ? READ_ONLY : undefined}
     />
     </EditorContext.Provider>
   )

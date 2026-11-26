@@ -31,24 +31,26 @@ export const formBuilder = definePlugin<{ title?: string } | void>((options) => 
       path: '',
       title: options?.title ?? 'Forms',
       nav: { label: options?.title ?? 'Forms', Icon: FiClipboard },
-      component: () => <FormsList />,
+      component: ({ user }) => <FormsList user={user} />,
     },
     {
       path: 'forms/:id',
       title: 'Edit form',
-      component: ({ params }) => <EditForm id={params.id} />,
+      component: ({ params, user }) => <EditForm id={params.id} user={user} />,
     },
     {
       path: 'forms/:id/responses',
       title: 'Responses',
-      component: ({ params, searchParams }) => <Responses id={params.id} page={searchParams.page} />,
+      // What visitors sent: admins and editors; audit can view; developers cannot open it.
+      access: 'personalData',
+      component: ({ params, searchParams, user }) => <Responses id={params.id} page={searchParams.page} user={user} />,
     },
   ],
   dashboardWidgets: [
     {
       id: 'responses',
       title: options?.title ?? 'Forms',
-      component: () => <FormsWidget />,
+      component: ({ user }) => <FormsWidget user={user} />,
     },
   ],
 }))

@@ -1,5 +1,6 @@
 "use client";
 
+import { useViewOnly } from "@/components/admin/view-only";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import React from "react";
@@ -9,6 +10,7 @@ import {
   FiArrowUp,
   FiChevronRight,
   FiEdit2,
+  FiEye,
   FiLayout,
   FiExternalLink,
   FiRotateCcw,
@@ -288,6 +290,7 @@ export function PagesTable({ pages, darkMode = false }: { pages: PageListItem[];
 
 /** Edit and Archive for a page in use; Restore and Delete once it is archived. */
 function RowActions({ page }: { page: PageListItem }) {
+  const viewOnly = useViewOnly();
   const router = useRouter();
   const announce = React.useContext(AnnounceContext);
   const focusMessage = React.useContext(FocusMessageContext);
@@ -318,6 +321,27 @@ function RowActions({ page }: { page: PageListItem }) {
         announce(result.error, true);
       }
     });
+
+  // View-only roles (audit): the settings page shows everything read-only; nothing here changes a page.
+  if (viewOnly) {
+    return (
+      <span className="flex items-center justify-end gap-2">
+        <Link href={`/admin/pages/${page.id}`} className={buttonVariants({ variant: "outline", size: "sm" })}>
+          <FiEye aria-hidden />
+          View
+          <span className="sr-only">the settings of {page.title}</span>
+        </Link>
+        {page.state === "archived" ? null : (
+          // The builder opens read-only for view-only roles: every block and setting, no changes.
+          <Link href={`/edit/${page.id}`} className={buttonVariants({ variant: "outline", size: "sm" })}>
+            <FiLayout aria-hidden />
+            Page builder
+            <span className="sr-only">for {page.title} (view only)</span>
+          </Link>
+        )}
+      </span>
+    );
+  }
 
   if (page.state === "archived") {
     return (

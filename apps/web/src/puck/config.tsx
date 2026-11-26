@@ -131,8 +131,8 @@ const mediaField = (label: string) =>
   ({
     type: 'custom',
     label,
-    render: ({ value, onChange }: { value: MediaValue; onChange: (v: MediaValue) => void }) => (
-      <MediaPicker value={value} onChange={onChange} />
+    render: ({ value, onChange, readOnly }: { value: MediaValue; onChange: (v: MediaValue) => void; readOnly?: boolean }) => (
+      <MediaPicker value={value} onChange={onChange} readOnly={readOnly} />
     ),
   }) as const
 
@@ -1164,8 +1164,8 @@ export const config: Config<PuckComponents> = {
         petId: {
           type: 'custom',
           label: 'Pet',
-          render: ({ id, value, onChange }: { id: string; value: number | null; onChange: (value: number | null) => void }) => (
-            <PetPicker id={id} value={value} onChange={onChange} />
+          render: ({ id, value, onChange, readOnly }: { id: string; value: number | null; onChange: (value: number | null) => void; readOnly?: boolean }) => (
+            <PetPicker id={id} value={value} onChange={onChange} readOnly={readOnly} />
           ),
         },
         layout: {
@@ -1672,8 +1672,8 @@ export const config: Config<PuckComponents> = {
         formId: {
           type: 'custom',
           label: 'Form',
-          render: ({ id, value, onChange }: { id: string; value: number | null; onChange: (value: number | null) => void }) => (
-            <FormPicker id={id} value={value} onChange={onChange} />
+          render: ({ id, value, onChange, readOnly }: { id: string; value: number | null; onChange: (value: number | null) => void; readOnly?: boolean }) => (
+            <FormPicker id={id} value={value} onChange={onChange} readOnly={readOnly} />
           ),
         },
         heading: { type: 'text', label: "Heading (blank uses the form's name)" },

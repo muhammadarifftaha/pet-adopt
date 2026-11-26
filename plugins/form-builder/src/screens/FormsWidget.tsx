@@ -1,16 +1,18 @@
+import { accessPermission, can, type PluginUser } from '@pet-adopt/plugin-sdk'
 import { Badge } from '@pet-adopt/ui/components/badge'
 import Link from 'next/link'
 
 import { listForms } from '../server'
-import { BASE, responsesHref } from './paths'
+import { BASE, editHref, responsesHref } from './paths'
 
 const SHOWN = 5
 
 // The dashboard card: every form's responses at a glance. Forms with new responses come first, then
 // the ones answered most recently. The dashboard leaves the card out while the plugin's tables are
 // not set up (see PluginWidgets).
-export async function FormsWidget() {
+export async function FormsWidget({ user }: { user: PluginUser }) {
   const forms = await listForms()
+  const canSeeResponses = can(user.role, accessPermission('personalData', 'view'))
   if (forms.length === 0) {
     return (
       <p className="text-sm text-muted-foreground">
@@ -38,7 +40,7 @@ export async function FormsWidget() {
       <ul className="flex flex-col divide-y">
         {sorted.slice(0, SHOWN).map((form) => (
           <li key={form.id} className="flex items-center justify-between gap-3 py-2">
-            <Link href={responsesHref(form.id)} className="min-w-0 truncate font-medium underline-offset-4 hover:underline">
+            <Link href={canSeeResponses ? responsesHref(form.id) : editHref(form.id)} className="min-w-0 truncate font-medium underline-offset-4 hover:underline">
               {form.name}
             </Link>
             <span className="flex shrink-0 items-center gap-2">

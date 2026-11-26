@@ -21,6 +21,7 @@ import {
 } from "@/components/admin/pets/form/fields";
 import { PhotosField } from "@/components/admin/pets/form/PhotosField";
 import { RichTextField } from "@/components/admin/pets/form/RichTextField";
+import { useViewOnly, ViewOnlyFieldset } from "@/components/admin/view-only";
 import { SeoPreview } from "@/components/admin/pets/form/SeoPreview";
 import { DESCRIPTION_MAX_CHARS } from "@/lib/rich-text";
 import { SeoImageField } from "@/components/admin/pets/form/SeoImageField";
@@ -56,6 +57,8 @@ import type { Pet } from "@/server/types";
 //    focusable while saving, so focus is never lost;
 //  - there is no sticky footer, which could cover a focused field (2.4.11).
 export function PetForm({ pet, siteName }: { pet: Pet | null; siteName: string }) {
+  // View-only roles (audit) see every field, can switch tabs, and cannot save (the server refuses too).
+  const viewOnly = useViewOnly();
   const router = useRouter();
   const invalidatePets = useInvalidatePets();
 
@@ -189,6 +192,7 @@ export function PetForm({ pet, siteName }: { pet: Pet | null; siteName: string }
             </TabsList>
 
             <TabsContent value="basics" className="pt-4">
+              <ViewOnlyFieldset>
               <FieldGroup>
                 <TextField control={control} name="name" label="Name" required />
                 <SpeciesField
@@ -221,9 +225,11 @@ export function PetForm({ pet, siteName }: { pet: Pet | null; siteName: string }
                   description="Used only when the city and state are empty. Otherwise it is made from them."
                 />
               </FieldGroup>
+              </ViewOnlyFieldset>
             </TabsContent>
 
             <TabsContent value="health" className="pt-4">
+              <ViewOnlyFieldset>
               <FieldGroup>
                 <FieldSet>
                   <FieldLegend variant="label">Health and care</FieldLegend>
@@ -244,9 +250,11 @@ export function PetForm({ pet, siteName }: { pet: Pet | null; siteName: string }
                 <CheckboxGroupField control={control} name="temperament" label="Temperament" options={TEMPERAMENTS} />
                 <CheckboxGroupField control={control} name="goodWith" label="Good with" options={GOOD_WITH} />
               </FieldGroup>
+              </ViewOnlyFieldset>
             </TabsContent>
 
             <TabsContent value="photos" className="pt-4">
+              <ViewOnlyFieldset>
               <FieldGroup>
                 <PhotosField control={control} />
                 <RichTextField
@@ -265,9 +273,11 @@ export function PetForm({ pet, siteName }: { pet: Pet | null; siteName: string }
                   inputMode="url"
                 />
               </FieldGroup>
+              </ViewOnlyFieldset>
             </TabsContent>
 
             <TabsContent value="adoption" className="pt-4">
+              <ViewOnlyFieldset>
               <FieldGroup>
                 <TextField
                   control={control}
@@ -286,9 +296,11 @@ export function PetForm({ pet, siteName }: { pet: Pet | null; siteName: string }
                   inputMode="tel"
                 />
               </FieldGroup>
+              </ViewOnlyFieldset>
             </TabsContent>
 
             <TabsContent value="seo" className="pt-4">
+              <ViewOnlyFieldset>
               <FieldGroup>
                 <TextField
                   control={control}
@@ -308,11 +320,13 @@ export function PetForm({ pet, siteName }: { pet: Pet | null; siteName: string }
               <div className="mt-6">
                 <SeoPreview control={control} pet={pet} siteName={siteName} />
               </div>
+              </ViewOnlyFieldset>
             </TabsContent>
           </Tabs>
         </div>
 
         <aside aria-labelledby="pet-sidebar-heading">
+          <ViewOnlyFieldset>
           <Card>
             <CardHeader>
               <h2 id="pet-sidebar-heading" className="text-base font-semibold">
@@ -361,14 +375,17 @@ export function PetForm({ pet, siteName }: { pet: Pet | null; siteName: string }
               </FieldGroup>
             </CardContent>
           </Card>
+          </ViewOnlyFieldset>
         </aside>
       </div>
 
       <div className="mt-6 flex flex-wrap items-center gap-3 border-t pt-4">
         {/* aria-disabled, not disabled: a disabled button would drop keyboard focus mid-save. */}
-        <Button type="submit" aria-disabled={saving} className={cn(saving && "opacity-50")}>
-          {pet ? "Save changes" : "Add pet"}
-        </Button>
+        {viewOnly ? null : (
+          <Button type="submit" aria-disabled={saving} className={cn(saving && "opacity-50")}>
+            {pet ? "Save changes" : "Add pet"}
+          </Button>
+        )}
         <Link href="/admin/pets" className={buttonVariants({ variant: "outline" })}>
           {pet ? "Back to pets" : "Cancel"}
         </Link>

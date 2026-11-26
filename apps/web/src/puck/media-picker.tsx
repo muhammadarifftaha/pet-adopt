@@ -20,10 +20,13 @@ export function MediaPicker({
   value,
   onChange,
   label,
+  readOnly = false,
 }: {
   value: MediaValue
   onChange: (value: MediaValue) => void
   label?: string
+  /** Puck passes it to custom fields when editing is off (view-only roles): the image shows, nothing changes. */
+  readOnly?: boolean
 }) {
   const [open, setOpen] = useState(false)
   const [items, setItems] = useState<MediaDoc[]>([])
@@ -84,6 +87,7 @@ export function MediaPicker({
       ) : (
         <div className="media-picker-empty">No image selected</div>
       )}
+      <fieldset disabled={readOnly} className="media-picker-fieldset">
       <div className="media-picker-actions">
         <button type="button" onClick={toggle}>
           {open ? 'Close' : value ? 'Change image' : 'Choose image'}
@@ -134,6 +138,7 @@ export function MediaPicker({
           )}
         </div>
       )}
+      </fieldset>
     </div>
   )
 }

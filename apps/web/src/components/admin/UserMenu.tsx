@@ -17,18 +17,11 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@pet-adopt/ui/components/dropdown-menu";
+import { initialsOf } from "@/lib/admin/initials";
+import { ROLE_INFO } from "@pet-adopt/plugin-sdk";
 import { cn } from "@/lib/utils";
 import { signOutAction } from "@/server/actions/auth";
 import type { SessionUser } from "@/server/types";
-
-const firstLetter = (text: string) => [...text][0] ?? "";
-
-// "Scratch Owner" -> "SO", "Mochi" -> "M". Spreading the string keeps names in any script whole.
-function initialsOf(name: string, email: string): string {
-  const words = name.trim().split(/\s+/).filter(Boolean);
-  const source = words.length > 1 ? [words[0], words[words.length - 1]] : [words[0] ?? email];
-  return source.map(firstLetter).join("").toUpperCase();
-}
 
 // Who is signed in: an avatar with their initials and name, opening a menu with the Account page and
 // Sign out. (Owners have no profile picture yet; give AvatarFallback an <AvatarImage> when they do.)
@@ -74,7 +67,7 @@ export function UserMenu({ user }: { user: SessionUser }) {
             </span>
             <span className="truncate">{user.email}</span>
             <Badge variant="secondary" className="w-fit capitalize">
-              {user.role}
+              {ROLE_INFO[user.role].label}
             </Badge>
           </DropdownMenuLabel>
         </DropdownMenuGroup>

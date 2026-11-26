@@ -1,10 +1,11 @@
+import { can } from '@pet-adopt/plugin-sdk'
 import Link from 'next/link'
 
 import { PageHeader } from '@/components/admin/PageHeader'
 import { PluginWidgets } from '@/components/admin/PluginWidgets'
 import { buttonVariants } from '@pet-adopt/ui/components/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@pet-adopt/ui/components/card'
-import { unwrap } from '@/lib/admin/unwrap'
+import { requirePermissionPage, unwrap } from '@/lib/admin/unwrap'
 import { PetStatus } from '@/lib/options'
 import { listMediaAction } from '@/server/actions/media'
 import { listPagesAction } from '@/server/actions/pages'
@@ -15,6 +16,7 @@ export const metadata = { title: 'Dashboard' }
 // Counts come from the list actions (there is no dedicated stats action): `limit: 1` keeps them cheap
 // and `totalDocs` is the number that matches.
 export default async function DashboardPage() {
+  const user = await requirePermissionPage('pets:view')
   const [available, pending, adopted, pages, media] = await Promise.all([
     listPetsAction({ status: PetStatus.Available, limit: 1 }),
     listPetsAction({ status: PetStatus.Pending, limit: 1 }),
@@ -37,12 +39,16 @@ export default async function DashboardPage() {
         title="Dashboard"
         actions={
           <>
-            <Link href="/admin/pets/new" className={buttonVariants()}>
-              Add pet
-            </Link>
-            <Link href="/admin/pages/new" className={buttonVariants({ variant: 'outline' })}>
-              New page
-            </Link>
+            {can(user.role, 'pets:edit') ? (
+              <Link href="/admin/pets/new" className={buttonVariants()}>
+                Add pet
+              </Link>
+            ) : null}
+            {can(user.role, 'pages:edit') ? (
+              <Link href="/admin/pages/new" className={buttonVariants({ variant: 'outline' })}>
+                New page
+              </Link>
+            ) : null}
           </>
         }
       />

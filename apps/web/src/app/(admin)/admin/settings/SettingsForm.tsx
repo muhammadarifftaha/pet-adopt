@@ -1,5 +1,6 @@
 'use client'
 
+import { useViewOnly, ViewOnlyFieldset } from '@/components/admin/view-only'
 import Image from 'next/image'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
@@ -217,6 +218,8 @@ function RowButtons({
 }
 
 export function SettingsForm({ settings }: { settings: SiteSetting }) {
+  // View-only roles (audit) can read every tab; the fields are off and there is no Save.
+  const viewOnly = useViewOnly()
   const router = useRouter()
   const initial = React.useMemo(() => settingsToFormValues(settings), [settings])
   const form = useForm<Values>({
@@ -343,6 +346,7 @@ export function SettingsForm({ settings }: { settings: SiteSetting }) {
         </TabsList>
 
         <TabsContent value="brand" className="pt-4">
+          <ViewOnlyFieldset>
           <FieldGroup className="max-w-2xl">
             <TextField control={control} name="siteName" label="Site name" required description="Shown in the site header, the browser tab, search results and the admin sidebar." />
             <TextField control={control} name="tagline" label="Tagline" description="A short line about your rescue, used on the homepage and in link previews." />
@@ -389,9 +393,11 @@ export function SettingsForm({ settings }: { settings: SiteSetting }) {
               screen.
             </p>
           </FieldGroup>
+          </ViewOnlyFieldset>
         </TabsContent>
 
         <TabsContent value="contact" className="pt-4">
+          <ViewOnlyFieldset>
           <FieldGroup className="max-w-2xl">
             <Controller
               name="whatsappNumber"
@@ -491,9 +497,11 @@ export function SettingsForm({ settings }: { settings: SiteSetting }) {
               </div>
             </FieldSet>
           </FieldGroup>
+          </ViewOnlyFieldset>
         </TabsContent>
 
         <TabsContent value="navigation" className="pt-4">
+          <ViewOnlyFieldset>
           <FieldGroup className="max-w-2xl">
             <FieldSet>
               <FieldLegend>Menu links</FieldLegend>
@@ -535,14 +543,17 @@ export function SettingsForm({ settings }: { settings: SiteSetting }) {
             </FieldSet>
             <TextField control={control} name="footerText" label="Footer text" multiline description="A short line at the bottom of every page." />
           </FieldGroup>
+          </ViewOnlyFieldset>
         </TabsContent>
       </Tabs>
 
       <div className="mt-6 flex flex-wrap items-center gap-3 border-t pt-4">
         {/* aria-disabled, not disabled: a disabled button would drop keyboard focus mid-save. */}
-        <Button type="submit" aria-disabled={saving} className={cn(saving && 'opacity-50')}>
-          Save settings
-        </Button>
+        {viewOnly ? null : (
+          <Button type="submit" aria-disabled={saving} className={cn(saving && 'opacity-50')}>
+            Save settings
+          </Button>
+        )}
         <Link href="/admin" className={buttonVariants({ variant: 'ghost' })}>
           Back to dashboard
         </Link>

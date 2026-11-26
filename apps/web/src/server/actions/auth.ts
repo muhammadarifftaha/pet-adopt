@@ -1,5 +1,7 @@
 'use server'
 
+import { asRole } from '@pet-adopt/plugin-sdk'
+
 import { APIError } from 'better-auth/api'
 import { headers } from 'next/headers'
 
@@ -35,7 +37,7 @@ export async function signInAction(input: { email: string; password: string }): 
       })
       await clearAttempts(keys)
       const user = result.user as { id: string; email: string; name: string; role?: string | null }
-      return { id: user.id, email: user.email, name: user.name, role: user.role === 'admin' ? 'admin' : 'editor' } as SessionUser
+      return { id: user.id, email: user.email, name: user.name, role: asRole(user.role) } as SessionUser
     } catch (error) {
       if (error instanceof APIError) {
         // A wrong password, an unknown email and a disabled account all look the same.

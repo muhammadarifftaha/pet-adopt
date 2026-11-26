@@ -1,5 +1,6 @@
 'use client'
 
+import { can, type Role } from '@pet-adopt/plugin-sdk'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { createElement, type ReactNode } from 'react'
@@ -63,14 +64,14 @@ const ICONS: Record<string, IconType> = {
 export function AdminNav({
   items,
   pluginItems = [],
-  isAdmin,
+  role,
 }: {
   items: AdminNavItem[]
   pluginItems?: AdminNavItem[]
-  isAdmin: boolean
+  role: Role
 }) {
   const pathname = usePathname()
-  const allowed = (list: AdminNavItem[]) => list.filter((item) => isAdmin || !item.adminOnly)
+  const allowed = (list: AdminNavItem[]) => list.filter((item) => !item.permission || can(role, item.permission))
   const core = allowed(items)
   const plugins = allowed(pluginItems)
 

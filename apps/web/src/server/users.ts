@@ -1,3 +1,4 @@
+import { asRole } from '@pet-adopt/plugin-sdk'
 // The people who sign in. Authorisation (who may call what) is done by the actions; the rules about
 // the data itself live here:
 //  - the first account is always an admin, whatever role it is given;
@@ -20,7 +21,6 @@ import type { Role } from './types'
 export type UserListItem = { id: string; email: string; name: string; role: Role; banned: boolean; createdAt: Date }
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-const asRole = (value: string | null): Role => (value === 'admin' ? 'admin' : 'editor')
 /** Every change that could remove an admin takes this lock first. */
 const ADMIN_LOCK = 'users:admins'
 

@@ -1,7 +1,9 @@
+import { can } from '@pet-adopt/plugin-sdk'
 import { isEqual } from 'es-toolkit'
 
 import { PageHeader } from '@/components/admin/PageHeader'
-import { parseId, unwrapOrNotFound } from '@/lib/admin/unwrap'
+import { ViewOnly, ViewOnlyNotice } from '@/components/admin/view-only'
+import { parseId, requirePermissionPage, unwrapOrNotFound } from '@/lib/admin/unwrap'
 import { getPageAction } from '@/server/actions/pages'
 
 import { PageForm, type PageFormPage } from '../PageForm'
@@ -11,6 +13,7 @@ export const metadata = { title: 'Page settings' }
 // The page builder's "Page settings" link lands here. "Open page builder" is in the form's button
 // row, next to Save.
 export default async function PageSettingsPage({ params }: { params: Promise<{ id: string }> }) {
+  const user = await requirePermissionPage('pages:view')
   const { id } = await params
   const page = unwrapOrNotFound(await getPageAction(parseId(id)))
 
@@ -33,7 +36,10 @@ export default async function PageSettingsPage({ params }: { params: Promise<{ i
   return (
     <>
       <PageHeader title={page.title} description="Title, address and how the page looks when shared." />
-      <PageForm page={formPage} />
+      <ViewOnly value={!can(user.role, 'pages:edit')}>
+        <ViewOnlyNotice role={user.role} what="this page" />
+        <PageForm page={formPage} />
+      </ViewOnly>
     </>
   )
 }

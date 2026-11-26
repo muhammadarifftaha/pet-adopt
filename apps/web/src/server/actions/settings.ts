@@ -1,13 +1,13 @@
 'use server'
 
 import { run, type ActionResult } from '../result'
-import { requireAdmin, requireUser } from '../session'
+import { requirePermission } from '../session'
 import { getSettings, updateSettings } from '../settings'
 import type { SiteSetting } from '../types'
 
 export async function getSettingsAction(): Promise<ActionResult<SiteSetting>> {
   return run(async () => {
-    await requireUser()
+    await requirePermission('settings:view')
     return getSettings()
   })
 }
@@ -18,7 +18,7 @@ export async function getSettingsAction(): Promise<ActionResult<SiteSetting>> {
  */
 export async function updateSettingsAction(input: unknown): Promise<ActionResult<SiteSetting>> {
   return run(async () => {
-    await requireAdmin()
+    await requirePermission('settings:edit')
     return updateSettings(input)
   })
 }

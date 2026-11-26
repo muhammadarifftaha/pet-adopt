@@ -3,7 +3,7 @@
 // The form builder's server actions: what its admin screens (and, for `submitFormAction`, the site's
 // Form block) call. Each one checks who is calling through `host()`, takes untrusted input, and
 // returns an ActionResult. The rules live in ./server.ts.
-import { host, type ActionResult } from '@pet-adopt/plugin-sdk'
+import { accessPermission, host, type ActionResult } from '@pet-adopt/plugin-sdk'
 import { after } from 'next/server'
 
 import {
@@ -27,14 +27,14 @@ import {
 
 export async function listFormsAction(): Promise<ActionResult<FormSummary[]>> {
   return host().run(async () => {
-    await host().requireUser()
+    await host().requirePermission(accessPermission('all', 'view'))
     return listForms()
   })
 }
 
 export async function getFormAction(id: number): Promise<ActionResult<FormRecord | null>> {
   return host().run(async () => {
-    await host().requireUser()
+    await host().requirePermission(accessPermission('all', 'view'))
     return getForm(toFormId(id))
   })
 }
@@ -42,7 +42,7 @@ export async function getFormAction(id: number): Promise<ActionResult<FormRecord
 /** `{ name, description?, fields?, settings?, isOpen? }` */
 export async function createFormAction(input: unknown): Promise<ActionResult<{ id: number }>> {
   return host().run(async () => {
-    await host().requireUser()
+    await host().requirePermission(accessPermission('all', 'edit'))
     return createForm(input)
   })
 }
@@ -50,7 +50,7 @@ export async function createFormAction(input: unknown): Promise<ActionResult<{ i
 /** Any of `{ name, description, fields, settings, isOpen }`; `fields` and `settings` replace what is stored. */
 export async function updateFormAction(id: number, input: unknown): Promise<ActionResult<FormRecord>> {
   return host().run(async () => {
-    await host().requireUser()
+    await host().requirePermission(accessPermission('all', 'edit'))
     return updateForm(toFormId(id), input)
   })
 }
@@ -58,14 +58,14 @@ export async function updateFormAction(id: number, input: unknown): Promise<Acti
 /** Deletes the form and all of its responses. */
 export async function deleteFormAction(id: number): Promise<ActionResult> {
   return host().run(async () => {
-    await host().requireUser()
+    await host().requirePermission(accessPermission('all', 'edit'))
     await deleteForm(toFormId(id))
   })
 }
 
 export async function listResponsesAction(formId: number, opts: { page?: number; limit?: number } = {}): Promise<ActionResult<Awaited<ReturnType<typeof listResponses>>>> {
   return host().run(async () => {
-    await host().requireUser()
+    await host().requirePermission(accessPermission('personalData', 'view'))
     return listResponses(toFormId(formId), opts)
   })
 }
@@ -73,14 +73,14 @@ export async function listResponsesAction(formId: number, opts: { page?: number;
 /** Marks these responses as read; with no ids, all of the form's. */
 export async function markResponsesReadAction(formId: number, ids?: number[]): Promise<ActionResult<number>> {
   return host().run(async () => {
-    await host().requireUser()
+    await host().requirePermission(accessPermission('personalData', 'edit'))
     return markResponsesRead(toFormId(formId), ids)
   })
 }
 
 export async function deleteResponsesAction(formId: number, ids: number[]): Promise<ActionResult<number>> {
   return host().run(async () => {
-    await host().requireUser()
+    await host().requirePermission(accessPermission('personalData', 'edit'))
     return deleteResponses(toFormId(formId), ids)
   })
 }
@@ -88,7 +88,7 @@ export async function deleteResponsesAction(formId: number, ids: number[]): Prom
 /** `{ filename, csv }`: the screen turns it into a download. */
 export async function exportResponsesCsvAction(formId: number): Promise<ActionResult<{ filename: string; csv: string }>> {
   return host().run(async () => {
-    await host().requireUser()
+    await host().requirePermission('personalData:export')
     return exportResponsesCsv(toFormId(formId))
   })
 }
