@@ -66,6 +66,11 @@ export type FormSettings = {
   confirmationFieldId?: string
   /** The template for the confirmation; missing: the default. */
   confirmationTemplateId?: number
+  /**
+   * The spam trap (honeypot): a hidden box people never see, which only bots fill in; their
+   * answers are quietly dropped. On unless this is `false` (so every older form keeps it).
+   */
+  spamTrap?: boolean
 }
 
 export const FORM_LIMITS = {
@@ -89,6 +94,12 @@ export const DEFAULT_SUCCESS_MESSAGE = 'Thank you. We have received your answers
 
 export const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 const FIELD_ID = /^[A-Za-z0-9_-]{1,40}$/
+/**
+ * Names the visitor's form already uses for its own boxes: the spam trap is `website`. A question
+ * with that id would share the trap's name, and its real answer would be read as the trap and
+ * dropped. The editor's own ids (`newFieldId`) never collide; this stops one sent another way.
+ */
+export const RESERVED_FIELD_IDS = ['website']
 const CONTROL_CHARS = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g
 
 /** Trimmed, control characters removed, runs of whitespace collapsed to one space. */
@@ -142,6 +153,7 @@ export function validateFormFields(raw: unknown): FieldsResult {
     let id = typeof item.id === 'string' ? item.id.trim() : ''
     if (!id) id = newFieldId()
     if (!FIELD_ID.test(id)) errors[`${at}.id`] = 'Not a valid field id.'
+    else if (RESERVED_FIELD_IDS.includes(id.toLowerCase())) errors[`${at}.id`] = 'That id is used by the form itself (the spam trap). Leave the id out to get a new one.'
     else if (seenIds.has(id)) errors[`${at}.id`] = 'Two fields have the same id.'
     seenIds.add(id)
 
@@ -253,6 +265,9 @@ export function validateFormSettings(raw: unknown): SettingsResult {
     if (typeof confirmationFieldId === 'string' && /^[\w-]{1,40}$/.test(confirmationFieldId)) settings.confirmationFieldId = confirmationFieldId
     else errors['settings.confirmationFieldId'] = 'Pick one of the form’s Email questions.'
   }
+
+  // Stored only when switched off: a missing value means on.
+  if (raw.spamTrap === false) settings.spamTrap = false
 
   return Object.keys(errors).length ? { ok: false, errors } : { ok: true, settings }
 }

@@ -125,12 +125,14 @@ export function PublicForm({
         <Field key={field.id} field={field} id={inputId(field)} error={errors[field.id]} disabled={preview} />
       ))}
 
-      <div className="form-hp" aria-hidden="true">
-        <label>
-          Website
-          <input type="text" name="website" tabIndex={-1} autoComplete="off" defaultValue="" />
-        </label>
-      </div>
+      {form.spamTrap ? (
+        <div className="form-hp" aria-hidden="true">
+          <label>
+            Website
+            <input type="text" name="website" tabIndex={-1} autoComplete="off" defaultValue="" />
+          </label>
+        </div>
+      ) : null}
 
       {form.captcha ? (
         preview ? (

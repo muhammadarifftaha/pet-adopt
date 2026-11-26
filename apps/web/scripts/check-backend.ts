@@ -1804,6 +1804,29 @@ await check('form builder: forms are validated and unique; answers are checked p
   await db.delete(t.rateLimits).where(sql`${t.rateLimits.key} like 'plugin:form-builder:%'`)
 })
 
+await check('form builder spam trap: on by default (older forms too), a filled trap is dropped quietly, switched off it is not drawn or checked', async () => {
+  const form = await forms.createForm({ name: 'Spam trap check form', fields: [{ type: 'text', label: 'Name', required: true }] })
+  const nameId = (await forms.getForm(form.id))!.fields[0].id
+  ok((await forms.getForm(form.id))!.settings.spamTrap === undefined && (await forms.getPublicForm(form.id))!.spamTrap === true, 'on by default, stored as nothing')
+  const trapped = await forms.submitResponse(form.id, { [nameId]: 'Bot' }, { client: '10.89.0.1', honeypot: 'https://spam.test' })
+  ok(trapped.stored === null, 'a filled trap: nothing stored')
+  await forms.updateForm(form.id, { settings: { spamTrap: false } })
+  ok((await forms.getForm(form.id))!.settings.spamTrap === false && (await forms.getPublicForm(form.id))!.spamTrap === false, 'switched off: stored and not drawn')
+  const kept = await forms.submitResponse(form.id, { [nameId]: 'Autofill' }, { client: '10.89.0.1', honeypot: 'https://filled-by-a-tool.test' })
+  ok(kept.stored !== null, 'switched off: a filled box no longer drops the answer')
+  // A question can never share the trap's name, or its real answers would be dropped as spam.
+  ok((await fieldErrors(forms.createForm({ name: 'Clash form', fields: [{ id: 'website', type: 'text', label: 'Website' }] })))['fields.0.id'], 'the id "website" is reserved')
+  ok((await fieldErrors(forms.createForm({ name: 'Clash form', fields: [{ id: 'Website', type: 'text', label: 'Website' }] })))['fields.0.id'], 'in any case')
+  const labelled = await forms.createForm({ name: 'Website question form', fields: [{ type: 'text', label: 'Website' }] })
+  ok((await forms.getForm(labelled.id))!.fields[0].id !== 'website', 'a question labelled Website gets its own id')
+  await forms.deleteForm(labelled.id)
+  await forms.updateForm(form.id, { settings: { spamTrap: true } })
+  ok((await forms.getForm(form.id))!.settings.spamTrap === undefined, 'switched on again: stored as nothing')
+  await forms.deleteForm(form.id)
+  const { db, t } = await getDatabase()
+  await db.delete(t.rateLimits).where(sql`${t.rateLimits.key} like 'plugin:form-builder:%'`)
+})
+
 await check('form builder spam protection: keys saved sealed, only checked keys protect forms, tokens verified per service, outages refuse, a changed key switches it off', async () => {
   const { db, t } = await openFormsDatabase()
   await db.delete(t.settings)

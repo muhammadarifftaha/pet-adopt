@@ -58,6 +58,8 @@ export type FormSummary = Pick<FormRecord, 'id' | 'name' | 'isOpen' | 'updatedAt
 export type PublicForm = Pick<FormRecord, 'id' | 'name' | 'description' | 'isOpen'> & {
   fields: PublicField[]
   submitLabel: string
+  /** Draw the hidden spam trap (honeypot) box. */
+  spamTrap: boolean
   /** The spam check's widget, or null while forms are not protected. */
   captcha: PublicCaptcha | null
 }
@@ -161,6 +163,7 @@ export async function getPublicForm(id: number): Promise<PublicForm | null> {
     fields: form.fields.map((field) => (field.type === 'source' && field.source ? { ...field, choices: choices[field.source] ?? [] } : field)),
     isOpen: form.isOpen,
     submitLabel: form.settings.submitLabel ?? DEFAULT_SUBMIT_LABEL,
+    spamTrap: form.settings.spamTrap !== false,
     captcha,
   }
 }
@@ -303,7 +306,9 @@ export async function submitResponse(
   await host().consumeAttempt(`form-builder:form:${form.id}`, SUBMIT_FORM_RULE)
 
   const message = form.settings.successMessage ?? DEFAULT_SUCCESS_MESSAGE
-  if (typeof opts.honeypot === 'string' ? opts.honeypot.trim() : opts.honeypot) return { message, stored: null }
+  // The spam trap (on unless the form switched it off): a filled hidden box gets the usual answer, and nothing is stored.
+  const trapped = form.settings.spamTrap !== false && (typeof opts.honeypot === 'string' ? opts.honeypot.trim() : opts.honeypot)
+  if (trapped) return { message, stored: null }
   // Spam protection (src/captcha.ts): only while it is on and its keys were checked.
   await requireCaptcha(opts.captchaToken, opts.client)
 
