@@ -35,3 +35,15 @@ export const responses = pgTable(
     index('plugin_form_builder_responses_form_idx').on(t.formId, t.createdAt),
   ],
 )
+
+/** Twin of `settings` in sqlite.ts (spam protection: see there). */
+export const settings = pgTable('plugin_form_builder_settings', {
+  id: integer('id').primaryKey(),
+  captchaProvider: text('captcha_provider'),
+  captchaSiteKey: text('captcha_site_key'),
+  captchaSecretEncrypted: text('captcha_secret_encrypted'),
+  captchaMinScore: integer('captcha_min_score').notNull().default(50),
+  captchaEnabled: boolean('captcha_enabled').notNull().default(false),
+  captchaCheckedAt: at('captcha_checked_at'),
+  updatedAt: at('updated_at').notNull().defaultNow(),
+})

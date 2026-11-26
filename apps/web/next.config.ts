@@ -33,17 +33,25 @@ const siteURL = (process.env.NEXT_PUBLIC_SERVER_URL ?? '').trim()
 //    previews in the admin.
 //  - The only thing that may be embedded is a Google Maps embed (see safeMapEmbed in lib/links.ts).
 //  - Development also needs eval (React refresh) and websockets (hot reload).
+//  - Captcha services (the form builder's spam protection, src/captcha-widget.tsx in the plugin):
+//    their scripts, frames and checks, limited to their captcha paths where the service allows it.
+//    Fixed here because the CSP is read at start and the chosen service lives in the database;
+//    nothing loads from them unless the owner switched protection on.
 // Set CSP_REPORT_ONLY=1 to report violations in the browser console without blocking anything.
+const CAPTCHA_SCRIPTS = 'https://challenges.cloudflare.com https://www.google.com/recaptcha/ https://www.gstatic.com/recaptcha/ https://hcaptcha.com https://*.hcaptcha.com'
+const CAPTCHA_FRAMES = 'https://challenges.cloudflare.com https://www.google.com/recaptcha/ https://recaptcha.google.com/recaptcha/ https://hcaptcha.com https://*.hcaptcha.com'
+const CAPTCHA_CONNECT = 'https://www.google.com/recaptcha/ https://hcaptcha.com https://*.hcaptcha.com'
+
 const contentSecurityPolicy = [
   "default-src 'self'",
-  `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ''}`,
-  "style-src 'self' 'unsafe-inline'",
+  `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ''} ${CAPTCHA_SCRIPTS}`,
+  "style-src 'self' 'unsafe-inline' https://hcaptcha.com https://*.hcaptcha.com",
   "img-src 'self' data: blob:",
   "font-src 'self' data:",
-  `connect-src 'self'${isDev ? ' ws: wss:' : ''}`,
+  `connect-src 'self'${isDev ? ' ws: wss:' : ''} ${CAPTCHA_CONNECT}`,
   // 'self': the admin pages table previews pages in an iframe (/edit/<id>/preview).
   // YouTube (no-cookie) and Vimeo: the Video block, which only frames URLs built by safeVideoEmbed.
-  "frame-src 'self' https://www.google.com/maps/ https://www.youtube-nocookie.com https://player.vimeo.com",
+  `frame-src 'self' https://www.google.com/maps/ https://www.youtube-nocookie.com https://player.vimeo.com ${CAPTCHA_FRAMES}`,
   "object-src 'none'",
   "base-uri 'self'",
   "form-action 'self'",

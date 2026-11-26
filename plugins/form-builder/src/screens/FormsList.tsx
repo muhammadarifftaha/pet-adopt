@@ -7,7 +7,7 @@ import Link from 'next/link'
 import { listForms } from '../server'
 import { NewFormButton } from './NewFormButton'
 import { PrivacyWarning } from './PrivacyWarning'
-import { editHref, responsesHref } from './paths'
+import { editHref, responsesHref, spamProtectionHref } from './paths'
 
 const when = new Intl.DateTimeFormat('en-GB', { dateStyle: 'medium', timeStyle: 'short' })
 
@@ -23,7 +23,14 @@ export async function FormsList({ user }: { user: PluginUser }) {
         <p className="text-sm text-muted-foreground">
           Forms appear on the site through the page builder&apos;s Form block. Responses are kept here.
         </p>
-        {canEdit ? <NewFormButton warning={warning} /> : null}
+        <div className="flex flex-wrap items-center gap-3">
+          {can(user.role, accessPermission('admin', 'view')) ? (
+            <Link href={spamProtectionHref} className="text-sm underline-offset-4 hover:underline">
+              Spam protection
+            </Link>
+          ) : null}
+          {canEdit ? <NewFormButton warning={warning} /> : null}
+        </div>
       </div>
       {warning}
 

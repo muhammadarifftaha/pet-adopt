@@ -40,3 +40,21 @@ export const responses = sqliteTable(
     index('plugin_form_builder_responses_form_idx').on(t.formId, t.createdAt),
   ],
 )
+
+/**
+ * The form builder's own settings, one row (id = 1). Spam protection (captcha, agreed with the
+ * owner: on public forms only, keys brought by the owner): the provider, its site key, the secret key
+ * sealed with host().secrets (never sent to a browser), reCAPTCHA v3's minimum score in hundredths,
+ * whether it is switched on, and when the saved keys last passed "Check these keys". Forms are
+ * only protected while it is on AND checked; changing a key clears the check.
+ */
+export const settings = sqliteTable('plugin_form_builder_settings', {
+  id: integer('id').primaryKey(),
+  captchaProvider: text('captcha_provider'),
+  captchaSiteKey: text('captcha_site_key'),
+  captchaSecretEncrypted: text('captcha_secret_encrypted'),
+  captchaMinScore: integer('captcha_min_score').notNull().default(50),
+  captchaEnabled: integer('captcha_enabled', { mode: 'boolean' }).notNull().default(false),
+  captchaCheckedAt: integer('captcha_checked_at', { mode: 'timestamp_ms' }),
+  updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull().default(nowMs),
+})

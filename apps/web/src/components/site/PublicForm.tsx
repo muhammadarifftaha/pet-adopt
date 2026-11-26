@@ -1,6 +1,7 @@
 'use client'
 
 import { submitFormAction } from '@pet-adopt/plugin-form-builder/actions'
+import { CAPTCHA_INFO, CaptchaWidget, type CaptchaHandle } from '@pet-adopt/plugin-form-builder/captcha'
 import type { PublicField as FormField } from '@pet-adopt/plugin-form-builder/fields'
 import type { PublicForm as PublicFormData } from '@pet-adopt/plugin-form-builder/server'
 import React, { useId, useRef, useState } from 'react'
@@ -12,6 +13,9 @@ import React, { useId, useRef, useState } from 'react'
 //  - The send button uses aria-disabled while sending, so focus stays on it.
 //  - `preview` (the page builder) shows the form but never sends it.
 //  - `website` is a honeypot: hidden from people and screen readers, so only bots fill it in.
+//  - When the form builder's spam protection is on (`form.captcha`), its widget sits above the button
+//    and its token goes with the answers (checked on the server). The preview shows a placeholder
+//    instead, so the page builder never loads a captcha service.
 
 type Errors = Record<string, string>
 
@@ -32,6 +36,7 @@ export function PublicForm({
   const [sending, setSending] = useState(false)
   const summaryRef = useRef<HTMLDivElement>(null)
   const sentRef = useRef<HTMLParagraphElement>(null)
+  const captchaRef = useRef<CaptchaHandle>(null)
 
   const inputId = (field: FormField) => `${base}-${field.id}`
   // Radio and checkbox groups: the summary link goes to the first option.
@@ -59,7 +64,19 @@ export function PublicForm({
     }
     setSending(true)
     try {
-      const result = await submitFormAction(form.id, answers, data.get('website') ?? '')
+      let captchaToken: string | null = null
+      if (form.captcha) {
+        captchaToken = (await captchaRef.current?.getToken()) ?? null
+        if (!captchaToken) {
+          setErrors({})
+          setFormError('Please complete the spam check above the button, then send the form.')
+          requestAnimationFrame(() => summaryRef.current?.focus())
+          return
+        }
+      }
+      const result = await submitFormAction(form.id, answers, data.get('website') ?? '', captchaToken)
+      // A token works once: get a fresh check ready for the next attempt.
+      if (!result.ok) captchaRef.current?.reset()
       if (result.ok) {
         setSent(result.data.message)
         requestAnimationFrame(() => sentRef.current?.focus())
@@ -68,6 +85,7 @@ export function PublicForm({
       setErrors(result.fieldErrors ?? {})
       setFormError(result.error)
     } catch {
+      captchaRef.current?.reset()
       setErrors({})
       setFormError('Your answers could not be sent. Check your connection and try again.')
     } finally {
@@ -113,6 +131,14 @@ export function PublicForm({
           <input type="text" name="website" tabIndex={-1} autoComplete="off" defaultValue="" />
         </label>
       </div>
+
+      {form.captcha ? (
+        preview ? (
+          <p className="form-note">Spam check ({CAPTCHA_INFO[form.captcha.provider].label}) appears here on the live page.</p>
+        ) : (
+          <CaptchaWidget ref={captchaRef} captcha={form.captcha} />
+        )
+      ) : null}
 
       <div className="form-actions">
         <button type="submit" className="btn btn-primary" aria-disabled={preview || sending || undefined}>

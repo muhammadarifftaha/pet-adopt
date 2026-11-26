@@ -23,6 +23,7 @@ import {
   type FormRecord,
   type FormSummary,
 } from './server'
+import { checkCaptchaKeys, getCaptchaSettings, saveCaptchaSettings, type CaptchaSettingsView } from './captcha'
 
 // Changes (and downloads of responses) go into the site's activity log with host().recordActivity,
 // after they succeed. Reading and marking responses as read are not logged.
@@ -134,18 +135,57 @@ export async function exportResponsesCsvAction(formId: number): Promise<ActionRe
   })
 }
 
+// --- Spam protection (admins and developers; audit views) ---------------------------------
+
+export async function getCaptchaSettingsAction(): Promise<ActionResult<CaptchaSettingsView>> {
+  return host().run(async () => {
+    await host().requirePermission(accessPermission('admin', 'view'))
+    return getCaptchaSettings()
+  })
+}
+
+/** `{ provider, siteKey, secret?, clearSecret?, minScore?, enabled? }`; a blank secret keeps the saved one. */
+export async function saveCaptchaSettingsAction(input: unknown): Promise<ActionResult<CaptchaSettingsView>> {
+  return host().run(async () => {
+    await host().requirePermission(accessPermission('admin', 'edit'))
+    const before = await getCaptchaSettings()
+    const saved = await saveCaptchaSettings(input)
+    // Names only (keys are secrets or close to it).
+    const fields = [
+      before.provider !== saved.provider && 'service',
+      before.siteKey !== saved.siteKey && 'site key',
+      (input as { secret?: unknown; clearSecret?: unknown })?.secret || (input as { clearSecret?: unknown })?.clearSecret ? 'secret key' : null,
+      before.minScore !== saved.minScore && 'minimum score',
+      before.enabled !== saved.enabled && 'on or off',
+    ].filter((field): field is string => Boolean(field))
+    await host().recordActivity({ action: 'form-builder.captcha.update', summary: 'Changed the forms’ spam protection', fields })
+    return saved
+  })
+}
+
+/** "Check these keys": `token` comes from the widget drawn with the saved site key. */
+export async function checkCaptchaKeysAction(token: unknown): Promise<ActionResult<CaptchaSettingsView>> {
+  return host().run(async () => {
+    await host().requirePermission(accessPermission('admin', 'edit'))
+    const checked = await checkCaptchaKeys(token, await host().clientAddress())
+    await host().recordActivity({ action: 'form-builder.captcha.check', summary: 'Checked the forms’ spam protection keys' })
+    return checked
+  })
+}
+
 // --- Visitors (no account) -----------------------------------------------------------------
 
 /**
  * A visitor sends a form. `answers` is `{ [fieldId]: value }`; `website` is the honeypot (a field
- * people never see, so only bots fill it). Errors come back per field id. The team notification and
+ * people never see, so only bots fill it); `captchaToken` is the spam check's answer when forms
+ * are protected (src/captcha.ts). Errors come back per field id. The team notification and
  * the visitor's confirmation (when the form has them) are sent after the answer, so the visitor
  * never waits for email.
  */
-export async function submitFormAction(formId: number, answers: unknown, website?: unknown): Promise<ActionResult<{ message: string }>> {
+export async function submitFormAction(formId: number, answers: unknown, website?: unknown, captchaToken?: unknown): Promise<ActionResult<{ message: string }>> {
   return host().run(async () => {
     const client = await host().clientAddress()
-    const result = await submitResponse(toFormId(formId), answers, { client, honeypot: website })
+    const result = await submitResponse(toFormId(formId), answers, { client, honeypot: website, captchaToken })
     const stored = result.stored
     // After the answer, so the visitor never waits for email.
     if (stored) after(() => Promise.all([notifyNewResponse(stored.form, stored.answers), confirmToVisitor(stored.form, stored.answers, client)]))

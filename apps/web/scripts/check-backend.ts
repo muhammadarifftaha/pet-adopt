@@ -71,6 +71,7 @@ import { createResetLink, isResetTokenValid, prepareResetEmail, resetPasswordWit
 import { accessOf, accessPermission, asRole, can, host, pluginTablePrefix, provideHost, ROLES, type EmailMessage, type PluginEmail, type Role } from '@pet-adopt/plugin-sdk'
 import { formBuilderStorage, openFormsDatabase } from '@pet-adopt/plugin-form-builder'
 import * as forms from '@pet-adopt/plugin-form-builder/server'
+import * as captcha from '../../../plugins/form-builder/src/captcha'
 // The services plugins reach through `host()` (sign-in, limits, phone, email), as the server registers them.
 import '../src/plugins/host'
 import { forgetPluginStorageStatus, getPluginStorageStatus } from '../src/plugins/storage'
@@ -1700,7 +1701,7 @@ await check('plugin storage: the form builder is set up by migrate, cascades res
   try {
     forgetPluginStorageStatus()
     const [flagged] = (await getPluginStorageStatus()).filter((s) => s.plugin === 'form-builder')
-    ok(!flagged.ready && /pnpm migrate/.test(flagged.problem ?? '') && flagged.pending.join() === '0000_init', `flagged with what to do: ${flagged.problem}`)
+    ok(!flagged.ready && /pnpm migrate/.test(flagged.problem ?? '') && flagged.pending.join() === '0000_init,0001_captcha_settings', `flagged with what to do: ${flagged.problem}`)
     ok(/not set up yet/.test(await userError(openFormsDatabase())), 'opening its tables is refused with a message an owner can act on')
   } finally {
     await db.insert(t.pluginMigrations).values(saved)
@@ -1801,6 +1802,86 @@ await check('form builder: forms are validated and unique; answers are checked p
   ok(/no longer exists/.test(await userError(forms.deleteForm(other.id))), 'deleting twice says it is gone')
   await forms.deleteForm(id)
   await db.delete(t.rateLimits).where(sql`${t.rateLimits.key} like 'plugin:form-builder:%'`)
+})
+
+await check('form builder spam protection: keys saved sealed, only checked keys protect forms, tokens verified per service, outages refuse, a changed key switches it off', async () => {
+  const { db, t } = await openFormsDatabase()
+  await db.delete(t.settings)
+  // The services' verify calls are answered here, without the network.
+  const calls: Array<{ url: string; body: URLSearchParams }> = []
+  let reply: (url: string) => unknown = () => ({ success: true })
+  captcha.setCaptchaFetchForChecks(async (url, init) => {
+    calls.push({ url, body: init.body })
+    const answer = reply(url)
+    if (answer instanceof Error) throw answer
+    return { ok: true, json: async () => answer }
+  })
+  try {
+    ok((await captcha.getCaptchaSettings()).active === false, 'off by default')
+    ok((await fieldErrors(captcha.saveCaptchaSettings({ provider: 'nope' }))).provider, 'an unknown service is refused')
+    ok((await fieldErrors(captcha.saveCaptchaSettings({ provider: 'turnstile', siteKey: 'x' }))).siteKey, 'a malformed site key is refused')
+    ok((await fieldErrors(captcha.saveCaptchaSettings({ provider: 'turnstile', siteKey: '0x4AAAAAAAsitekey' }))).secret, 'a secret key is required')
+    const secret = '0x4AAAAAAAsecret-key-123'
+    const saved = await captcha.saveCaptchaSettings({ provider: 'turnstile', siteKey: '0x4AAAAAAAsitekey', secret })
+    ok(saved.secretSet && !saved.active && saved.checkedAt === null, 'saved, not protecting yet')
+    const [row] = await db.select().from(t.settings)
+    ok(row!.captchaSecretEncrypted !== null && !row!.captchaSecretEncrypted.includes(secret), 'the secret key is stored sealed')
+    ok((await fieldErrors(captcha.saveCaptchaSettings({ provider: 'turnstile', siteKey: '0x4AAAAAAAsitekey', enabled: true }))).enabled, 'cannot switch on before the keys are checked')
+    ok((await captcha.publicCaptcha()) === null, 'visitors get no widget yet')
+
+    reply = () => ({ success: false })
+    ok(/did not pass/.test(await userError(captcha.checkCaptchaKeys('tok', null))), 'keys that fail the check are reported')
+    reply = () => ({ success: true })
+    const checked = await captcha.checkCaptchaKeys('tok', '203.0.113.9')
+    ok(checked.checkedAt !== null, 'a good token marks the keys checked')
+    const last = calls.at(-1)!
+    ok(last.url.includes('challenges.cloudflare.com') && last.body.get('secret') === secret && last.body.get('remoteip') === '203.0.113.9', 'Turnstile is asked with the secret and the visitor address')
+    const on = await captcha.saveCaptchaSettings({ provider: 'turnstile', siteKey: '0x4AAAAAAAsitekey', enabled: true })
+    ok(on.active, 'switched on')
+    ok(JSON.stringify(await captcha.publicCaptcha()) === JSON.stringify({ provider: 'turnstile', siteKey: '0x4AAAAAAAsitekey' }), 'visitors get the provider and site key, never the secret')
+
+    // A form under protection.
+    const form = await forms.createForm({ name: 'Captcha check form', fields: [{ id: 'name', type: 'text', label: 'Name', required: true }] })
+    ok((await forms.getPublicForm(form.id))?.captcha?.provider === 'turnstile', 'the public form carries the widget settings')
+    const nameId = (await forms.getForm(form.id))!.fields[0].id
+    const answer = (name: string) => ({ [nameId]: name })
+    const client = { client: '10.88.0.1' }
+    ok((await userError(forms.submitResponse(form.id, answer('Ana'), client))) === captcha.CAPTCHA_FAILED, 'no token: refused')
+    reply = () => ({ success: false })
+    ok((await userError(forms.submitResponse(form.id, answer('Ana'), { ...client, captchaToken: 'bad' }))) === captcha.CAPTCHA_FAILED, 'a failed token: refused')
+    reply = () => new Error('network down')
+    ok((await userError(forms.submitResponse(form.id, answer('Ana'), { ...client, captchaToken: 'tok' }))) === captcha.CAPTCHA_UNAVAILABLE, 'the service unreachable: refused with an explanation')
+    reply = () => ({ success: true })
+    const sent = await forms.submitResponse(form.id, answer('Ana'), { ...client, captchaToken: 'tok' })
+    ok(sent.stored !== null, 'a good token: stored')
+    const bot = await forms.submitResponse(form.id, answer('Bot'), { ...client, honeypot: 'spam', captchaToken: 'bad' })
+    ok(bot.stored === null, 'the honeypot still answers bots quietly')
+
+    // reCAPTCHA v3: the action and a score at the minimum.
+    const v3 = { provider: 'recaptcha-v3' as const, siteKey: 'v3-site-key-123', secret: 'v3-secret-123', minScore: 50 }
+    reply = () => ({ success: true, action: 'submit', score: 0.4 })
+    ok((await captcha.verifyCaptchaToken(v3, 'tok', null)) === 'failed', 'v3: a score below the minimum fails')
+    reply = () => ({ success: true, action: 'login', score: 0.9 })
+    ok((await captcha.verifyCaptchaToken(v3, 'tok', null)) === 'failed', 'v3: another action fails')
+    reply = () => ({ success: true, action: 'submit', score: 0.5 })
+    ok((await captcha.verifyCaptchaToken(v3, 'tok', null)) === 'ok', 'v3: the minimum passes')
+    reply = () => ({ success: true })
+    await captcha.verifyCaptchaToken({ provider: 'hcaptcha', siteKey: 'h-site-key-123', secret: 'h-secret-1234', minScore: 50 }, 'tok', null)
+    ok(calls.at(-1)!.url.includes('hcaptcha.com') && calls.at(-1)!.body.get('sitekey') === 'h-site-key-123', 'hCaptcha is also sent the site key')
+    ok((await captcha.verifyCaptchaToken(v3, 'x'.repeat(9000), null)) === 'failed' && (await captcha.verifyCaptchaToken(v3, 42, null)) === 'failed', 'oversized or non-text tokens fail without a call')
+
+    // A new key clears the check and switches protection off.
+    const changed = await captcha.saveCaptchaSettings({ provider: 'turnstile', siteKey: '0x4AAAAAAAotherkey', enabled: true })
+    ok(!changed.active && changed.checkedAt === null && !changed.enabled, 'a changed key switches protection off until checked')
+    const off = await captcha.saveCaptchaSettings({ provider: null })
+    ok(off.provider === null && !off.secretSet, 'switching the service off forgets the keys')
+    await forms.deleteForm(form.id)
+  } finally {
+    captcha.setCaptchaFetchForChecks(null)
+    await db.delete(t.settings)
+    const site = await getDatabase()
+    await site.db.delete(site.t.rateLimits).where(sql`${site.t.rateLimits.key} like 'plugin:form-builder:%'`)
+  }
 })
 
 await check('form builder: a "Which pet?" question offers listed pets that are not adopted, checks the pick when sent, and stores the name with a reference', async () => {

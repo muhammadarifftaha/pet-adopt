@@ -8,6 +8,13 @@
       "when": 1795540880457,
       "tag": "0000_init",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1795701300578,
+      "tag": "0001_captcha_settings",
+      "breakpoints": true
     }
   ]
 }

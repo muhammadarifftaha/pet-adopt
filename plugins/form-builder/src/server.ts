@@ -24,6 +24,8 @@ import {
   type SourceChoice,
 } from './fields'
 import { CONFIRMATION_KEY, NOTIFICATION_KEY } from './email-templates'
+import { publicCaptcha, requireCaptcha } from './captcha'
+import type { PublicCaptcha } from './captcha-providers'
 import { FORM_BUILDER, openFormsDatabase } from './storage'
 
 export const MAX_FORMS = 100
@@ -53,7 +55,12 @@ export type FormSummary = Pick<FormRecord, 'id' | 'name' | 'isOpen' | 'updatedAt
 }
 
 /** What the public site needs to draw a form. Nothing private (no notify address). */
-export type PublicForm = Pick<FormRecord, 'id' | 'name' | 'description' | 'isOpen'> & { fields: PublicField[]; submitLabel: string }
+export type PublicForm = Pick<FormRecord, 'id' | 'name' | 'description' | 'isOpen'> & {
+  fields: PublicField[]
+  submitLabel: string
+  /** The spam check's widget, or null while forms are not protected. */
+  captcha: PublicCaptcha | null
+}
 
 /** The current choices for every list the form's `source` questions use, each fetched once. */
 async function choicesFor(fields: readonly FormField[]): Promise<Partial<Record<FormSource, SourceChoice[]>>> {
@@ -146,7 +153,7 @@ export async function getForm(id: number): Promise<FormRecord | null> {
 export async function getPublicForm(id: number): Promise<PublicForm | null> {
   const form = await getForm(id)
   if (!form) return null
-  const choices = await choicesFor(form.fields)
+  const [choices, captcha] = await Promise.all([choicesFor(form.fields), publicCaptcha()])
   return {
     id: form.id,
     name: form.name,
@@ -154,6 +161,7 @@ export async function getPublicForm(id: number): Promise<PublicForm | null> {
     fields: form.fields.map((field) => (field.type === 'source' && field.source ? { ...field, choices: choices[field.source] ?? [] } : field)),
     isOpen: form.isOpen,
     submitLabel: form.settings.submitLabel ?? DEFAULT_SUBMIT_LABEL,
+    captcha,
   }
 }
 
@@ -275,7 +283,7 @@ export type SubmitResult = { message: string }
 export async function submitResponse(
   formId: number,
   raw: unknown,
-  opts: { client: string | null; honeypot?: unknown },
+  opts: { client: string | null; honeypot?: unknown; captchaToken?: unknown },
 ): Promise<SubmitResult & { stored: { form: FormRecord; answers: FormAnswer[] } | null }> {
   const form = await getForm(formId)
   if (!form) throw new UserError('This form is no longer available.')
@@ -296,6 +304,8 @@ export async function submitResponse(
 
   const message = form.settings.successMessage ?? DEFAULT_SUCCESS_MESSAGE
   if (typeof opts.honeypot === 'string' ? opts.honeypot.trim() : opts.honeypot) return { message, stored: null }
+  // Spam protection (src/captcha.ts): only while it is on and its keys were checked.
+  await requireCaptcha(opts.captchaToken, opts.client)
 
   const { db, t } = await openFormsDatabase()
   const [{ n }] = await db.select({ n: sql<number>`count(*)` }).from(t.responses).where(eq(t.responses.formId, form.id))
