@@ -2,9 +2,7 @@ import { can } from '@pet-adopt/plugin-sdk'
 
 import { SendTestEmail } from '@/components/admin/plugins/SendTestEmail'
 import { EmailSettingsForm } from '@/components/admin/settings/EmailSettingsForm'
-import { EmailNav } from '@/components/admin/settings/EmailNav'
 import { ViewOnly, ViewOnlyNotice } from '@/components/admin/view-only'
-import { PageHeader } from '@/components/admin/PageHeader'
 import { requirePermissionPage, unwrap } from '@/lib/admin/unwrap'
 import { getEmailSettingsAction } from '@/server/actions/email'
 
@@ -19,8 +17,6 @@ export default async function EmailSettingsPage() {
 
   return (
     <>
-      <PageHeader title="Email" />
-      <EmailNav current="/admin/email" />
       <ViewOnly value={!canEdit}>
         <ViewOnlyNotice role={user.role} what="the email settings" />
         <EmailSettingsForm initial={view} />

@@ -1,9 +1,7 @@
 import { can, foldText } from '@pet-adopt/plugin-sdk'
 
 import { EmailTemplates } from '@/components/admin/settings/EmailTemplates'
-import { EmailNav } from '@/components/admin/settings/EmailNav'
 import { ViewOnly, ViewOnlyNotice } from '@/components/admin/view-only'
-import { PageHeader } from '@/components/admin/PageHeader'
 import { SYSTEM_PURPOSES } from '@/lib/email-template'
 import { requirePermissionPage, unwrap } from '@/lib/admin/unwrap'
 import { listEmailTemplatesAction } from '@/server/actions/email-templates'
@@ -28,8 +26,6 @@ export default async function EmailTemplatesPage() {
 
   return (
     <>
-      <PageHeader title="Email" />
-      <EmailNav current="/admin/email/templates" />
       <ViewOnly value={!can(user.role, 'settings:edit')}>
         <ViewOnlyNotice role={user.role} what="the email templates" />
         <EmailTemplates templates={templates} system={system} />
