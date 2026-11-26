@@ -17,12 +17,6 @@ export default defineConfig([
       ],
     },
   },
-  globalIgnores([
-    ".next/**",
-    "node_modules/**",
-    "media/**",
-    "src/payload-types.ts",
-    "src/migrations/**",
-    "src/app/(payload)/**",
-  ]),
+  // .remember: a Claude Code plugin's scratch files (git-ignored by its own .gitignore).
+  globalIgnores([".next/**", "node_modules/**", ".remember/**"]),
 ]);
