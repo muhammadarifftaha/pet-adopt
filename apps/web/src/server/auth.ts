@@ -39,6 +39,11 @@ export function assertAuthConfig() {
   resolveSecret()
 }
 
+/** The signing secret (the development fallback when unset outside production). Server-only. */
+export function authSecret(): string {
+  return resolveSecret()
+}
+
 // Public URL of the site. Browsers may only send cookie-authenticated requests from here.
 const siteURL = (process.env.NEXT_PUBLIC_SERVER_URL ?? '').trim().replace(/\/+$/, '')
 if (enforce && !siteURL) {

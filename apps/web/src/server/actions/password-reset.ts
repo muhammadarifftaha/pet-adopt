@@ -3,10 +3,10 @@
 import { headers } from 'next/headers'
 import { after } from 'next/server'
 
-import { getEmailSender } from '@/plugins/registry'
 
 import { createResetLink, prepareResetEmail, resetPasswordWithToken } from '../password-reset'
 import { quoted, recordActivity } from '../activity'
+import { getEmailSender } from '../email'
 import { run, UserError, type ActionResult } from '../result'
 import { requirePermission } from '../session'
 import { listUsers } from '../users'
@@ -21,7 +21,7 @@ import { listUsers } from '../users'
  */
 export async function requestPasswordResetAction(input: { email: string }): Promise<ActionResult> {
   return run(async () => {
-    const sender = getEmailSender()
+    const sender = await getEmailSender()
     if (!sender) throw new UserError('This site cannot send email. Ask an admin for a reset link.')
     const job = await prepareResetEmail(input?.email, await headers(), sender)
     // After the response: finding the account and sending take time only when it exists.

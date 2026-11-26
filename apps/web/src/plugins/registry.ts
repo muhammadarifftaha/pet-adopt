@@ -193,16 +193,9 @@ export function getPluginInfo(name: string): PluginInfo | null {
 }
 
 /**
- * The email sender, or null when no plugin provides one or it reports that it is not set up yet:
- * the site then does not offer email (password reset links), rather than offer it and fail.
+ * The plugin that sends email and its sender, set up or not (its admin page shows the status). The
+ * site's sender (a ready plugin, else built-in SMTP) is `getEmailSender` in src/server/email.ts.
  */
-export function getEmailSender(): EmailSender | null {
-  const email = registry().email
-  if (!email) return null
-  return email.sender.status && !email.sender.status().ready ? null : email.sender
-}
-
-/** The plugin that sends email and its sender, set up or not (its admin page shows the status). */
 export function getEmailPlugin(): { plugin: string; sender: EmailSender } | null {
   return registry().email
 }

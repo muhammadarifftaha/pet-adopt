@@ -54,7 +54,7 @@ const contentSecurityPolicy = [
 
 const nextConfig: NextConfig = {
   // Native database drivers and sharp must be loaded from node_modules at runtime, not bundled.
-  serverExternalPackages: ['@libsql/client', 'libsql', 'pg', 'sharp'],
+  serverExternalPackages: ['@libsql/client', 'libsql', 'nodemailer', 'pg', 'sharp'],
   // Packages installed from local source (the workspace plugins and SDK, or a plugin in a local
   // folder) ship TypeScript, so Next compiles them. Worked out from package.json, so adding a plugin
   // never needs an edit here. A plugin from npm ships compiled JavaScript and is left out.

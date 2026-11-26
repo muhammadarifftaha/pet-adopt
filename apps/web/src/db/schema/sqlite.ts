@@ -321,6 +321,26 @@ export const pluginMigrations = sqliteTable(
   (t) => [primaryKey({ columns: [t.plugin, t.migration] })],
 )
 
+// --- Email -------------------------------------------------------------------------------
+
+// The built-in SMTP sender's settings (src/server/email.ts), one row (id 1), edited in
+// Settings > Email. SMTP_* / EMAIL_* environment variables override single fields. The password is
+// only stored encrypted (AES-256-GCM, key derived from BETTER_AUTH_SECRET; src/server/secret-box.ts)
+// and never sent back to a browser.
+export const emailSettings = sqliteTable('email_settings', {
+  id: integer('id').primaryKey(),
+  host: text('host'),
+  port: integer('port'),
+  // 'tls' (implicit TLS, usually 465), 'starttls' (usually 587) or 'none' (unencrypted, local test servers).
+  security: text('security').notNull().default('starttls'),
+  username: text('username'),
+  passwordEncrypted: text('password_encrypted'),
+  fromName: text('from_name'),
+  fromAddress: text('from_address'),
+  replyTo: text('reply_to'),
+  updatedAt: updatedAt(),
+})
+
 // --- Activity log ------------------------------------------------------------------------
 
 // Who did what, and when (src/server/activity.ts). Append-only: nothing in the app edits a row, and

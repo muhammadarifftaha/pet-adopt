@@ -67,7 +67,6 @@ import { formBuilderStorage, openFormsDatabase } from '@pet-adopt/plugin-form-bu
 import * as forms from '@pet-adopt/plugin-form-builder/server'
 // The services plugins reach through `host()` (sign-in, limits, phone, email), as the server registers them.
 import '../src/plugins/host'
-import { resendEmail } from '@pet-adopt/plugin-resend-email'
 import { forgetPluginStorageStatus, getPluginStorageStatus } from '../src/plugins/storage'
 import { storageProblems } from '../src/plugins/storage-rules'
 import { applyPluginMigrations, pluginMigrationStates } from '../src/db/plugin-migrations'
@@ -82,6 +81,8 @@ import {
   recordActivity,
   recordFailedSignIn,
 } from '../src/server/activity'
+import { getEmailSender, getEmailSettingsView, parseFrom, resolveSmtp, saveEmailSettings } from '../src/server/email'
+import { open, seal } from '../src/server/secret-box'
 
 let failures = 0
 async function check(name: string, fn: () => Promise<unknown>) {
@@ -1467,7 +1468,6 @@ await check('reset emails: same answer for unknown addresses, sent only to real 
   await (await prepareResetEmail(email, ip(73), sender))()
   ok(/Too many attempts/.test(await userError(prepareResetEmail(email, ip(74), sender))), 'the fourth request for one email within the hour is refused')
 
-  ok(/RESEND_API_KEY/.test(await resendEmail({ apiKey: '', from: 'a@b.test' }).email!.send(sent[0]).then(() => '', (e: Error) => e.message)), 'Resend without a key fails clearly, without a request')
   await deleteUser(id)
 })
 
@@ -1638,7 +1638,7 @@ await check('form builder: forms are validated and unique; answers are checked p
   // Notification: sent to the form's address through the site's email sender.
   const mails: EmailMessage[] = []
   const realHost = host()
-  provideHost({ ...realHost, emailSender: () => ({ send: async (m) => void mails.push(m) }) })
+  provideHost({ ...realHost, emailSender: async () => ({ send: async (m) => void mails.push(m) }) })
   try {
     await forms.notifyNewResponse((await forms.getForm(id))!, stored.answers)
   } finally {
@@ -1863,6 +1863,108 @@ await check('activity log: entries name fields not values, own vs everyone, fail
   ok((await listActivity({ id: ben.id, all: true }, { actor: ana.id })).entries.every((row) => row.actorName === 'Ana'), 'entries outlive the account')
   await deleteUser(ben.id)
   await db.delete(t.activityLog)
+})
+
+await check('email: SMTP settings are validated, the password is stored only encrypted, environment variables override fields, and mail goes out (Mailpit)', async () => {
+  const { db, t } = await getDatabase()
+  await db.delete(t.emailSettings)
+  const saved = { ...process.env }
+  const restoreEnv = () => {
+    for (const key of ['SMTP_HOST', 'SMTP_PORT', 'SMTP_SECURITY', 'SMTP_USER', 'SMTP_PASSWORD', 'EMAIL_FROM', 'EMAIL_REPLY_TO', 'BETTER_AUTH_SECRET']) {
+      if (saved[key] === undefined) delete process.env[key]
+      else process.env[key] = saved[key]
+    }
+  }
+  for (const key of ['SMTP_HOST', 'SMTP_PORT', 'SMTP_SECURITY', 'SMTP_USER', 'SMTP_PASSWORD', 'EMAIL_FROM', 'EMAIL_REPLY_TO']) delete process.env[key]
+  try {
+    // The secret box: a round trip, and nothing opens with the wrong purpose, a changed byte or another secret.
+    const sealed = seal('s3cret pass', 'smtp-password')
+    ok(open(sealed, 'smtp-password') === 's3cret pass' && !sealed.includes('s3cret'), 'sealed and opened')
+    ok(seal('same', 'x') !== seal('same', 'x'), 'a fresh IV each time')
+    ok(open(sealed, 'other-purpose') === null, 'another purpose cannot open it')
+    const parts = sealed.split('.')
+    parts[3] = parts[3].slice(0, -2) + (parts[3].endsWith('AA') ? 'BA' : 'AA')
+    ok(open(parts.join('.'), 'smtp-password') === null && open('garbage', 'smtp-password') === null, 'a changed value is refused')
+
+    ok(isEqual(parseFrom('Pet Adopt <no-reply@example.test>'), { name: 'Pet Adopt', address: 'no-reply@example.test' }) && parseFrom('a@b.test')?.name === null && parseFrom('Nope <not-an-email>') === null, 'EMAIL_FROM is parsed')
+
+    // Nothing set: no sender, and the view says what is missing.
+    ok((await getEmailSender()) === null, 'no email until it is set up')
+    const empty = await getEmailSettingsView()
+    ok(!empty.ready && empty.problems.length >= 2 && empty.port === 587 && empty.security === 'starttls', `defaults: ${JSON.stringify(empty.problems)}`)
+
+    // Validation, per field.
+    const bad = await fieldErrors(saveEmailSettings({ host: 'https://smtp.example.test', port: '70000', security: 'ssl', fromAddress: 'nope', replyTo: 'also nope' }))
+    ok(bad.host && bad.port && bad.security && bad.fromAddress && bad.replyTo, `field errors: ${Object.keys(bad)}`)
+    ok((await fieldErrors(saveEmailSettings({ host: 'smtp.example.test' }))).fromAddress, 'a server needs a sender address')
+    ok((await fieldErrors(saveEmailSettings({ port: '25.5' }))).port, 'a port is a whole number')
+
+    // Saved with a password: encrypted at rest, never in the view.
+    const first = await saveEmailSettings({ host: 'localhost', port: 1025, security: 'none', username: 'mailer', password: 'pa55-word!', fromName: 'Pet Adopt', fromAddress: 'no-reply@pet-adopt.test', replyTo: 'team@pet-adopt.test' })
+    ok(['server', 'port', 'encryption', 'user name', 'password', 'sender address'].every((field) => first.changed.includes(field)), `changed fields: ${first.changed}`)
+    const [row] = await db.select().from(t.emailSettings)
+    ok(row.passwordEncrypted?.startsWith('v1.') && !JSON.stringify(row).includes('pa55-word!'), 'the password is stored encrypted only')
+    const view = await getEmailSettingsView()
+    ok(view.ready && view.passwordSet && !JSON.stringify(view).includes('pa55') && !('password' in view), 'ready, and the view never carries the password')
+    ok((await resolveSmtp()).config.password === 'pa55-word!', 'the server can read it back')
+
+    // Saving without a password keeps it; clearing removes it, and then a user without a password is not ready.
+    const second = await saveEmailSettings({ host: 'localhost', fromName: 'Pet Adopt Team' })
+    ok(isEqual(second.changed, ['sender name']) && (await resolveSmtp()).config.password === 'pa55-word!', `a blank password keeps the saved one: ${second.changed}`)
+    await saveEmailSettings({ clearPassword: true })
+    const cleared = await getEmailSettingsView()
+    ok(!cleared.passwordSet && !cleared.ready && cleared.problems.some((p) => /password/.test(p)), 'cleared: the user now needs a password')
+
+    // A changed BETTER_AUTH_SECRET makes the stored password unreadable, and the screen says so.
+    await saveEmailSettings({ password: 'pa55-word!' })
+    process.env.BETTER_AUTH_SECRET = 'a-completely-different-secret-for-this-check-0123456789'
+    const unreadable = await getEmailSettingsView()
+    ok(unreadable.passwordUnreadable && !unreadable.passwordSet && !unreadable.ready, 'a changed secret: enter the password again')
+    restoreEnv()
+    for (const key of ['SMTP_HOST', 'SMTP_PORT', 'SMTP_SECURITY', 'SMTP_USER', 'SMTP_PASSWORD', 'EMAIL_FROM', 'EMAIL_REPLY_TO']) delete process.env[key]
+
+    // Environment variables win field by field, lock those fields, and are reported when wrong.
+    process.env.SMTP_HOST = 'smtp.env.test'
+    process.env.EMAIL_FROM = 'Env Sender <env@pet-adopt.test>'
+    process.env.SMTP_PORT = 'eighty'
+    const locked = await getEmailSettingsView()
+    ok(locked.host === 'smtp.env.test' && locked.fromAddress === 'env@pet-adopt.test' && locked.fromName === 'Env Sender', 'environment values are used')
+    ok(locked.locked.host === 'SMTP_HOST' && locked.locked.fromAddress === 'EMAIL_FROM' && locked.locked.port === 'SMTP_PORT' && !locked.locked.username, `locked fields: ${JSON.stringify(locked.locked)}`)
+    ok(locked.problems.some((p) => /SMTP_PORT/.test(p)) && !locked.ready, 'a bad variable is reported')
+    await saveEmailSettings({ host: 'ignored.example.test', username: 'changed' })
+    const [afterEnv] = await db.select().from(t.emailSettings)
+    ok(afterEnv.host === 'localhost' && afterEnv.username === 'changed', 'a locked field is not saved; the others are')
+    restoreEnv()
+    for (const key of ['SMTP_HOST', 'SMTP_PORT', 'SMTP_SECURITY', 'SMTP_USER', 'SMTP_PASSWORD', 'EMAIL_FROM', 'EMAIL_REPLY_TO']) delete process.env[key]
+
+    // A real send through the compose Mailpit (any login is accepted there).
+    const mailpit = process.env.MAILPIT_URL || 'http://127.0.0.1:8025'
+    const reachable = await fetch(`${mailpit}/api/v1/info`).then((r) => r.ok, () => false)
+    ok(reachable, `Mailpit is not running at ${mailpit}: docker compose up -d mailpit`)
+    await fetch(`${mailpit}/api/v1/messages`, { method: 'DELETE' })
+    await saveEmailSettings({ host: '127.0.0.1', port: 1025, security: 'none', username: 'mailer', password: 'pa55-word!', fromName: 'Pet Adopt', fromAddress: 'no-reply@pet-adopt.test', replyTo: 'team@pet-adopt.test' })
+    const sender = await getEmailSender()
+    ok(sender !== null && sender.status?.().provider === 'SMTP', 'the built-in SMTP sender is used when no plugin sends email')
+    const subject = `Check ${Date.now()}`
+    await sender!.send({ to: 'someone@pet-adopt.test', subject, text: 'Plain text body', html: '<p>HTML body</p>' })
+    let found: { From: { Name: string; Address: string }; To: Array<{ Address: string }>; ReplyTo: Array<{ Address: string }>; Subject: string } | undefined
+    for (let i = 0; i < 20 && !found; i++) {
+      const list = (await (await fetch(`${mailpit}/api/v1/search?query=${encodeURIComponent(`subject:"${subject}"`)}`)).json()) as { messages: (typeof found)[] }
+      found = list.messages[0]
+      if (!found) await new Promise((resolve) => setTimeout(resolve, 100))
+    }
+    ok(found?.Subject === subject && found.From.Address === 'no-reply@pet-adopt.test' && found.From.Name === 'Pet Adopt', `delivered with the sender: ${JSON.stringify(found?.From)}`)
+    ok(found?.To[0]?.Address === 'someone@pet-adopt.test' && found?.ReplyTo[0]?.Address === 'team@pet-adopt.test', 'to and reply-to')
+
+    // A wrong server fails with a reason, quickly.
+    await saveEmailSettings({ port: 1 })
+    const failure = await (await getEmailSender())!.send({ to: 'someone@pet-adopt.test', subject: 'x', text: 'x' }).then(() => '', (error: Error) => error.message)
+    ok(/ECONNREFUSED|connect/i.test(failure), `an unreachable server is an error: ${failure}`)
+    await fetch(`${mailpit}/api/v1/messages`, { method: 'DELETE' })
+  } finally {
+    restoreEnv()
+    await db.delete(t.emailSettings)
+  }
 })
 
 // FK enforcement is on (SQLite needs a pragma)
