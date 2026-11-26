@@ -199,15 +199,18 @@ function parseFormInput(raw: unknown, creating: boolean): FormInput {
   return out
 }
 
+/** The database handle assertNameFree takes (a transaction is passed in its place). */
+type NameCheckDb = Parameters<typeof assertNameFree>[0]
+
 /** `{ name, description?, fields?, settings?, isOpen? }`. Names are unique, whatever their case. */
 export async function createForm(raw: unknown): Promise<{ id: number }> {
   const input = parseFormInput(raw, true)
-  const { db, t, withTransaction } = await openFormsDatabase()
+  const { t, withTransaction } = await openFormsDatabase()
   return withTransaction(
     async (tx) => {
       const [{ n }] = await tx.select({ n: sql<number>`count(*)` }).from(t.forms)
       if (Number(n) >= MAX_FORMS) throw new UserError(`You can keep up to ${MAX_FORMS} forms. Delete one first.`)
-      await assertNameFree(tx as typeof db, t, input.name!)
+      await assertNameFree(tx as NameCheckDb, t, input.name!)
       const now = new Date()
       const [row] = await tx
         .insert(t.forms)
@@ -230,10 +233,10 @@ export async function createForm(raw: unknown): Promise<{ id: number }> {
 /** Any of `{ name, description, fields, settings, isOpen }`. `fields` and `settings` replace what is stored. */
 export async function updateForm(id: number, raw: unknown): Promise<FormRecord> {
   const input = parseFormInput(raw, false)
-  const { db, t, withTransaction } = await openFormsDatabase()
+  const { t, withTransaction } = await openFormsDatabase()
   return withTransaction(
     async (tx) => {
-      if (input.name) await assertNameFree(tx as typeof db, t, input.name, id)
+      if (input.name) await assertNameFree(tx as NameCheckDb, t, input.name, id)
       const [row] = await tx
         .update(t.forms)
         .set({ ...input, updatedAt: new Date() })
