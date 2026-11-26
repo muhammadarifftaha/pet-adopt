@@ -19,7 +19,10 @@ import { RadioGroup, RadioGroupItem } from "@pet-adopt/ui/components/radio-group
 import { asRole, ROLE_INFO } from "@pet-adopt/plugin-sdk";
 import { createResetLinkAction } from "@/server/actions/password-reset";
 import { createUserAction, resetUserPasswordAction, updateUserAction } from "@/server/actions/users";
+import type { InviteResult } from "@/server/invites";
 import type { UserListItem } from "@/server/users";
+
+import { InviteOutcome } from "./InviteDialogs";
 
 // The dialogs of the Users screen. Each form lives inside its DialogContent, so it starts fresh
 // every time the dialog opens. Forms with several fields show plain error text under each field
@@ -265,7 +268,11 @@ function AddUserForm({ minPasswordLength, onDone }: { minPasswordLength: number;
   const [name, setName] = React.useState("");
   const [email, setEmail] = React.useState("");
   const [role, setRole] = React.useState<Role>("editor");
+  // An email invite by default (agreed with the owner): they choose their own password.
+  const [method, setMethod] = React.useState<"invite" | "password">("invite");
   const [password, setPassword] = React.useState("");
+  // An invite that was not emailed: the link stays on screen to copy.
+  const [unsent, setUnsent] = React.useState<{ invite: InviteResult; name: string; email: string } | null>(null);
   const [pending, startTransition] = React.useTransition();
   const errors = useFormErrors();
   const id = (key: string) => (key === "role" ? "add-user-role-editor" : `add-user-${key}`);
@@ -274,18 +281,39 @@ function AddUserForm({ minPasswordLength, onDone }: { minPasswordLength: number;
     event.preventDefault();
     if (pending) return;
     startTransition(async () => {
-      const result = (await createUserAction({ name, email, role, password })) as Result<{ id: string }>;
+      const input = method === "invite" ? { name, email, role, invite: true } : { name, email, role, password };
+      const result = (await createUserAction(input)) as Result<{ id: string; invite: InviteResult | null }>;
       if (!result.ok) return errors.show(result);
       errors.clear();
-      onDone(`${name.trim()} was added with the ${ROLE_INFO[role].label} role. Share the password with them privately.`);
+      const added = `${name.trim()} was added with the ${ROLE_INFO[role].label} role.`;
+      const invite = result.data.invite;
+      if (invite && !invite.sent) return setUnsent({ invite, name: name.trim(), email: email.trim() });
+      onDone(invite ? `${added} An invite was emailed to ${email.trim()}.` : `${added} Share the password with them privately.`);
     });
+  }
+
+  if (unsent) {
+    return (
+      <div className="flex flex-col gap-4">
+        <DialogHeader>
+          <DialogTitle>{unsent.name} was added</DialogTitle>
+          <DialogDescription>Their account is ready; it has no password until they open the invite link.</DialogDescription>
+        </DialogHeader>
+        <InviteOutcome invite={unsent.invite} user={unsent} />
+        <DialogFooter>
+          <Button type="button" onClick={() => onDone(`${unsent.name} was added. Send them the invite link.`)}>
+            Done
+          </Button>
+        </DialogFooter>
+      </div>
+    );
   }
 
   return (
     <form onSubmit={submit} noValidate className="flex flex-col gap-4">
       <DialogHeader>
         <DialogTitle>Add user</DialogTitle>
-        <DialogDescription>They sign in at /admin/login with this email and password.</DialogDescription>
+        <DialogDescription>They sign in at /admin/login with this email and their password.</DialogDescription>
       </DialogHeader>
       <ErrorSummary
         errors={errors.fieldErrors}
@@ -307,10 +335,41 @@ function AddUserForm({ minPasswordLength, onDone }: { minPasswordLength: number;
         error={errors.fieldErrors.email}
       />
       <RoleField idPrefix="add-user" value={role} onChange={setRole} error={errors.fieldErrors.role} />
-      <PasswordField id="add-user-password" label="Password" value={password} onChange={setPassword} error={errors.fieldErrors.password} minLength={minPasswordLength} />
+      <fieldset className="flex flex-col gap-2">
+        <legend id="add-user-method-legend" className="mb-1 text-sm font-medium">
+          Their password
+        </legend>
+        <RadioGroup aria-labelledby="add-user-method-legend" value={method} onValueChange={(next) => setMethod(next === "password" ? "password" : "invite")}>
+          <Field orientation="horizontal" className="w-fit items-start">
+            <RadioGroupItem id="add-user-method-invite" value="invite" aria-describedby="add-user-method-invite-description" className="mt-0.5 cursor-pointer" />
+            <span className="flex flex-col">
+              <FieldLabel htmlFor="add-user-method-invite" className="cursor-pointer">
+                Email an invite
+              </FieldLabel>
+              <span id="add-user-method-invite-description" className="text-sm text-muted-foreground">
+                They get a link to choose their own password, valid for 7 days.
+              </span>
+            </span>
+          </Field>
+          <Field orientation="horizontal" className="w-fit items-start">
+            <RadioGroupItem id="add-user-method-password" value="password" aria-describedby="add-user-method-password-description" className="mt-0.5 cursor-pointer" />
+            <span className="flex flex-col">
+              <FieldLabel htmlFor="add-user-method-password" className="cursor-pointer">
+                Set a password now
+              </FieldLabel>
+              <span id="add-user-method-password-description" className="text-sm text-muted-foreground">
+                You share it with them yourself.
+              </span>
+            </span>
+          </Field>
+        </RadioGroup>
+      </fieldset>
+      {method === "password" ? (
+        <PasswordField id="add-user-password" label="Password" value={password} onChange={setPassword} error={errors.fieldErrors.password} minLength={minPasswordLength} />
+      ) : null}
       <DialogFooter>
-        <SubmitButton pending={pending} busyText="Adding…">
-          Add user
+        <SubmitButton pending={pending} busyText={method === "invite" ? "Inviting…" : "Adding…"}>
+          {method === "invite" ? "Add and invite" : "Add user"}
         </SubmitButton>
       </DialogFooter>
     </form>

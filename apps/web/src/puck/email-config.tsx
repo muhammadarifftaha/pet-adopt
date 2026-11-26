@@ -3,7 +3,7 @@
 import type { Config, Fields } from '@puckeditor/core'
 import React from 'react'
 
-import { blockHtml, footerHtml, LOGO_DEFAULTS, logoHtml, placeholdersFor, PURPOSE_INFO, type BlockData, type EmailPurpose, type RenderContext, type TemplateRoot } from '@/lib/email-template'
+import { blockHtml, footerHtml, linkPlaceholdersFor, LOGO_DEFAULTS, logoHtml, placeholdersFor, PURPOSE_INFO, type BlockData, type EmailPurpose, type RenderContext, type TemplateRoot } from '@/lib/email-template'
 
 import { MediaPicker } from './media-picker'
 import type { MediaValue } from './types'
@@ -147,7 +147,7 @@ export function emailBuilderConfig(purpose: EmailPurpose): Config {
       label: 'Button',
       fields: {
         label: { type: 'text', label: 'Text' },
-        url: { type: 'text', label: `Link: https://…, /a-page or {{siteUrl}}${'resetLink' in placeholdersFor(purpose) ? ', or {{resetLink}}' : ''}` },
+        url: { type: 'text', label: `Link: https://…, /a-page or {{siteUrl}}${linkPlaceholdersFor(purpose).map((name) => `, or {{${name}}}`).join('')}` },
         style: {
           type: 'radio',
           label: 'Style',

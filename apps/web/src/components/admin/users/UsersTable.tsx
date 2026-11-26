@@ -26,6 +26,7 @@ import { archiveUserAction } from "@/server/actions/users";
 import { resetUserTwoFactorAction } from "@/server/actions/two-factor";
 import type { UserListItem } from "@/server/users";
 
+import { ResendInviteDialog } from "./InviteDialogs";
 import { AddUserDialog, EditUserDialog, PasswordDialog, ResetLinkDialog } from "./UserDialogs";
 
 // The admin list of accounts. Every rule (the last admin stays, roles, password length) is
@@ -73,7 +74,8 @@ export function UsersTable({ users, meId, minPasswordLength }: { users: UserList
     return (
       <>
         <EditUserDialog user={user} isMe={isMe} onDone={done} />
-        <ResetLinkDialog user={user} onDone={(text) => announce(text)} />
+        {/* Not accepted yet: a new invite, not a reset link. */}
+        {user.invited ? <ResendInviteDialog user={user} onDone={done} /> : <ResetLinkDialog user={user} onDone={(text) => announce(text)} />}
         <PasswordDialog user={user} isMe={isMe} minPasswordLength={minPasswordLength} onDone={done} />
         {user.twoFactorEnabled && !isMe ? <ResetTwoFactor user={user} announce={announce} onDone={done} /> : null}
         <ArchiveUser user={user} isMe={isMe} isLastAdmin={user.role === "admin" && admins <= 1} announce={announce} onArchived={deleted} />
@@ -83,6 +85,9 @@ export function UsersTable({ users, meId, minPasswordLength }: { users: UserList
   const badges = (user: UserListItem) => (
     <>
       {user.id === meId ? <Badge variant="outline">You</Badge> : null}
+      {user.invited ? (
+        <Badge variant="outline">{user.inviteActive ? "Invited" : "Invite expired"}</Badge>
+      ) : null}
       {user.twoFactorEnabled ? (
         <Badge variant="secondary" title="Two-factor sign-in is on">
           2FA<span className="sr-only"> (two-factor sign-in on)</span>

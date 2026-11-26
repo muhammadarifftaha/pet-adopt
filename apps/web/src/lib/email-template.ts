@@ -15,7 +15,7 @@
 // what is designed is what is sent. Stored data is rebuilt by `validateTemplate` from allowed
 // blocks and props only, and everything a person typed is escaped when it is rendered.
 
-export const EMAIL_PURPOSES = ['password-reset', 'test', 'team-notification', 'visitor-message'] as const
+export const EMAIL_PURPOSES = ['password-reset', 'invite', 'test', 'team-notification', 'visitor-message'] as const
 export type EmailPurpose = (typeof EMAIL_PURPOSES)[number]
 
 /** Placeholders every template can use. */
@@ -32,6 +32,20 @@ export const PURPOSE_INFO: Record<
     required: ['resetLink'],
     details: false,
     sample: { name: 'Alex Rivera', resetLink: 'https://example.com/admin/reset-password?token=sample', minutes: '60' },
+  },
+  invite: {
+    label: 'Invitation',
+    description: 'Sent when an admin adds someone with “Email an invite”: they choose their own password.',
+    placeholders: {
+      name: 'The new person’s name',
+      inviteLink: 'The one-time invite link (required)',
+      inviterName: 'The admin who invited them',
+      role: 'Their role, such as Editor',
+      days: 'How long the link works, in days',
+    },
+    required: ['inviteLink'],
+    details: false,
+    sample: { name: 'Alex Rivera', inviteLink: 'https://example.com/admin/invite?token=sample', inviterName: 'Sam Lee', role: 'Editor', days: '7' },
   },
   test: {
     label: 'Test email',
@@ -66,7 +80,7 @@ export const isEmailPurpose = (value: unknown): value is EmailPurpose => (EMAIL_
  * edited in place, and "Restore default" brings it back. Form emails keep a library instead,
  * so each form can pick its own.
  */
-export const SYSTEM_PURPOSES = ['password-reset', 'test'] as const satisfies readonly EmailPurpose[]
+export const SYSTEM_PURPOSES = ['password-reset', 'invite', 'test'] as const satisfies readonly EmailPurpose[]
 export type SystemPurpose = (typeof SYSTEM_PURPOSES)[number]
 export const isSystemPurpose = (value: unknown): value is SystemPurpose => (SYSTEM_PURPOSES as readonly unknown[]).includes(value)
 export const LIBRARY_PURPOSES = EMAIL_PURPOSES.filter((purpose) => !isSystemPurpose(purpose))
@@ -130,14 +144,23 @@ const str = (value: unknown, max: number): string | null => {
 }
 const oneOf = <T extends string>(value: unknown, options: readonly T[], fallback: T): T => (options.includes(value as T) ? (value as T) : fallback)
 
-/** A link a button or image may open: {{resetLink}}, {{siteUrl}} (with a path), a site path, or http(s). */
+/** One-time links an email may carry as a whole button or image link, when its purpose has them. */
+export const LINK_PLACEHOLDERS = ['resetLink', 'inviteLink'] as const
+
+/** The one-time link placeholders a purpose has ({{resetLink}}, {{inviteLink}}). */
+export function linkPlaceholdersFor(purpose: EmailPurpose): string[] {
+  const own = placeholdersFor(purpose)
+  return LINK_PLACEHOLDERS.filter((name) => name in own)
+}
+
+/** A link a button or image may open: {{resetLink}} or {{inviteLink}}, {{siteUrl}} (with a path), a site path, or http(s). */
 export function isAllowedEmailUrl(url: string, purpose: EmailPurpose): boolean {
   const trimmed = url.trim()
   if (!trimmed) return false
   const only = /^\{\{\s*([A-Za-z]+)\s*\}\}(\/[^\s"'<>\\]*)?$/.exec(trimmed)
   if (only) {
     if (only[1] === 'siteUrl') return true
-    return only[1] === 'resetLink' && 'resetLink' in placeholdersFor(purpose) && only[2] === undefined
+    return linkPlaceholdersFor(purpose).includes(only[1]) && only[2] === undefined
   }
   if (/\{\{/.test(trimmed)) return false
   if (/^\/(?!\/)[^\s"'<>\\]*$/.test(trimmed)) return true
@@ -212,7 +235,7 @@ export function validateTemplate(raw: unknown, purpose: EmailPurpose): TemplateC
           const url = (str(props.url, TEMPLATE_LIMITS.url) ?? '').trim()
           if (!label.trim()) errors.push(`${at}: add the button’s text.`)
           if (!url) errors.push(`${at}: add the link the button opens.`)
-          else if (!isAllowedEmailUrl(url, purpose)) errors.push(`${at}: the link must be a web address (https://…), a path on this site (/…), {{siteUrl}}${'resetLink' in allowed ? ' or {{resetLink}}' : ''}.`)
+          else if (!isAllowedEmailUrl(url, purpose)) errors.push(`${at}: the link must be a web address (https://…), a path on this site (/…), {{siteUrl}}${linkPlaceholdersFor(purpose).map((name) => ` or {{${name}}}`).join('')}.`)
           else for (const name of placeholdersIn(url)) used.add(name)
           out.push({ type: 'Button', props: { id, label, url, align: oneOf(props.align, ALIGNS, 'left'), style: oneOf(props.style, ['solid', 'outline'] as const, 'solid') } })
           break
@@ -564,6 +587,15 @@ export const DEFAULT_TEMPLATES: Record<EmailPurpose, TemplateData> = {
       text('text-1', 'Hello {{name}},\n\nSomeone asked to reset the password of your {{siteName}} account. To choose a new one, use this link within {{minutes}} minutes:'),
       button('button-1', 'Choose a new password', '{{resetLink}}'),
       text('text-2', 'The link works once. If you did not ask for this, ignore this email: your password stays the same.', 'small'),
+    ],
+  },
+  invite: {
+    root: { props: { subject: 'You’re invited to {{siteName}}', preheader: '{{inviterName}} added you as {{role}}. Choose your password within {{days}} days.', ...LOGO_DEFAULTS, footer: FOOTER } },
+    content: [
+      heading('heading-1', 'Welcome to {{siteName}}'),
+      text('text-1', 'Hello {{name}},\n\n{{inviterName}} added you to the {{siteName}} admin as {{role}}. To start, choose your password with this link within {{days}} days:'),
+      button('button-1', 'Choose your password', '{{inviteLink}}'),
+      text('text-2', 'The link works once. If you were not expecting this, you can ignore this email.', 'small'),
     ],
   },
   test: {

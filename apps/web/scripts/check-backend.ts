@@ -85,6 +85,7 @@ import {
 } from '../src/server/activity'
 import { getEmailSender, getEmailSettingsView, isLoopbackHost, parseFrom, resolveSmtp, saveEmailSettings, sendsToLocalServer } from '../src/server/email'
 import { open, seal } from '../src/server/secret-box'
+import { acceptInvite, isInviteTokenValid, sendInvite } from '../src/server/invites'
 import { backupCodesLeft, forgetTrustedDevices, needsTwoFactorSetup, resetTwoFactor, saveTwoFactorRoles } from '../src/server/two-factor'
 import { BACKUP_CODE_ALPHABET, normalizeBackupCode, normalizeTotpCode } from '../src/server/two-factor-codes'
 import { createHmac, generateKeyPairSync, randomBytes, sign as signData } from 'node:crypto'
@@ -1761,7 +1762,7 @@ await check('roles: the permission table is as agreed, every action checks a per
     'verifyTwoFactorAction', 'getTwoFactorStatusAction', 'startTwoFactorSetupAction', 'confirmTwoFactorSetupAction',
     'disableTwoFactorAction', 'regenerateBackupCodesAction',
     'startProviderSignInAction', 'getMyProvidersAction', 'connectProviderAction', 'disconnectProviderAction',
-    'requestPasswordResetAction', 'resetPasswordWithTokenAction', 'submitFormAction',
+    'requestPasswordResetAction', 'resetPasswordWithTokenAction', 'acceptInviteAction', 'submitFormAction',
     'fetchPetSpotlightAction', 'fetchCatalogAction', 'fetchPetProfilesAction', 'fetchPetsAction', 'fetchFormAction',
   ])
   const { readFileSync, readdirSync } = await import('node:fs')
@@ -2603,6 +2604,70 @@ await check('sign-in providers: https only, secret encrypted, never an account o
   } finally {
     idp.close()
   }
+})
+
+await check('invites: an account without a password, emailed (or the link to copy), a resend cancels the old link, accepted once, then signs in; expiry, archive and an admin password cancel it; the Invitation email needs {{inviteLink}}', async () => {
+  const email = 'invited@example.test'
+  const { id } = await createUser({ email, name: 'In Vited', role: 'editor', invite: true })
+  const listed = (await listUsers()).find((u) => u.id === id)!
+  ok(listed.invited && !listed.inviteActive, 'invited, with no link yet')
+  ok((await db.select().from(t.accounts).where(eq(t.accounts.userId, id))).length === 0, 'no password at all')
+  const auth = await getAuth()
+  ok((await authCode(auth.api.signInEmail({ body: { email, password: 'any-password-12345' }, headers: ip(97) }))) !== '', 'cannot sign in before accepting')
+
+  // Emailed through the site's sender (a stand-in here), or the link to copy without one.
+  const sent: EmailMessage[] = []
+  const first = await sendInvite(id, 'Ad Min', { send: async (message) => void sent.push(message) })
+  ok(first.sent && sent.length === 1 && sent[0].to === email, 'emailed to them')
+  ok(sent[0].subject.includes('invited') && (sent[0].html ?? '').includes(first.url.replace(/&/g, '&amp;')) && sent[0].text.includes(first.url), 'the email carries the link')
+  ok(sent[0].text.includes('Ad Min') && sent[0].text.includes('Editor') && sent[0].text.includes('7 days'), 'and who invited them, their role and how long it works')
+  ok(first.url.startsWith(`${process.env.NEXT_PUBLIC_SERVER_URL || 'http://localhost:3000'}/admin/invite?token=`), `a link on this site: ${first.url}`)
+  const tokenOf = (url: string) => new URL(url).searchParams.get('token')!
+  ok((await isInviteTokenValid(tokenOf(first.url)))?.name === 'In Vited', 'the link works')
+  const unsent = await sendInvite(id, 'Ad Min', null)
+  ok(!unsent.sent && unsent.problem && unsent.url !== first.url, 'without email: not sent, a link to copy')
+  ok(!(await isInviteTokenValid(tokenOf(first.url))), 'a new invite cancels the older link')
+  const failing = await sendInvite(id, 'Ad Min', { send: async () => { throw new Error('smtp down') } })
+  ok(!failing.sent && /could not be sent/.test(failing.problem ?? ''), 'a failed send still gives the link')
+  const stored = await db.select().from(t.verifications).where(eq(t.verifications.value, id))
+  ok(stored.length === 1 && stored[0].identifier.startsWith('invite:') && !stored[0].identifier.includes(tokenOf(failing.url)), 'one pending invite, stored as a hash')
+  ok((await listUsers()).find((u) => u.id === id)?.inviteActive, 'the list shows it pending')
+
+  // Accepting: checks the password, works once, then they sign in.
+  ok((await fieldErrors(acceptInvite({ token: tokenOf(failing.url), password: 'short' }))).password, 'the password rules apply')
+  ok(/expired or was already used/.test(await userError(acceptInvite({ token: 'x'.repeat(43), password: 'invited-password-1' }))), 'an unknown token is refused')
+  await acceptInvite({ token: tokenOf(failing.url), password: 'invited-password-1' })
+  ok(/expired or was already used/.test(await userError(acceptInvite({ token: tokenOf(failing.url), password: 'another-password-1' }))), 'a link works once')
+  ok((await auth.api.signInEmail({ body: { email, password: 'invited-password-1' }, headers: ip(97) })).user.id === id, 'they sign in with their password')
+  const after = (await listUsers()).find((u) => u.id === id)!
+  ok(!after.invited && !after.inviteActive, 'no longer invited')
+  ok(/already have a password/.test(await userError(sendInvite(id, 'Ad Min', null))), 'no invites once they have a password')
+
+  // Expired links, archiving and an admin's password cancel or end an invite.
+  const second = await createUser({ email: 'invited2@example.test', name: 'Sec Ond', role: 'editor', invite: true })
+  const late = await sendInvite(second.id, 'Ad Min', null)
+  await db.update(t.verifications).set({ expiresAt: new Date(Date.now() - 1000) }).where(eq(t.verifications.value, second.id))
+  ok(!(await isInviteTokenValid(tokenOf(late.url))) && !(await listUsers()).find((u) => u.id === second.id)?.inviteActive, 'an expired invite no longer works')
+  const again = await sendInvite(second.id, 'Ad Min', null)
+  const owner = (await listUsers()).find((u) => u.role === 'admin' && !u.archivedAt)!
+  await archiveUser(second.id, { by: owner.id })
+  ok(!(await isInviteTokenValid(tokenOf(again.url))), 'archiving cancels the invite')
+  ok(/archived/.test(await userError(sendInvite(second.id, 'Ad Min', null))), 'and no new one while archived')
+  await restoreUser(second.id)
+  const third = await sendInvite(second.id, 'Ad Min', null)
+  await resetPassword(second.id, { password: 'admin-set-password-1' })
+  ok(!(await isInviteTokenValid(tokenOf(third.url))) && !(await listUsers()).find((u) => u.id === second.id)?.invited, 'an admin setting a password cancels the invite')
+
+  // The Invitation email: a system email that must carry {{inviteLink}}; other emails cannot use it.
+  const noLink = validateTemplate({ root: { props: { subject: 'Hi' } }, content: [{ type: 'Text', props: { text: 'No link here' } }] }, 'invite')
+  ok(!noLink.ok && noLink.errors.some((e) => /inviteLink/.test(e)), 'an invitation must contain {{inviteLink}}')
+  ok(validateTemplate(DEFAULT_TEMPLATES.invite, 'invite').ok, 'the built-in invitation is valid')
+  const misuse = validateTemplate({ root: { props: { subject: 'Hi' } }, content: [{ type: 'Button', props: { label: 'Go', url: '{{inviteLink}}' } }] }, 'test')
+  ok(!misuse.ok, 'other emails cannot link to {{inviteLink}}')
+  ok((await fieldErrors(createEmailTemplate({ name: 'My invite', purpose: 'invite' }, owner.id))).purpose, 'no library templates for the invitation: it is edited in place')
+
+  await removeAccount(id)
+  await removeAccount(second.id)
 })
 
 // FK enforcement is on (SQLite needs a pragma)

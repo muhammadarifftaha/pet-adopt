@@ -7,7 +7,7 @@ import { asRole } from '@pet-adopt/plugin-sdk'
 //    holds a lock, so two admins demoting or archiving each other at the same moment cannot both
 //    pass the check;
 //  - removing someone is two steps, like pages (agreed with the owner): archive (cannot sign in,
-//    signed out everywhere, pending reset links cancelled, name kept on what they made; restorable),
+//    signed out everywhere, pending reset and invite links cancelled, name kept on what they made; restorable),
 //    then delete, which is only possible for an archived account. Nobody archives themselves.
 // Accounts are created through Better Auth's internal adapter, so passwords are hashed exactly as
 // Better Auth will check them at sign-in.
@@ -29,6 +29,12 @@ export type UserListItem = {
   role: Role
   /** When the account was archived, or null for an active account. */
   archivedAt: Date | null
+  /** Invited and not accepted yet: the account has no password (src/server/invites.ts). */
+  invited: boolean
+  /** When the pending invite link stops working (null: none, or it was used or cancelled). */
+  inviteExpiresAt: Date | null
+  /** The pending invite link still works (worked out when the list was read). */
+  inviteActive: boolean
   /** Two-factor sign-in is set up. */
   twoFactorEnabled: boolean
   createdAt: Date
@@ -49,13 +55,24 @@ export function newPassword(f: Fields, key: string, raw: Record<string, unknown>
 
 export async function listUsers(): Promise<UserListItem[]> {
   const { db, t } = await getDatabase()
-  const rows = await db.select().from(t.users).orderBy(t.users.createdAt)
+  const [rows, passwords, invites] = await Promise.all([
+    db.select().from(t.users).orderBy(t.users.createdAt),
+    db.select({ userId: t.accounts.userId }).from(t.accounts).where(eq(t.accounts.providerId, 'credential')),
+    // Invite links (src/server/invites.ts): `invite:<hash>`, valued with the user id.
+    db.select({ userId: t.verifications.value, expiresAt: t.verifications.expiresAt }).from(t.verifications).where(like(t.verifications.identifier, 'invite:%')),
+  ])
+  const withPassword = new Set(passwords.map((row) => row.userId))
+  const now = Date.now()
+  const inviteExpiry = new Map(invites.map((row) => [row.userId, row.expiresAt]))
   return rows.map((u) => ({
     id: u.id,
     email: u.email,
     name: u.name,
     role: asRole(u.role),
     archivedAt: u.archivedAt ?? null,
+    invited: !withPassword.has(u.id),
+    inviteExpiresAt: withPassword.has(u.id) ? null : (inviteExpiry.get(u.id) ?? null),
+    inviteActive: !withPassword.has(u.id) && (inviteExpiry.get(u.id)?.getTime() ?? 0) > now,
     twoFactorEnabled: Boolean(u.twoFactorEnabled),
     createdAt: u.createdAt,
   }))
@@ -81,15 +98,17 @@ export async function writeCredential(tx: Db, t: Schema, userId: string, hash: s
   }
 }
 
-async function createAccount(input: { email: string; name: string; password: string; role: Role }) {
+/** Makes the user and, unless invited (`password` null), their password. */
+async function createAccount(input: { email: string; name: string; password: string | null; role: Role }) {
   const ctx = await (await getAuth()).$context
-  const hash = await ctx.password.hash(input.password)
+  const hash = input.password === null ? null : await ctx.password.hash(input.password)
   const user = await ctx.internalAdapter.createUser(
     { email: input.email, name: input.name, emailVerified: true, role: input.role },
     { method: 'admin' },
   )
   try {
-    await ctx.internalAdapter.linkAccount({ userId: user.id, providerId: 'credential', accountId: user.id, password: hash })
+    // Invited: no password yet; accepting the invite writes it (writeCredential).
+    if (hash !== null) await ctx.internalAdapter.linkAccount({ userId: user.id, providerId: 'credential', accountId: user.id, password: hash })
   } catch (error) {
     // Don't leave a user nobody can sign in as: the email would then count as taken forever.
     try {
@@ -103,12 +122,17 @@ async function createAccount(input: { email: string; name: string; password: str
   return user.id as string
 }
 
+/**
+ * `{ email, name, role, password }`, or `{ email, name, role, invite: true }` for an account without
+ * a password whose owner chooses one through an invite link (src/server/invites.ts sends it).
+ */
 export async function createUser(raw: unknown): Promise<{ id: string }> {
   const input = asRecord(raw)
   const f = new Fields(input, true)
   const email = f.requiredText('email', 200, { validate: (s) => EMAIL.test(s) || 'Enter a valid email address.' })
   const name = f.requiredText('name', 80)
-  const pass = newPassword(f, 'password', input)
+  const invite = input.invite === true
+  const pass = invite ? null : newPassword(f, 'password', input)
   const role = f.oneOf('role', ROLES) ?? 'editor'
   f.done()
 
@@ -129,7 +153,7 @@ export async function createUser(raw: unknown): Promise<{ id: string }> {
     const id = await createAccount({
       email: address,
       name: name as string,
-      password: pass as string,
+      password: invite ? null : (pass as string),
       // The very first account must be an admin, or nobody could manage the site.
       role: n === 0 ? 'admin' : asRole(role),
     })
@@ -185,6 +209,8 @@ export async function resetPassword(id: string, raw: unknown): Promise<void> {
     // every session happen together, so a reset used to evict a stolen session cannot half-apply.
     await writeCredential(tx, t, id, hash)
     await tx.delete(t.sessions).where(eq(t.sessions.userId, id))
+    // They have a password now: a pending invite (src/server/invites.ts) is no longer needed.
+    await tx.delete(t.verifications).where(and(like(t.verifications.identifier, 'invite:%'), eq(t.verifications.value, id)))
   })
 }
 
@@ -208,6 +234,7 @@ export async function archiveUser(id: string, opts: { by: string }): Promise<voi
       await tx.delete(t.sessions).where(eq(t.sessions.userId, id))
       // Reset links are `pwreset:<hash>` valued with the user id (src/server/password-reset.ts).
       await tx.delete(t.verifications).where(and(like(t.verifications.identifier, 'pwreset:%'), eq(t.verifications.value, id)))
+      await tx.delete(t.verifications).where(and(like(t.verifications.identifier, 'invite:%'), eq(t.verifications.value, id)))
     },
     { lock: ADMIN_LOCK },
   )

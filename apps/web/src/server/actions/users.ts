@@ -3,6 +3,7 @@
 import { ROLE_INFO } from '@pet-adopt/plugin-sdk'
 
 import { quoted, recordActivity, type Actor } from '../activity'
+import { sendInvite, type InviteResult } from '../invites'
 import { run, UserError, type ActionResult } from '../result'
 import { requirePermission } from '../session'
 import { archiveUser, createUser, deleteUser, listUsers, resetPassword, restoreUser, updateUser, type UserListItem } from '../users'
@@ -31,14 +32,39 @@ export async function listUsersAction(): Promise<ActionResult<UserListItem[]>> {
   })
 }
 
-/** `{ email, name, password, role }`. The very first account is always made an admin. */
-export async function createUserAction(input: unknown): Promise<ActionResult<{ id: string }>> {
+/**
+ * `{ email, name, role, invite: true }` (the default on the screen: an email invite, the person
+ * chooses their password) or `{ email, name, role, password }`. The very first account is always
+ * made an admin. With an invite, `invite` says whether the email went out and carries the link to
+ * copy when it did not.
+ */
+export async function createUserAction(input: unknown): Promise<ActionResult<{ id: string; invite: InviteResult | null }>> {
   return run(async () => {
     const actor = await requirePermission('users:edit')
     const created = await createUser(input)
     const user = await findUser(created.id)
     await record(actor, 'user.create', user, created.id, `Added the account ${quoted(user?.name)} as ${user ? ROLE_INFO[user.role].label : 'unknown role'}`)
-    return created
+    if (!user?.invited) return { id: created.id, invite: null }
+    const invite = await sendInvite(created.id, actor.name)
+    await record(actor, 'user.invite', user, created.id, inviteSummary(user.name, invite))
+    return { id: created.id, invite }
+  })
+}
+
+const inviteSummary = (name: string, invite: InviteResult) =>
+  invite.sent ? `Emailed an invite to ${quoted(name)}` : `Made an invite link for ${quoted(name)} (not emailed: ${invite.problem ?? 'no email'})`
+
+/** A new invite for someone who has not accepted yet; the older link stops working. */
+export async function resendInviteAction(id: string): Promise<ActionResult<InviteResult>> {
+  return run(async () => {
+    const actor = await requirePermission('users:edit')
+    const target = userId(id)
+    const user = await findUser(target)
+    if (!user) throw new UserError('User not found.')
+    if (!user.invited) throw new UserError('They already have a password. Use Reset link instead.')
+    const invite = await sendInvite(target, actor.name)
+    await record(actor, 'user.invite', user, target, inviteSummary(user.name, invite))
+    return invite
   })
 }
 
