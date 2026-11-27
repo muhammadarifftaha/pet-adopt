@@ -3108,8 +3108,10 @@ await check('recovering an account cancels the links made before it: an email ch
   }
 
   let token = await ask('thief.one@example.test')
+  let earlier = tokenOf((await createResetLink(id)).url)
   await resetPassword(id, { password })
   await gone(token, 'a new password from an admin cancels it')
+  ok(!(await isResetTokenValid(earlier)), 'and a reset link made before it')
 
   token = await ask('thief.two@example.test')
   await resetPasswordWithToken({ token: tokenOf((await createResetLink(id)).url), password })
@@ -3120,8 +3122,10 @@ await check('recovering an account cancels the links made before it: an email ch
   await gone(token, 'a two-factor reset cancels it')
 
   token = await ask('thief.four@example.test')
+  earlier = tokenOf((await createResetLink(id)).url)
   await forgetEmailChange(id)
   await gone(token, 'changing the own password cancels it')
+  ok(!(await isResetTokenValid(earlier)), 'and a reset link made before it')
   ok((await listUsers()).find((u) => u.id === id)?.email === email, 'the address never changed')
 
   // A reset link sent to the old address does not outlive an admin's change of the address.

@@ -32,12 +32,13 @@ export async function cancelPendingLinks(tx: Db, t: Schema, userId: string, kind
 
 /**
  * After someone changed their own password: an email change asked for with the old one stops
- * working. Never throws (the password is already changed); a failure is logged.
+ * working, and so does a reset link made before the change. Never throws (the password is already
+ * changed); a failure is logged.
  */
 export async function forgetEmailChange(userId: string): Promise<void> {
   try {
     const { db, t } = await getDatabase()
-    await cancelPendingLinks(db, t, userId, ['email-change'])
+    await cancelPendingLinks(db, t, userId, ['email-change', 'password-reset'])
   } catch (error) {
     logError(error, 'could not cancel a pending email change after a password change')
   }

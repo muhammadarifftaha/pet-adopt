@@ -245,8 +245,9 @@ export async function resetPassword(id: string, raw: unknown): Promise<void> {
     await writeCredential(tx, t, id, hash)
     await tx.delete(t.sessions).where(eq(t.sessions.userId, id))
     // They have a password now: a pending invite (src/server/invites.ts) is no longer needed.
-    // So is an email change asked for with the old password (it may be why the password is reset).
-    await cancelPendingLinks(tx, t, id, ['invite', 'email-change'])
+    // So are an email change asked for with the old password (it may be why the password is reset)
+    // and a reset link made earlier, which could otherwise replace this password within its hour.
+    await cancelPendingLinks(tx, t, id, ['invite', 'email-change', 'password-reset'])
   })
 }
 
