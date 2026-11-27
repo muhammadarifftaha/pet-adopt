@@ -78,6 +78,7 @@ import { formBuilderStorage, openFormsDatabase } from '@pet-adopt/plugin-form-bu
 import * as forms from '@pet-adopt/plugin-form-builder/server'
 import * as formFields from '@pet-adopt/plugin-form-builder/fields'
 import { classToken, sanitizeLayout } from '../src/puck/sanitize'
+import { discoveryProblem, endpointProblem } from '../src/server/provider-endpoints'
 import { DEFAULT_HOME_DATA, DEFAULT_PET_PAGE_DATA, DEFAULT_PETS_DATA } from '../src/puck/data'
 import { config as pageBlocks } from '../src/puck/config'
 import { petPageConfig as petPageBlocks } from '../src/puck/pet-page-config'
@@ -2008,6 +2009,20 @@ await check('form builder spam protection: keys saved sealed, only checked keys 
     reply = () => ({ success: true })
     await captcha.verifyCaptchaToken({ provider: 'hcaptcha', siteKey: 'h-site-key-123', secret: 'h-secret-1234', minScore: 50 }, 'tok', null)
     ok(calls.at(-1)!.url.includes('hcaptcha.com') && calls.at(-1)!.body.get('sitekey') === 'h-site-key-123', 'hCaptcha is also sent the site key')
+    // The answer must name this site (reCAPTCHA, Turnstile and hCaptcha all send `hostname`).
+    ok(captcha.solvedOnThisSite('adopt.example.com', 'https://adopt.example.com') && captcha.solvedOnThisSite('WWW.adopt.example.com', 'https://adopt.example.com') && captcha.solvedOnThisSite('adopt.example.com', 'https://www.adopt.example.com'), 'the same site passes, with or without www')
+    ok(!captcha.solvedOnThisSite('evil.example', 'https://adopt.example.com') && !captcha.solvedOnThisSite(undefined, 'https://adopt.example.com') && !captcha.solvedOnThisSite('adopt.example.com.evil.example', 'https://adopt.example.com'), 'another site, or no site named, fails')
+    ok(captcha.solvedOnThisSite('testkey.google.com', 'http://localhost:3000') && captcha.solvedOnThisSite(undefined, 'http://127.0.0.1:3000'), 'a site on this machine is not checked (test keys)')
+    const liveHost = host()
+    provideHost({ ...liveHost, siteUrl: () => 'https://adopt.example.com' })
+    try {
+      reply = () => ({ success: true, action: 'submit', score: 0.9, hostname: 'evil.example' })
+      ok((await captcha.verifyCaptchaToken(v3, 'tok', null)) === 'failed', 'a token solved on another site fails')
+      reply = () => ({ success: true, action: 'submit', score: 0.9, hostname: 'adopt.example.com' })
+      ok((await captcha.verifyCaptchaToken(v3, 'tok', null)) === 'ok', 'a token solved on this site passes')
+    } finally {
+      provideHost(liveHost)
+    }
     ok((await captcha.verifyCaptchaToken(v3, 'x'.repeat(9000), null)) === 'failed' && (await captcha.verifyCaptchaToken(v3, 42, null)) === 'failed', 'oversized or non-text tokens fail without a call')
 
     // Switched on but unusable (the site's secret changed, so the saved captcha secret no longer
@@ -2883,6 +2898,36 @@ await check('sign-in providers: https only, secret encrypted, never an account o
     const bad = await fieldErrors(saveAuthProvider(null, { name: 'Bad', kind: 'oidc', discoveryUrl: 'http://idp.example/.well-known/openid-configuration', clientId: 'x' }))
     ok(bad.discoveryUrl, 'plain http to a real host is refused')
     ok((await fieldErrors(saveAuthProvider(null, { name: 'Bad', kind: 'oidc', discoveryUrl: 'https://user:pw@idp.example/x', clientId: 'x' }))).discoveryUrl, 'credentials in the address are refused')
+    // Addresses the server calls must be public, unless the switch says otherwise.
+    const inside = { name: 'Inside', kind: 'oauth2', clientId: 'x', authorizationUrl: 'https://10.0.0.5/authorize', tokenUrl: 'https://10.0.0.5/token', userInfoUrl: 'https://[fd00::1]/me' }
+    const insideErrors = await fieldErrors(saveAuthProvider(null, inside))
+    ok(/private network/.test(insideErrors.tokenUrl ?? '') && /private network/.test(insideErrors.userInfoUrl ?? '') && !insideErrors.authorizationUrl, `private addresses are refused where the server calls them: ${JSON.stringify(insideErrors)}`)
+    ok(/private network/.test((await fieldErrors(saveAuthProvider(null, { name: 'Meta', kind: 'oidc', clientId: 'x', discoveryUrl: 'https://169.254.169.254/.well-known/openid-configuration' }))).discoveryUrl ?? ''), 'a link-local discovery address is refused')
+    ok((await endpointProblem('https://93.184.216.34/token')) === null && (await endpointProblem('https://no-such-host.invalid/token')) === null, 'a public address passes; a name that cannot be looked up is left for later')
+    const realFetch = globalThis.fetch
+    try {
+      globalThis.fetch = (async () => new Response(JSON.stringify({ issuer: 'https://93.184.216.34', token_endpoint: 'https://192.168.1.10/token' }), { status: 200 })) as typeof fetch
+      ok(/discovery document names/.test((await discoveryProblem('https://93.184.216.34/.well-known/openid-configuration')) ?? ''), 'a discovery document naming a private address is refused')
+      globalThis.fetch = (async () => new Response(null, { status: 302, headers: { location: 'https://10.0.0.5/' } })) as typeof fetch
+      ok(/redirects/.test((await discoveryProblem('https://93.184.216.34/.well-known/openid-configuration')) ?? ''), 'a discovery address that redirects is refused')
+      globalThis.fetch = (async () => new Response(JSON.stringify({ issuer: 'https://93.184.216.34', token_endpoint: 'https://93.184.216.34/token', jwks_uri: '/keys' }), { status: 200 })) as typeof fetch
+      ok((await discoveryProblem('https://93.184.216.34/.well-known/openid-configuration')) === null, 'a public discovery document passes')
+    } finally {
+      globalThis.fetch = realFetch
+    }
+    process.env.AUTH_PROVIDER_PRIVATE_ADDRESSES = '1'
+    try {
+      ok((await endpointProblem('https://10.0.0.5/token')) === null && (await discoveryProblem('https://10.0.0.5/x')) === null, 'AUTH_PROVIDER_PRIVATE_ADDRESSES=1 allows them')
+    } finally {
+      delete process.env.AUTH_PROVIDER_PRIVATE_ADDRESSES
+    }
+    const mode = process.env.NODE_ENV
+    try {
+      ;(process.env as Record<string, string>).NODE_ENV = 'production'
+      ok(/private network/.test((await endpointProblem('https://127.0.0.1/token')) ?? ''), 'this machine counts as private in production')
+    } finally {
+      ;(process.env as Record<string, string | undefined>).NODE_ENV = mode
+    }
     const manual = await fieldErrors(saveAuthProvider(null, { name: 'Manual', kind: 'oauth2', clientId: 'x' }))
     ok(manual.authorizationUrl && manual.tokenUrl && manual.userInfoUrl, 'OAuth 2 needs its three endpoints')
     const versionBefore = await providersVersion()
@@ -3207,6 +3252,15 @@ await check('layouts are checked against each block\'s fields: wrong kinds of va
 })
 
 await check('small rules from the security review: an archived page cannot be unpublished, an image in an email template is in use, form responses are routed only by people who may see them', async () => {
+  const placeholder = () => s3Settings({ S3_BUCKET: 'b', S3_ACCESS_KEY_ID: 'your-access-key-id', S3_SECRET_ACCESS_KEY: 'your-secret-access-key' } as unknown as NodeJS.ProcessEnv)
+  let keyError = ''
+  try {
+    placeholder()
+  } catch (error) {
+    keyError = String(error)
+  }
+  ok(/placeholders/.test(keyError), 'the example file\'s storage key placeholders are refused')
+
   const page = await savePageDetails(null, { title: 'Archive me', slug: 'archive-me' })
   await publishPage(page.id, { root: { props: {} }, zones: {}, content: [{ type: 'TextSection', props: { id: 'a', heading: 'Archive me' } }] })
   await archivePage(page.id)

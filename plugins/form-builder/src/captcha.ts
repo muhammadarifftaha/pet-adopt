@@ -115,6 +115,24 @@ export type VerifyOutcome = 'ok' | 'failed' | 'unavailable'
 type FetchLike = (url: string, init: { method: string; body: URLSearchParams; signal: AbortSignal }) => Promise<{ ok: boolean; json(): Promise<unknown> }>
 
 let fetchImpl: FetchLike = (url, init) => fetch(url, init)
+const LOOPBACK = /^(localhost|.+\.localhost|127(\.\d{1,3}){3}|\[?::1\]?)$/i
+const bare = (name: string) => name.toLowerCase().replace(/\.$/, '').replace(/^www\./, '')
+
+/**
+ * Whether a verify answer's `hostname` is this site's (a leading "www." aside). A site running on
+ * this machine is not checked: the services' test keys answer with names of their own.
+ */
+export function solvedOnThisSite(hostname: unknown, siteUrl: string): boolean {
+  let site: string
+  try {
+    site = new URL(siteUrl).hostname
+  } catch {
+    return false
+  }
+  if (LOOPBACK.test(site)) return true
+  return typeof hostname === 'string' && bare(hostname) === bare(site)
+}
+
 /** check:backend only: answers the services' verify calls without the network. */
 export function setCaptchaFetchForChecks(fn: FetchLike | null): void {
   fetchImpl = fn ?? ((url, init) => fetch(url, init))
@@ -146,6 +164,10 @@ export async function verifyCaptchaToken(
     return 'unavailable'
   }
   if (answer.success !== true) return 'failed'
+  // Every service names the site the captcha was solved on. It must be this one: otherwise a token
+  // solved on someone else's page with this site key would pass (the services check the domain
+  // themselves only while that is switched on in their settings).
+  if (!solvedOnThisSite(answer.hostname, host().siteUrl())) return 'failed'
   if (settings.provider === 'recaptcha-v3') {
     const score = typeof answer.score === 'number' ? answer.score : -1
     if (answer.action !== 'submit' || score * 100 < settings.minScore) return 'failed'

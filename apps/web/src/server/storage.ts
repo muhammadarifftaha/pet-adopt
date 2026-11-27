@@ -51,6 +51,10 @@ export function s3Settings(env: NodeJS.ProcessEnv = process.env): S3Settings {
   if (Boolean(accessKeyId) !== Boolean(secretAccessKey)) {
     throw new Error('Set both S3_ACCESS_KEY_ID and S3_SECRET_ACCESS_KEY, or neither.')
   }
+  // The example file's placeholders, left as they were: say so, instead of a refused request later.
+  if ([accessKeyId, secretAccessKey].some((key) => key && /^your-/i.test(key))) {
+    throw new Error('S3_ACCESS_KEY_ID and S3_SECRET_ACCESS_KEY still hold the placeholders from .env.example. Replace them with your own keys.')
+  }
   // Without keys the SDK looks for credentials itself (an IAM role on AWS). Elsewhere that finds
   // nothing, so production insists on them.
   if (env.NODE_ENV === 'production' && !accessKeyId) {

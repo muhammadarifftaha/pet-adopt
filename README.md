@@ -23,7 +23,9 @@ Requires Node.js 22.23.4 or newer (or 24.22.1+), [pnpm](https://pnpm.io), and Do
 git clone <your-fork-url> pet-adopt
 cd pet-adopt
 cp apps/web/.env.example apps/web/.env
-docker compose up -d garage mailpit   # upload storage and a test inbox; their settings are already in .env.example
+# In apps/web/.env, replace the two S3 key placeholders with the development keys
+# shown at the top of docker-compose.yml.
+docker compose up -d garage mailpit   # upload storage and a test inbox
 pnpm install
 pnpm dev
 ```
@@ -250,7 +252,7 @@ People can delete their own account from **Account**. It closes at once, and is 
 **Signing in:**
 
 - **Two-factor:** with an authenticator app and backup codes. It's optional, and admins can require it for chosen roles (**Authentication**).
-- **Your own sign-in provider:** add one under **Authentication → Sign-in providers** (OAuth 2 or OpenID Connect). Each person connects it from **Account**. Providers never create accounts.
+- **Your own sign-in provider:** add one under **Authentication → Sign-in providers** (OAuth 2 or OpenID Connect). Each person connects it from **Account**. Providers never create accounts. A provider's addresses must be on the public internet; set `AUTH_PROVIDER_PRIVATE_ADDRESSES=1` if yours runs on your own network.
 - **Your own account:** everyone manages their picture, name, password, email address, two-factor and connected providers under **Account**.
 
 ### Email
