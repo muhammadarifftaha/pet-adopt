@@ -15,6 +15,7 @@ import { and, count, eq, inArray, max } from 'drizzle-orm'
 import { getDatabase } from '@/db/client'
 
 import { SITE_URL } from './auth'
+import { discoveryProblem, endpointProblem } from './provider-endpoints'
 import { isLoopbackHost } from './email'
 import { asRecord, Fields, logError, UserError } from './result'
 import { open, seal } from './secret-box'
@@ -61,7 +62,10 @@ export function redirectUriFor(slug: string): string {
   return `${SITE_URL}/api/auth/callback/${slug}`
 }
 
-/** An endpoint the server will call: https (http only on a loopback host outside production). */
+/**
+ * An endpoint the server will call: https (http only on a loopback host outside production). Where
+ * it points is checked separately, because that needs a lookup (provider-endpoints.ts).
+ */
 export function validateEndpoint(value: string): true | string {
   let url: URL
   try {
@@ -186,6 +190,18 @@ export async function saveAuthProvider(id: number | null, raw: unknown): Promise
     if (!next.tokenUrl) f.fail_('tokenUrl', 'Enter the token URL.')
     if (!next.userInfoUrl) f.fail_('userInfoUrl', 'Enter the user info URL (it must return an email).')
   }
+  // The addresses the server itself will call must be public (see provider-endpoints.ts). The
+  // authorization address is only opened by the person's browser.
+  if (effectiveKind === 'oidc' && next.discoveryUrl) {
+    const problem = await discoveryProblem(next.discoveryUrl)
+    if (problem) f.fail_('discoveryUrl', problem)
+  }
+  if (effectiveKind === 'oauth2') {
+    for (const key of ['tokenUrl', 'userInfoUrl'] as const) {
+      const problem = next[key] ? await endpointProblem(next[key]) : null
+      if (problem) f.fail_(key, problem)
+    }
+  }
   f.done()
 
   const secret = clearSecret ? null : clientSecret ? seal(clientSecret, SECRET_PURPOSE) : (existing?.clientSecretEncrypted ?? null)
@@ -258,6 +274,17 @@ export async function providerConfigs() {
         continue
       }
       clientSecret = opened
+    }
+    // Checked again here, not only when saved: a host name can be pointed somewhere else later.
+    const problem =
+      row.kind === 'oauth2'
+        ? ((row.tokenUrl ? await endpointProblem(row.tokenUrl) : null) ?? (row.userInfoUrl ? await endpointProblem(row.userInfoUrl) : null))
+        : row.discoveryUrl
+          ? await discoveryProblem(row.discoveryUrl, { strict: true })
+          : null
+    if (problem) {
+      logError(new Error(problem), `sign-in provider "${row.slug}" skipped`)
+      continue
     }
     configs.push({
       providerId: row.slug,

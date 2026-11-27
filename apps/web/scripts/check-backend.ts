@@ -76,6 +76,13 @@ import { createResetLink, isResetTokenValid, prepareResetEmail, resetPasswordWit
 import { accessOf, accessPermission, asRole, can, host, pluginTablePrefix, provideHost, ROLES, type EmailMessage, type PluginEmail, type Role } from '@pet-adopt/plugin-sdk'
 import { formBuilderStorage, openFormsDatabase } from '@pet-adopt/plugin-form-builder'
 import * as forms from '@pet-adopt/plugin-form-builder/server'
+import * as formFields from '@pet-adopt/plugin-form-builder/fields'
+import { classToken, sanitizeLayout } from '../src/puck/sanitize'
+import { discoveryProblem, endpointProblem } from '../src/server/provider-endpoints'
+import { guarded } from '../src/server/provider-guard'
+import { DEFAULT_HOME_DATA, DEFAULT_PET_PAGE_DATA, DEFAULT_PETS_DATA } from '../src/puck/data'
+import { config as pageBlocks } from '../src/puck/config'
+import { petPageConfig as petPageBlocks } from '../src/puck/pet-page-config'
 import * as captcha from '../../../plugins/form-builder/src/captcha'
 // The services plugins reach through `host()` (sign-in, limits, phone, email), as the server registers them.
 import '../src/plugins/host'
@@ -95,9 +102,10 @@ import {
   recordedRecently,
   recordFailedSignIn,
 } from '../src/server/activity'
-import { getEmailSender, getEmailSettingsView, isLoopbackHost, parseFrom, resolveSmtp, saveEmailSettings, sendsToLocalServer } from '../src/server/email'
+import { getEmailSender, getEmailSettingsView, isLoopbackHost, parseFrom, resolveSmtp, saveEmailSettings, sendsToLocalServer, smtpTarget } from '../src/server/email'
 import { open, seal } from '../src/server/secret-box'
-import { acceptInvite, isInviteTokenValid, sendInvite } from '../src/server/invites'
+import { acceptInvite, createInvite, isInviteTokenValid, sendInvite } from '../src/server/invites'
+import { forgetEmailChange } from '../src/server/pending-links'
 import { cancelEmailChange, confirmEmailChange, emailChangeFor, needsEmailConfirmation, pendingEmailChange, requestEmailChange, requestEmailVerification, sendEmailChangeNotice } from '../src/server/email-change'
 import { adoptProviderPicture, AVATAR_SIZE, isPrivateAddress, pictureFromIdToken, removeAvatar, saveAvatar } from '../src/server/avatars'
 import { backupCodesLeft, forgetTrustedDevices, needsTwoFactorSetup, resetTwoFactor, saveTwoFactorRoles } from '../src/server/two-factor'
@@ -1696,7 +1704,7 @@ await check('reset links: one use, hashed at rest, expire, cancel older ones, en
   await removeAccount(id)
 })
 
-await check('reset emails: same answer for unknown addresses, sent only to real accounts, limited per email', async () => {
+await check('reset emails: same answer for unknown addresses, sent only to real accounts, limited per email without an error', async () => {
   const sent: EmailMessage[] = []
   const sender = { send: async (m: EmailMessage) => void sent.push(m) }
   const email = 'mailme@example.test'
@@ -1716,7 +1724,16 @@ await check('reset emails: same answer for unknown addresses, sent only to real 
   // A failing sender is logged, never thrown at the person.
   await (await prepareResetEmail(email, ip(72), { send: async () => { throw new Error('down') } }))()
   await (await prepareResetEmail(email, ip(73), sender))()
-  ok(/Too many attempts/.test(await userError(prepareResetEmail(email, ip(74), sender))), 'the fourth request for one email within the hour is refused')
+  // Past three an hour for one address: no error (anyone could cause it), nothing sent, and the
+  // link already in the inbox keeps working.
+  const before = sent.length
+  const lastToken = new URL(sent.at(-1)!.text.match(/https?:\/\/\S+/)?.[0] ?? '').searchParams.get('token')
+  await (await prepareResetEmail(email, ip(74), sender))()
+  await (await prepareResetEmail(email, ip(75), sender))()
+  ok(sent.length === before, 'the fourth request for one email within the hour sends nothing, without an error')
+  ok(await isResetTokenValid(lastToken), 'and the last emailed link still works')
+  for (let i = 0; i < 10; i++) await prepareResetEmail(`flood-${i}@example.test`, ip(76), sender)
+  ok(/Too many attempts/.test(await userError(prepareResetEmail('flood-10@example.test', ip(76), sender))), 'one client asking for many addresses is still refused')
 
   await removeAccount(id)
 })
@@ -2002,7 +2019,35 @@ await check('form builder spam protection: keys saved sealed, only checked keys 
     reply = () => ({ success: true })
     await captcha.verifyCaptchaToken({ provider: 'hcaptcha', siteKey: 'h-site-key-123', secret: 'h-secret-1234', minScore: 50 }, 'tok', null)
     ok(calls.at(-1)!.url.includes('hcaptcha.com') && calls.at(-1)!.body.get('sitekey') === 'h-site-key-123', 'hCaptcha is also sent the site key')
+    // The answer must name this site (reCAPTCHA, Turnstile and hCaptcha all send `hostname`).
+    ok(captcha.solvedOnThisSite('adopt.example.com', 'https://adopt.example.com') && captcha.solvedOnThisSite('WWW.adopt.example.com', 'https://adopt.example.com') && captcha.solvedOnThisSite('adopt.example.com', 'https://www.adopt.example.com'), 'the same site passes, with or without www')
+    ok(!captcha.solvedOnThisSite('evil.example', 'https://adopt.example.com') && !captcha.solvedOnThisSite(undefined, 'https://adopt.example.com') && !captcha.solvedOnThisSite('adopt.example.com.evil.example', 'https://adopt.example.com'), 'another site, or no site named, fails')
+    ok(captcha.solvedOnThisSite('testkey.google.com', 'http://localhost:3000') && captcha.solvedOnThisSite(undefined, 'http://127.0.0.1:3000'), 'a site on this machine is not checked (test keys)')
+    const liveHost = host()
+    provideHost({ ...liveHost, siteUrl: () => 'https://adopt.example.com' })
+    try {
+      reply = () => ({ success: true, action: 'submit', score: 0.9, hostname: 'evil.example' })
+      ok((await captcha.verifyCaptchaToken(v3, 'tok', null)) === 'failed', 'a token solved on another site fails')
+      reply = () => ({ success: true, action: 'submit', score: 0.9, hostname: 'adopt.example.com' })
+      ok((await captcha.verifyCaptchaToken(v3, 'tok', null)) === 'ok', 'a token solved on this site passes')
+    } finally {
+      provideHost(liveHost)
+    }
     ok((await captcha.verifyCaptchaToken(v3, 'x'.repeat(9000), null)) === 'failed' && (await captcha.verifyCaptchaToken(v3, 42, null)) === 'failed', 'oversized or non-text tokens fail without a call')
+
+    // Switched on but unusable (the site's secret changed, so the saved captcha secret no longer
+    // opens): answers are refused, not let through unprotected.
+    const usable = await captcha.getCaptchaSettings()
+    ok(usable.active, 'protected at this point')
+    const siteSecret = process.env.BETTER_AUTH_SECRET
+    process.env.BETTER_AUTH_SECRET = 'another-site-secret-for-this-check-0123456789abcdef'
+    try {
+      const broken = await captcha.getCaptchaSettings()
+      ok(broken.enabled && broken.secretUnreadable && !broken.active, 'the saved secret no longer opens')
+      ok((await userError(captcha.requireCaptcha('tok', null))) === captcha.CAPTCHA_UNAVAILABLE, 'answers are refused while it is broken')
+    } finally {
+      process.env.BETTER_AUTH_SECRET = siteSecret
+    }
 
     // A new key clears the check and switches protection off.
     const changed = await captcha.saveCaptchaSettings({ provider: 'turnstile', siteKey: '0x4AAAAAAAotherkey', enabled: true })
@@ -2270,6 +2315,26 @@ await check('email: SMTP settings are validated, the password is stored only enc
     ok(bad.host && bad.port && bad.security && bad.fromAddress && bad.replyTo, `field errors: ${Object.keys(bad)}`)
     ok((await fieldErrors(saveEmailSettings({ host: 'smtp.example.test' }))).fromAddress, 'a server needs a sender address')
     ok((await fieldErrors(saveEmailSettings({ port: '25.5' }))).port, 'a port is a whole number')
+    // A typed mail server must be public: the site connects to it.
+    ok(/private network/.test((await fieldErrors(saveEmailSettings({ host: '10.0.0.5', fromAddress: 'a@b.test' }))).host ?? ''), 'a mail server inside a private network is refused')
+    ok(/private network/.test((await fieldErrors(saveEmailSettings({ host: '169.254.169.254', fromAddress: 'a@b.test' }))).host ?? ''), 'so is a link-local address')
+    const smtpRefused = async (run: () => Promise<unknown>) => run().then(() => '', (error) => String(error))
+    ok(/private network/.test(await smtpRefused(() => smtpTarget('192.168.1.20'))) && /private network/.test(await smtpRefused(() => smtpTarget('fd00::25'))), 'and refused again when sending')
+    ok(isEqual(await smtpTarget('10.0.0.5', true), { host: '10.0.0.5' }), 'a server from SMTP_HOST is trusted')
+    ok(isEqual(await smtpTarget('localhost'), { host: 'localhost' }) && isEqual(await smtpTarget('93.184.216.34'), { host: '93.184.216.34' }), 'this machine (development) and public addresses pass')
+    process.env.SMTP_PRIVATE_ADDRESSES = '1'
+    try {
+      ok(isEqual(await smtpTarget('10.0.0.5'), { host: '10.0.0.5' }), 'SMTP_PRIVATE_ADDRESSES=1 allows it')
+    } finally {
+      delete process.env.SMTP_PRIVATE_ADDRESSES
+    }
+    const smtpMode = process.env.NODE_ENV
+    try {
+      ;(process.env as Record<string, string>).NODE_ENV = 'production'
+      ok(/private network/.test(await smtpRefused(() => smtpTarget('localhost'))) && /private network/.test(await smtpRefused(() => smtpTarget('127.0.0.1'))), 'this machine is refused in production (by name, through the lookup, and by address)')
+    } finally {
+      ;(process.env as Record<string, string | undefined>).NODE_ENV = smtpMode
+    }
 
     // Saved with a password: encrypted at rest, never in the view.
     const first = await saveEmailSettings({ host: 'localhost', port: 1025, security: 'none', username: 'mailer', password: 'pa55-word!', fromName: 'Pet Adopt', fromAddress: 'no-reply@pet-adopt.test', replyTo: 'team@pet-adopt.test' })
@@ -2283,6 +2348,17 @@ await check('email: SMTP settings are validated, the password is stored only enc
     // Saving without a password keeps it; clearing removes it, and then a user without a password is not ready.
     const second = await saveEmailSettings({ host: 'localhost', fromName: 'Pet Adopt Team' })
     ok(isEqual(second.changed, ['sender name']) && (await resolveSmtp()).config.password === 'pa55-word!', `a blank password keeps the saved one: ${second.changed}`)
+    // The saved password belongs to its server: moving the server needs it typed again (or removed),
+    // or whoever may edit the settings could have it sent to a server of their own.
+    ok((await fieldErrors(saveEmailSettings({ host: 'smtp.elsewhere.test' }))).password, 'a new server needs the password again')
+    ok((await resolveSmtp()).config.host === 'localhost' && (await resolveSmtp()).config.password === 'pa55-word!', 'and nothing was saved')
+    await saveEmailSettings({ host: 'LOCALHOST' })
+    await saveEmailSettings({ host: 'smtp.elsewhere.test', password: 'typed-again-1' })
+    ok((await resolveSmtp()).config.password === 'typed-again-1', 'typed again: saved for the new server')
+    process.env.SMTP_PASSWORD = 'from-the-environment'
+    ok((await fieldErrors(saveEmailSettings({ host: 'smtp.third.test' }))).host, 'a password from the environment stays with its server')
+    delete process.env.SMTP_PASSWORD
+    await saveEmailSettings({ host: 'localhost', password: 'pa55-word!' })
     await saveEmailSettings({ clearPassword: true })
     const cleared = await getEmailSettingsView()
     ok(!cleared.passwordSet && !cleared.ready && cleared.problems.some((p) => /password/.test(p)), 'cleared: the user now needs a password')
@@ -2506,6 +2582,15 @@ await check('email templates: only allowed blocks and placeholders, no answers t
     const results = []
     for (let i = 0; i < 4; i++) results.push(await forms.confirmToVisitor(form, answers, `10.88.0.${i}`))
     ok(isEqual(results, [true, true, true, false]), `three confirmations an hour to one address: ${results}`)
+    // One mailbox per confirmation: a "+tag" counts as the same mailbox, and an address that a
+    // mailer would read as a list is never a recipient.
+    const sentBefore = captured.length
+    const withMail = (value: string) => [answers[0], { ...answers[1], value }]
+    ok(!(await forms.confirmToVisitor(form, withMail('visitor+two@example.test'), '10.88.1.1')) && !(await forms.confirmToVisitor(form, withMail('VISITOR+3@Example.test'), '10.88.1.2')), 'a +tag does not get round the limit')
+    for (const list of ['x1,victim@example.test', 'a@b.test;victim@example.test', '<a@b.test>victim@example.test', '"x"@b.test', 'a@b.test,c@d.test']) {
+      ok(!formFields.EMAIL_PATTERN.test(list) && !(await forms.confirmToVisitor(form, withMail(list), '10.88.2.1')), `${list} is not one mailbox`)
+    }
+    ok(captured.length === sentBefore && formFields.EMAIL_PATTERN.test('first.last+tag@sub.example.co') && formFields.mailboxKey(' First.Last+Tag@Example.CO ') === 'first.last@example.co', 'ordinary addresses still pass')
     ok(captured[0].purpose === 'visitor-message' && captured[0].to === 'visitor@example.test' && !captured[0].details && captured[0].values?.title === 'Confirm me' && captured[0].fallback === 'form-builder:confirmation', `the confirmation: ${JSON.stringify(captured[0])}`)
     await forms.notifyNewResponse(form, answers)
     const note = captured.at(-1)!
@@ -2843,6 +2928,80 @@ await check('sign-in providers: https only, secret encrypted, never an account o
     const bad = await fieldErrors(saveAuthProvider(null, { name: 'Bad', kind: 'oidc', discoveryUrl: 'http://idp.example/.well-known/openid-configuration', clientId: 'x' }))
     ok(bad.discoveryUrl, 'plain http to a real host is refused')
     ok((await fieldErrors(saveAuthProvider(null, { name: 'Bad', kind: 'oidc', discoveryUrl: 'https://user:pw@idp.example/x', clientId: 'x' }))).discoveryUrl, 'credentials in the address are refused')
+    // Addresses the server calls must be public, unless the switch says otherwise.
+    const inside = { name: 'Inside', kind: 'oauth2', clientId: 'x', authorizationUrl: 'https://10.0.0.5/authorize', tokenUrl: 'https://10.0.0.5/token', userInfoUrl: 'https://[fd00::1]/me' }
+    const insideErrors = await fieldErrors(saveAuthProvider(null, inside))
+    ok(/private network/.test(insideErrors.tokenUrl ?? '') && /private network/.test(insideErrors.userInfoUrl ?? '') && !insideErrors.authorizationUrl, `private addresses are refused where the server calls them: ${JSON.stringify(insideErrors)}`)
+    ok(/private network/.test((await fieldErrors(saveAuthProvider(null, { name: 'Meta', kind: 'oidc', clientId: 'x', discoveryUrl: 'https://169.254.169.254/.well-known/openid-configuration' }))).discoveryUrl ?? ''), 'a link-local discovery address is refused')
+    ok((await endpointProblem('https://93.184.216.34/token')) === null && (await endpointProblem('https://no-such-host.invalid/token')) === null, 'a public address passes; a name that cannot be looked up is left for later')
+    const realFetch = globalThis.fetch
+    try {
+      globalThis.fetch = (async () => new Response(JSON.stringify({ issuer: 'https://93.184.216.34', token_endpoint: 'https://192.168.1.10/token' }), { status: 200 })) as typeof fetch
+      ok(/discovery document names/.test((await discoveryProblem('https://93.184.216.34/.well-known/openid-configuration')) ?? ''), 'a discovery document naming a private address is refused')
+      globalThis.fetch = (async () => new Response(null, { status: 302, headers: { location: 'https://10.0.0.5/' } })) as typeof fetch
+      ok(/redirects/.test((await discoveryProblem('https://93.184.216.34/.well-known/openid-configuration')) ?? ''), 'a discovery address that redirects is refused')
+      globalThis.fetch = (async () => new Response(JSON.stringify({ issuer: 'https://93.184.216.34', token_endpoint: 'https://93.184.216.34/token', jwks_uri: '/keys' }), { status: 200 })) as typeof fetch
+      ok((await discoveryProblem('https://93.184.216.34/.well-known/openid-configuration')) === null, 'a public discovery document passes')
+      globalThis.fetch = (async () => new Response('nope', { status: 500 })) as typeof fetch
+      ok((await discoveryProblem('https://93.184.216.34/x')) === null && /could not be read/.test((await discoveryProblem('https://93.184.216.34/x', { strict: true })) ?? ''), 'an unreadable document can be saved, but the provider is not used')
+    } finally {
+      globalThis.fetch = realFetch
+    }
+    process.env.AUTH_PROVIDER_PRIVATE_ADDRESSES = '1'
+    try {
+      ok((await endpointProblem('https://10.0.0.5/token')) === null && (await discoveryProblem('https://10.0.0.5/x')) === null, 'AUTH_PROVIDER_PRIVATE_ADDRESSES=1 allows them')
+    } finally {
+      delete process.env.AUTH_PROVIDER_PRIVATE_ADDRESSES
+    }
+    // The rule that cannot be dodged: inside guarded(), a connection to a private address is
+    // refused, whatever led there (an address written out, a name, a redirect).
+    const reason = async (run: () => Promise<unknown>) => {
+      try {
+        await run()
+        return 'no error'
+      } catch (error) {
+        const cause = (error as { cause?: unknown }).cause
+        return `${String(error)} ${String(cause)} ${String((cause as { cause?: unknown } | undefined)?.cause)}`
+      }
+    }
+    const hop = createServer((req, res) => {
+      if (req.url === '/doc') {
+        res.writeHead(200, { 'content-type': 'application/json' })
+        return res.end('{"fine":true}')
+      }
+      res.writeHead(302, { location: req.url === '/name' ? 'http://internal.localtest.invalid./x' : 'http://169.254.169.254/latest/meta-data/' })
+      res.end()
+    })
+    await new Promise<void>((resolve) => hop.listen(0, '127.0.0.1', resolve))
+    const hopUrl = `http://127.0.0.1:${(hop.address() as { port: number }).port}`
+    try {
+      ok(/private network/.test(await reason(() => guarded(() => fetch('https://10.0.0.5/token')))), 'guarded: a private address is refused')
+      ok(/private network/.test(await reason(() => guarded(() => fetch('http://[fd00::1]/token')))), 'guarded: a private IPv6 address is refused')
+      ok(/private network/.test(await reason(() => guarded(() => fetch(`${hopUrl}/redirect`)))), 'guarded: a redirect to a private address is refused')
+      const viaGuard = await guarded(() => fetch(`${hopUrl}/doc`))
+      ok(viaGuard.ok && ((await viaGuard.json()) as { fine?: boolean }).fine === true, 'guarded: this machine still answers in development, and the response reads as usual')
+      const viaRequest = await guarded(() => fetch(new Request(`${hopUrl}/doc`, { headers: { accept: 'application/json' } })))
+      ok(viaRequest.ok, 'guarded: a Request object works too')
+      ok((await fetch(`${hopUrl}/doc`)).ok, 'outside guarded(), fetch is untouched')
+      process.env.AUTH_PROVIDER_PRIVATE_ADDRESSES = '1'
+      try {
+        ok(!/private network/.test(await reason(() => guarded(() => fetch('http://10.255.255.1:8099/x', { signal: AbortSignal.timeout(300) })))), 'guarded: the switch lets private addresses through')
+      } finally {
+        delete process.env.AUTH_PROVIDER_PRIVATE_ADDRESSES
+      }
+    } finally {
+      hop.close()
+    }
+    const mode = process.env.NODE_ENV
+    try {
+      ;(process.env as Record<string, string>).NODE_ENV = 'production'
+      ok(/private network/.test((await endpointProblem('https://127.0.0.1/token')) ?? ''), 'this machine counts as private in production')
+      ok(/private network/.test(await reason(() => guarded(() => fetch('http://127.0.0.1:8099/x')))), 'guarded: this machine is refused in production')
+      // A NAME that resolves to a private address: refused by the lookup, not by reading the name.
+      ok(/private network/.test(await reason(() => guarded(() => fetch('http://localhost:8099/x')))), 'guarded: a name that resolves to a private address is refused')
+    } finally {
+      ;(process.env as Record<string, string | undefined>).NODE_ENV = mode
+    }
     const manual = await fieldErrors(saveAuthProvider(null, { name: 'Manual', kind: 'oauth2', clientId: 'x' }))
     ok(manual.authorizationUrl && manual.tokenUrl && manual.userInfoUrl, 'OAuth 2 needs its three endpoints')
     const versionBefore = await providersVersion()
@@ -3066,7 +3225,7 @@ await check('profile pictures: checked like uploads, cropped as the browser show
   await removeAvatar(id)
   ok(!(await adoptProviderPicture(id, 'https://img.example/p.png', async () => Buffer.from('junk'))) && (await imageOf()) === null, 'an unreadable picture is not used')
   ok(!(await adoptProviderPicture(id, 'http://img.example/p.png')) && !(await adoptProviderPicture(id, 'https://127.0.0.1/p.png')) && !(await adoptProviderPicture(id, 'https://localhost/p.png')), 'only https, never a private or local address')
-  for (const address of ['127.0.0.1', '10.1.2.3', '172.16.0.1', '192.168.1.1', '169.254.169.254', '100.64.0.1', '0.0.0.0', '::1', 'fd00::1', 'fe80::1', '::ffff:10.0.0.1']) {
+  for (const address of ['127.0.0.1', '10.1.2.3', '172.16.0.1', '192.168.1.1', '169.254.169.254', '100.64.0.1', '0.0.0.0', '::1', 'fd00::1', 'fe80::1', '::ffff:10.0.0.1', '::ffff:7f00:1', '::', '198.18.0.1', '192.0.0.8', '64:ff9b::a00:1', '2002:7f00:1::', 'fec0::1', '::10.0.0.1', 'not-an-address']) {
     ok(isPrivateAddress(address), `${address} is private`)
   }
   ok(!isPrivateAddress('93.184.216.34') && !isPrivateAddress('2606:4700::1111'), 'public addresses are fine')
@@ -3075,6 +3234,141 @@ await check('profile pictures: checked like uploads, cropped as the browser show
   const last = await saveAvatar(id, photo, { x: 0, y: 0, size: 30 })
   await removeAccount(id)
   ok(!(await storage.exists(fileOf(last))), 'the picture goes with the account')
+})
+
+await check('recovering an account cancels the links made before it: an email change on a new password, reset link or two-factor reset; a reset link on an admin\'s email change', async () => {
+  const email = 'recover@example.test'
+  const password = 'recover-password-123'
+  const { id } = await createUser({ email, name: 'Rae Cover', password, role: 'editor' })
+  const inbox: EmailMessage[] = []
+  const sender = { send: async (message: EmailMessage) => void inbox.push(message) }
+  const tokenOf = (url: string) => new URL(url).searchParams.get('token')!
+  // Someone who had the session and the password asks for the email to be changed to theirs.
+  const ask = async (to: string) => {
+    await requestEmailChange(id, { email: to, password }, sender)
+    const token = /token=([A-Za-z0-9_-]{43})/.exec(inbox[inbox.length - 2].text)?.[1] ?? ''
+    ok(Boolean(await emailChangeFor(token)), `${to}: the link works before the recovery`)
+    return token
+  }
+  const gone = async (token: string, why: string) => {
+    ok(!(await emailChangeFor(token)) && !(await pendingEmailChange(id)) && /expired/.test(await userError(confirmEmailChange(token))), why)
+  }
+
+  let token = await ask('thief.one@example.test')
+  let earlier = tokenOf((await createResetLink(id)).url)
+  await resetPassword(id, { password })
+  await gone(token, 'a new password from an admin cancels it')
+  ok(!(await isResetTokenValid(earlier)), 'and a reset link made before it')
+
+  token = await ask('thief.two@example.test')
+  await resetPasswordWithToken({ token: tokenOf((await createResetLink(id)).url), password })
+  await gone(token, 'a reset link cancels it')
+
+  token = await ask('thief.three@example.test')
+  await resetTwoFactor(id)
+  await gone(token, 'a two-factor reset cancels it')
+
+  token = await ask('thief.four@example.test')
+  earlier = tokenOf((await createResetLink(id)).url)
+  await forgetEmailChange(id)
+  await gone(token, 'changing the own password cancels it')
+  ok(!(await isResetTokenValid(earlier)), 'and a reset link made before it')
+  ok((await listUsers()).find((u) => u.id === id)?.email === email, 'the address never changed')
+
+  // A reset link sent to the old address does not outlive an admin's change of the address.
+  const old = tokenOf((await createResetLink(id)).url)
+  ok(await isResetTokenValid(old), 'valid before the change')
+  await updateUser(id, { name: 'Rae Cover', email: 'recover.new@example.test' }, { canChangeRole: true })
+  ok(!(await isResetTokenValid(old)), 'cancelled with the old address')
+  // An invite waiting when a reset link sets the password can no longer set it again.
+  const invited = await createUser({ email: 'late-invite@example.test', name: 'Late Invite', role: 'editor', invite: true })
+  const { db, t } = await getDatabase()
+  const invites = async () => (await db.select().from(t.verifications)).filter((row) => row.identifier.startsWith('invite:') && row.value === invited.id).length
+  await createInvite(invited.id)
+  ok((await invites()) === 1, 'an invite waits')
+  await resetPasswordWithToken({ token: tokenOf((await createResetLink(invited.id)).url), password })
+  ok((await invites()) === 0, 'a reset link cancels the invite')
+})
+
+await check('layouts are checked against each block\'s fields: wrong kinds of value and made-up choices are removed, on save and when drawn; the built-in layouts pass untouched', async () => {
+  const blocks = { components: { ...pageBlocks.components, ...petPageBlocks.components } } as unknown as Parameters<typeof sanitizeLayout>[1]
+  for (const [name, layout] of [['home', DEFAULT_HOME_DATA], ['pets', DEFAULT_PETS_DATA], ['pet page', DEFAULT_PET_PAGE_DATA]] as const) {
+    ok(isEqual(sanitizeLayout(layout, blocks), layout), `the default ${name} layout is unchanged`)
+  }
+  const hostile = {
+    root: { props: {} },
+    zones: {},
+    content: [
+      { type: 'TextSection', props: { id: 't1', heading: { evil: true }, body: ['not', 'text'], align: 'center fixed inset-0 z-50', background: 'tint', spacing: { x: 1 }, extra: { nested: true }, note: 'kept' } },
+      { type: 'ImageGallery', props: { id: 'g1', heading: 'Photos', columns: '4 fixed', items: [{ image: { id: 7, url: { no: 1 }, alt: 'A cat' }, caption: { no: 1 } }, 'junk', { image: 'nope', caption: 'Fine' }] } },
+      { type: 'Spacer', props: { id: 's1', size: 'md' } },
+      { type: 'NoSuchBlock', props: { id: 'u1', anything: { goes: true } } },
+    ],
+  }
+  const page = await savePageDetails(null, { title: 'Hostile', slug: 'hostile-layout' })
+  await saveDraft(page.id, hostile)
+  const { db, t } = await getDatabase()
+  const [row] = await db.select({ draft: t.pages.puckDraft }).from(t.pages).where(eq(t.pages.id, page.id))
+  const saved = (row.draft as typeof hostile).content
+  const text = saved[0].props as Record<string, unknown>
+  ok(!('heading' in text) && !('body' in text) && !('align' in text) && !('spacing' in text) && !('extra' in text), `wrong values are removed: ${JSON.stringify(text)}`)
+  ok(text.background === 'tint' && text.note === 'kept' && text.id === 't1', 'good values stay')
+  const gallery = saved[1].props as { columns?: unknown; items: Array<{ image?: unknown; caption?: unknown }> }
+  const firstImage = (gallery.items[0]?.image ?? {}) as Record<string, unknown>
+  ok(!('columns' in gallery) && gallery.items.length === 2, 'a made-up choice is removed; a row that is not an object is dropped')
+  ok(firstImage.id === 7 && firstImage.alt === 'A cat' && !('url' in firstImage) && !('caption' in gallery.items[0]), `inside a row too: ${JSON.stringify(gallery.items[0])}`)
+  ok(gallery.items[1].caption === 'Fine' && gallery.items[1].image === 'nope', 'a plain value in a picker is kept as it is')
+  ok(isEqual(saved[2], hostile.content[2]) && isEqual(saved[3], hostile.content[3]), 'a correct block and an unknown block are untouched')
+  ok(isEqual(sanitizeLayout(row.draft as Parameters<typeof sanitizeLayout>[0], blocks), row.draft), 'checking twice changes nothing more')
+  ok(classToken('center fixed inset-0') === 'default' && classToken('lg') === 'lg' && classToken(4) === '4' && classToken({}) === 'default' && classToken('a"b', 'none') === 'none', 'class names take one safe word')
+  await archivePage(page.id)
+  await deletePage(page.id)
+})
+
+await check('small rules from the security review: an archived page cannot be unpublished, an image in an email template is in use, form responses are routed only by people who may see them', async () => {
+  const placeholder = () => s3Settings({ S3_BUCKET: 'b', S3_ACCESS_KEY_ID: 'your-access-key-id', S3_SECRET_ACCESS_KEY: 'your-secret-access-key' } as unknown as NodeJS.ProcessEnv)
+  let keyError = ''
+  try {
+    placeholder()
+  } catch (error) {
+    keyError = String(error)
+  }
+  ok(/placeholders/.test(keyError), 'the example file\'s storage key placeholders are refused')
+  const devKeys = { S3_BUCKET: 'b', S3_ACCESS_KEY_ID: 'GK0123456789abcdef01234567', S3_SECRET_ACCESS_KEY: '0123456789abcdef'.repeat(4) }
+  const tryKeys = (env: Record<string, string>) => {
+    try {
+      s3Settings(env as unknown as NodeJS.ProcessEnv)
+      return ''
+    } catch (error) {
+      return String(error)
+    }
+  }
+  ok(/development keys/.test(tryKeys({ ...devKeys, NODE_ENV: 'production', S3_ENDPOINT: 'https://storage.example.com' })) && /development keys/.test(tryKeys({ ...devKeys, NODE_ENV: 'production' })), 'production refuses the development storage keys')
+  ok(tryKeys({ ...devKeys, NODE_ENV: 'production', S3_ENDPOINT: 'http://localhost:9000' }) === '' && tryKeys({ ...devKeys, S3_ENDPOINT: 'https://storage.example.com' }) === '', 'except for storage on this machine; development is unchanged')
+
+  const page = await savePageDetails(null, { title: 'Archive me', slug: 'archive-me' })
+  await publishPage(page.id, { root: { props: {} }, zones: {}, content: [{ type: 'TextSection', props: { id: 'a', heading: 'Archive me' } }] })
+  await archivePage(page.id)
+  ok(/archived/.test(await userError(unpublishPage(page.id))), 'an archived page is read-only')
+  ok(/not found/i.test(await userError(unpublishPage(987654))), 'a missing page is still "not found"')
+  await restorePage(page.id)
+  await unpublishPage(page.id)
+  await archivePage(page.id)
+  await deletePage(page.id)
+
+  // "Email new responses to" decides who receives personal data.
+  const stored = { settings: { notifyEmail: 'team@example.test' } } as Parameters<typeof forms.assertMayRouteResponses>[2]
+  const refused = (role: Parameters<typeof forms.assertMayRouteResponses>[0], input: unknown, before: typeof stored) => {
+    try {
+      forms.assertMayRouteResponses(role, input, before)
+      return false
+    } catch (error) {
+      return error instanceof ValidationError && 'settings.notifyEmail' in error.fieldErrors
+    }
+  }
+  ok(refused('developer', { settings: { notifyEmail: 'me@developer.test' } }, stored) && refused('developer', { name: 'New', settings: { notifyEmail: 'me@developer.test' } }, null), 'a developer cannot send responses to an address')
+  ok(!refused('developer', { settings: { notifyEmail: ' Team@Example.test ' } }, stored) && !refused('developer', { settings: { notifyEmail: '' } }, stored) && !refused('developer', { name: 'Only the name' }, stored), 'unchanged, cleared or untouched is fine')
+  ok(!refused('admin', { settings: { notifyEmail: 'new@example.test' } }, stored) && !refused('editor', { settings: { notifyEmail: 'new@example.test' } }, stored), 'admins and editors may')
 })
 
 await check('email changes: yourself with your password and a link to the new address (the old one is told), confirmed once; an admin at once with notices to both; addresses stay unique; the two emails need their links', async () => {

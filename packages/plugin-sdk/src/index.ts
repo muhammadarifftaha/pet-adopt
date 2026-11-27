@@ -452,6 +452,8 @@ export type PluginHost = {
    * screen shows a time, so every screen agrees.
    */
   timeZone(): Promise<string | null>
+  /** The site's public address, without a trailing slash (`https://adopt.example.com`). */
+  siteUrl(): string
   /**
    * Encrypts a secret (an API key) for storage, with a key derived from the site's secret, the same
    * way the SMTP password is kept. `purpose` names what it is (`form-builder:captcha`): a value only

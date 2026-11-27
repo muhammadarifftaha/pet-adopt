@@ -25,6 +25,9 @@ function png(body: Uint8Array) {
   })
 }
 
+/** Conversions under way, by the name of the copy being made. */
+const converting = new Map<string, Promise<Buffer>>()
+
 export async function GET(_request: Request, { params }: { params: Promise<{ name: string }> }) {
   const { name } = await params
   if (!SAFE_EMAIL_IMAGE.test(name)) return new Response('Not found', NOT_FOUND)
@@ -37,10 +40,19 @@ export async function GET(_request: Request, { params }: { params: Promise<{ nam
     if (cached) return png(cached.body)
     const file = await storage.get(original)
     if (!file) return new Response('Not found', NOT_FOUND)
-    const converted = await sharp(file.body, { animated: false }).png({ compressionLevel: 9 }).toBuffer()
-    // Kept for next time; if that fails, this request still gets its image.
-    await storage.put(copy, converted, 'image/png').catch((error) => logError(error, `could not keep ${copy}`))
-    return png(converted)
+    // Anyone can ask for this address, and converting a large picture is slow: requests that arrive
+    // while one is being made wait for it instead of each starting their own.
+    let making = converting.get(copy)
+    if (!making) {
+      making = (async () => {
+        const converted = await sharp(file.body, { animated: false }).png({ compressionLevel: 9 }).toBuffer()
+        // Kept for next time; if that fails, these requests still get their image.
+        await storage.put(copy, converted, 'image/png').catch((error) => logError(error, `could not keep ${copy}`))
+        return converted
+      })().finally(() => converting.delete(copy))
+      converting.set(copy, making)
+    }
+    return png(await making)
   } catch (error) {
     logError(error, `could not serve /media/email/${name}`)
     return new Response('Image unavailable', { status: 502, headers: { 'Cache-Control': 'no-store' } })

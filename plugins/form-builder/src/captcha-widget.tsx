@@ -103,7 +103,9 @@ export function CaptchaWidget({ captcha, ref }: { captcha: PublicCaptcha; ref?: 
             },
           })
         }
-        if (loaded.ready) loaded.ready(draw)
+        // The script's onload has fired, so the API is ready. Turnstile's own ready() throws when
+        // its script was added with async/defer, as this one is, so it is not used for Turnstile.
+        if (loaded.ready && captcha.provider !== 'turnstile') loaded.ready(draw)
         else draw()
       })
       .catch(() => {
@@ -127,7 +129,7 @@ export function CaptchaWidget({ captcha, ref }: { captcha: PublicCaptcha; ref?: 
         if (captcha.provider === 'recaptcha-v3') {
           return new Promise<string | null>((resolve) => {
             const run = () => loaded.execute!(captcha.siteKey, { action: 'submit' }).then(resolve, () => resolve(null))
-            if (loaded.ready) loaded.ready(run)
+            if (loaded.ready && captcha.provider !== 'turnstile') loaded.ready(run)
             else run()
           })
         }

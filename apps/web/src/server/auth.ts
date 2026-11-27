@@ -220,7 +220,13 @@ async function build(): Promise<Auth> {
   const [configs, version] = await Promise.all([providerConfigs(), providersVersion()])
   holder.version = version
   holder.checkedAt = Date.now()
-  return createAuth(database, configs as GenericOAuthConfig[])
+  // Everything Better Auth does runs with its requests held to public addresses (provider-guard.ts):
+  // building it reads the providers' discovery documents, and its handler and API calls exchange
+  // codes and read user info and signing keys at addresses an admin typed in.
+  const { guarded, guardedFunctions } = await import('./provider-guard')
+  const auth = guarded(() => createAuth(database, configs as GenericOAuthConfig[]))
+  const handler = auth.handler
+  return Object.assign(auth, { handler: (request: Request) => guarded(() => handler(request)), api: guardedFunctions(auth.api) })
 }
 
 /**

@@ -3,10 +3,11 @@
 // The form builder's server actions: what its admin screens (and, for `submitFormAction`, the site's
 // Form block) call. Each one checks who is calling through `host()`, takes untrusted input, and
 // returns an ActionResult. The rules live in ./server.ts.
-import { accessPermission, host, type ActionResult } from '@pet-adopt/plugin-sdk'
+import { accessPermission, can, host, UserError, type ActionResult } from '@pet-adopt/plugin-sdk'
 import { after } from 'next/server'
 
 import {
+  assertMayRouteResponses,
   createForm,
   deleteForm,
   deleteResponses,
@@ -55,7 +56,8 @@ export async function getFormAction(id: number): Promise<ActionResult<FormRecord
 /** `{ name, description?, fields?, settings?, isOpen? }` */
 export async function createFormAction(input: unknown): Promise<ActionResult<{ id: number }>> {
   return host().run(async () => {
-    await host().requirePermission(accessPermission('all', 'edit'))
+    const user = await host().requirePermission(accessPermission('all', 'edit'))
+    assertMayRouteResponses(user.role, input, null)
     const created = await createForm(input)
     const form = await getForm(created.id)
     await host().recordActivity({ action: 'form-builder.form.create', summary: `Created the form ${quoted(form?.name)}`, subject: { id: created.id, label: form?.name } })
@@ -66,9 +68,10 @@ export async function createFormAction(input: unknown): Promise<ActionResult<{ i
 /** Any of `{ name, description, fields, settings, isOpen }`; `fields` and `settings` replace what is stored. */
 export async function updateFormAction(id: number, input: unknown): Promise<ActionResult<FormRecord>> {
   return host().run(async () => {
-    await host().requirePermission(accessPermission('all', 'edit'))
+    const user = await host().requirePermission(accessPermission('all', 'edit'))
     const formId = toFormId(id)
     const before = await getForm(formId)
+    assertMayRouteResponses(user.role, input, before)
     const after = await updateForm(formId, input)
     await host().recordActivity({
       action: 'form-builder.form.update',
@@ -83,9 +86,13 @@ export async function updateFormAction(id: number, input: unknown): Promise<Acti
 /** Deletes the form and all of its responses. */
 export async function deleteFormAction(id: number): Promise<ActionResult> {
   return host().run(async () => {
-    await host().requirePermission(accessPermission('all', 'edit'))
+    const user = await host().requirePermission(accessPermission('all', 'edit'))
     const formId = toFormId(id)
     const before = await getForm(formId)
+    // Deleting a form deletes its responses, which is a change to personal data.
+    if (before && !can(user.role, accessPermission('personalData', 'edit')) && (await listResponses(formId, { limit: 1 })).total > 0) {
+      throw new UserError('This form has responses. Only people who may see responses (admins and editors) can delete it.')
+    }
     await deleteForm(formId)
     await host().recordActivity({ action: 'form-builder.form.delete', summary: `Deleted the form ${quoted(before?.name)} and its responses`, subject: { id: formId, label: before?.name } })
   })

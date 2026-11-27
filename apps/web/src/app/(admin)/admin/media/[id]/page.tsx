@@ -27,6 +27,7 @@ export default async function MediaImagePage({ params }: { params: Promise<{ id:
     usage.pets ? `${usage.pets} ${usage.pets === 1 ? 'pet' : 'pets'} (photos or share image)` : null,
     usage.pages ? `${usage.pages} ${usage.pages === 1 ? 'page' : 'pages'} (share image)` : null,
     usage.layouts ? `${usage.layouts} page ${usage.layouts === 1 ? 'layout' : 'layouts'}` : null,
+    usage.emails ? `${usage.emails} email ${usage.emails === 1 ? 'template' : 'templates'}` : null,
     usage.logo ? 'the site logo' : null,
     usage.favicon ? 'the site icon' : null,
   ].filter((use): use is string => use !== null)

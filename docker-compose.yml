@@ -5,7 +5,8 @@
 #   Set POSTGRES_PASSWORD (and use it in DATABASE_URL) on any machine other people can reach.
 #
 # garage: an S3-compatible server for uploads, a single node that creates its key and the bucket
-# pet-adopt-media on start (the values in apps/web/.env.example):
+# pet-adopt-media on start. These are DEVELOPMENT keys for this local server (it listens on
+# loopback only): copy the two key lines into apps/web/.env, and never use them anywhere else.
 #   S3_BUCKET=pet-adopt-media
 #   S3_ENDPOINT=http://localhost:9000
 #   S3_ACCESS_KEY_ID=GK0123456789abcdef01234567

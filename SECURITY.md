@@ -25,7 +25,11 @@ The project is pre-1.0. Only the latest commit on `main` receives security fixes
 - Serve the site over HTTPS, and set `NEXT_PUBLIC_SERVER_URL` to the exact public address.
 - If you run a reverse proxy or CDN, make sure the client address header it sets cannot be forged by visitors.
 - Use PostgreSQL with a strong password in production and never expose the database port to the internet.
-- Never commit `.env`. Keep storage keys scoped to the uploads bucket only.
+- Never commit `.env`. Keep storage keys scoped to the uploads bucket only. The keys in `docker-compose.yml` are for
+  the local development server; production refuses them.
+- If you host the site for someone else, leave `AUTH_PROVIDER_PRIVATE_ADDRESSES` and `SMTP_PRIVATE_ADDRESSES` unset:
+  the site then refuses sign-in providers and mail servers inside your network, which its admins could otherwise
+  point it at.
 - Keep dependencies up to date, and review the security headers in `next.config.ts` before adding embeds or
   external scripts.
 

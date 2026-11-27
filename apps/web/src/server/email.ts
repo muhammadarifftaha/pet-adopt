@@ -10,10 +10,13 @@
 import { type EmailMessage, type EmailSender, type EmailStatus } from '@pet-adopt/plugin-sdk'
 import { eq } from 'drizzle-orm'
 import nodemailer from 'nodemailer'
+import { lookup } from 'node:dns/promises'
+import { isIP } from 'node:net'
 
 import { getDatabase } from '@/db/client'
 import { getEmailPlugin } from '@/plugins/registry'
 
+import { isPrivateAddress } from './avatars'
 import { asRecord, Fields, ValidationError } from './result'
 import { open, seal } from './secret-box'
 
@@ -270,6 +273,20 @@ export async function saveEmailSettings(raw: unknown): Promise<{ changed: string
   const set = <K extends keyof Stored>(field: EmailField, key: K, value: Stored[K] | undefined) => {
     if (value !== undefined && !locked.has(field)) next[key] = value
   }
+  // A password belongs to the server it was typed for. Moving the server while keeping the password
+  // would hand it to whoever runs the new one (the next email, or "Send a test email", signs in
+  // there with it), so someone who may change the settings but never saw the password could read
+  // it that way. A new server therefore needs the password typed again, or removed.
+  const movesServer = host !== undefined && !locked.has('host') && (host ?? '').toLowerCase() !== (before?.host ?? '').toLowerCase()
+  if (movesServer) {
+    if (locked.has('password')) {
+      throw new ValidationError({ host: `The password comes from ${EMAIL_ENV.password}, which is set for the current server. Set ${EMAIL_ENV.host} beside it to use another server.` })
+    }
+    const typesPassword = typeof password === 'string' && password !== ''
+    if (before?.passwordEncrypted && !typesPassword && !clearPassword) {
+      throw new ValidationError({ password: 'Type the password again (or remove it): it was saved for the previous server.' })
+    }
+  }
   set('host', 'host', host)
   set('port', 'port', port)
   set('security', 'security', security ?? undefined)
@@ -280,6 +297,11 @@ export async function saveEmailSettings(raw: unknown): Promise<{ changed: string
   if (!locked.has('password')) {
     if (clearPassword) next.passwordEncrypted = null
     else if (typeof password === 'string' && password) next.passwordEncrypted = seal(password, PASSWORD_PURPOSE)
+  }
+
+  if (typeof host === 'string' && host && !locked.has('host')) {
+    const problem = await smtpHostProblem(host)
+    if (problem) throw new ValidationError({ host: problem })
   }
 
   // Once there is a server, it needs an address to send from.
@@ -301,19 +323,58 @@ export async function saveEmailSettings(raw: unknown): Promise<{ changed: string
 
 // --- Sending -----------------------------------------------------------------------------------
 
+/** The switch that lets a mail server typed into Email > Sending be on a private network. */
+export const SMTP_PRIVATE_VARIABLE = 'SMTP_PRIVATE_ADDRESSES'
+const smtpPrivateAllowed = () => ['1', 'true'].includes((process.env[SMTP_PRIVATE_VARIABLE] ?? '').trim().toLowerCase())
+const SMTP_PRIVATE = `This server is inside a private network. Use a public mail server, or have whoever runs this site set SMTP_HOST (or ${SMTP_PRIVATE_VARIABLE}=1) on the server.`
+
+/**
+ * Where to connect for the mail server `host`. The host on the Email screen is typed in by someone
+ * who may not run the machine, and the site connects to it, so it must be on the public internet:
+ * otherwise the screen could be used to reach machines only the server can see. The name is
+ * resolved once, every address must be public, and the connection goes to that checked address
+ * (`servername` keeps the certificate check on the name), so the name cannot answer differently a
+ * moment later. Not checked: a host from SMTP_HOST (`trusted`), a site with SMTP_PRIVATE_ADDRESSES=1,
+ * and a server on this machine outside production (Mailpit).
+ */
+export async function smtpTarget(rawHost: string, trusted = false): Promise<{ host: string; servername?: string }> {
+  const host = rawHost.replace(/^\[|\]$/g, '')
+  if (trusted || smtpPrivateAllowed() || (isLoopbackHost(host) && process.env.NODE_ENV !== 'production')) return { host }
+  if (isIP(host)) {
+    if (isPrivateAddress(host)) throw new Error(SMTP_PRIVATE)
+    return { host }
+  }
+  const addresses = await lookup(host, { all: true }).catch(() => [])
+  if (!addresses.length) throw new Error(`The mail server ${host} could not be found.`)
+  if (addresses.some((entry) => isPrivateAddress(entry.address))) throw new Error(SMTP_PRIVATE)
+  return { host: addresses[0].address, servername: host }
+}
+
+/** For the Email screen: why this host cannot be saved, or null (a name that is not found yet is let through). */
+export async function smtpHostProblem(host: string): Promise<string | null> {
+  try {
+    await smtpTarget(host)
+    return null
+  } catch (error) {
+    return error instanceof Error && error.message === SMTP_PRIVATE ? SMTP_PRIVATE : null
+  }
+}
+
 const TIMEOUTS = { connectionTimeout: 10_000, greetingTimeout: 10_000, socketTimeout: 20_000 }
 
 /** Sends one message over SMTP with these settings. Throws with the server's explanation. */
-export async function sendWithSmtp(config: SmtpConfig, message: EmailMessage): Promise<void> {
+export async function sendWithSmtp(config: SmtpConfig, message: EmailMessage, { trustedHost = false } = {}): Promise<void> {
   if (!config.host || !config.fromAddress) throw new Error('Email is not set up: the server or the sender address is missing.')
+  const target = await smtpTarget(config.host, trustedHost)
   const transport = nodemailer.createTransport({
-    host: config.host.replace(/^\[|\]$/g, ''),
+    host: target.host,
     port: config.port,
     secure: config.security === 'tls',
     // `none`: encryption is not required (a server that offers STARTTLS is still used with it).
     requireTLS: config.security === 'starttls',
     auth: config.username ? { user: config.username, pass: config.password ?? '' } : undefined,
-    tls: { minVersion: 'TLSv1.2' },
+    // When the connection goes to a checked address, the certificate is still matched to the name.
+    tls: { minVersion: 'TLSv1.2', ...(target.servername ? { servername: target.servername } : {}) },
     ...TIMEOUTS,
   })
   try {
@@ -370,5 +431,6 @@ export async function getEmailSender(): Promise<EmailSender | null> {
   if (plugin && (!plugin.sender.status || plugin.sender.status().ready)) return plugin.sender
   const smtp = await resolveSmtp()
   if (!smtp.ready) return null
-  return { send: (message) => sendWithSmtp(smtp.config, message), status: () => smtpStatus(smtp) }
+  // A host from SMTP_HOST was chosen by whoever runs the server, so it may be on their own network.
+  return { send: (message) => sendWithSmtp(smtp.config, message, { trustedHost: smtp.locked.has('host') }), status: () => smtpStatus(smtp) }
 }

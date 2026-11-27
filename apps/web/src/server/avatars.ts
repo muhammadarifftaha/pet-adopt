@@ -9,7 +9,8 @@
 // and so does deleting the account.
 import { randomBytes } from 'node:crypto'
 import { lookup } from 'node:dns/promises'
-import { isIP } from 'node:net'
+import { get as httpsGet } from 'node:https'
+import { BlockList, isIP } from 'node:net'
 
 import { eq } from 'drizzle-orm'
 import sharp, { type Metadata } from 'sharp'
@@ -121,20 +122,57 @@ export async function removeAvatar(userId: string): Promise<boolean> {
 
 // --- A sign-in provider's picture ----------------------------------------------------------------
 
-/** True for addresses that are not on the public internet (loopback, private, link-local...). */
-export function isPrivateAddress(address: string): boolean {
-  const v4 = address.startsWith('::ffff:') ? address.slice(7) : address
-  if (isIP(v4) === 4) {
-    const [a, b] = v4.split('.').map(Number)
-    return a === 0 || a === 10 || a === 127 || (a === 100 && b >= 64 && b <= 127) || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || a >= 224
-  }
-  const v6 = address.toLowerCase()
-  return v6 === '::' || v6 === '::1' || v6.startsWith('fc') || v6.startsWith('fd') || v6.startsWith('fe8') || v6.startsWith('fe9') || v6.startsWith('fea') || v6.startsWith('feb') || v6.startsWith('ff')
+// Addresses that are not on the public internet. An IPv4 address written as IPv6 ("::ffff:10.0.0.1",
+// also in its hex form "::ffff:a00:1") is checked against the IPv4 rules by BlockList itself.
+const notPublic = new BlockList()
+for (const [network, prefix] of [
+  ['0.0.0.0', 8], // "this network"
+  ['10.0.0.0', 8], // private
+  ['100.64.0.0', 10], // carrier-grade NAT
+  ['127.0.0.0', 8], // loopback
+  ['169.254.0.0', 16], // link-local (cloud metadata services live here)
+  ['172.16.0.0', 12], // private
+  ['192.0.0.0', 24], // protocol assignments
+  ['192.0.2.0', 24], // documentation
+  ['192.168.0.0', 16], // private
+  ['198.18.0.0', 15], // benchmarking
+  ['198.51.100.0', 24], // documentation
+  ['203.0.113.0', 24], // documentation
+  ['224.0.0.0', 3], // multicast and reserved
+] as const) {
+  notPublic.addSubnet(network, prefix, 'ipv4')
 }
+for (const [network, prefix] of [
+  ['::', 96], // unspecified, loopback and the old IPv4-compatible form
+  ['64:ff9b::', 96], // NAT64: an IPv4 address behind a translator
+  ['2001:db8::', 32], // documentation
+  ['2002::', 16], // 6to4: carries an IPv4 address
+  ['fc00::', 7], // unique local
+  ['fe80::', 10], // link-local
+  ['fec0::', 10], // site-local (deprecated)
+  ['ff00::', 8], // multicast
+] as const) {
+  notPublic.addSubnet(network, prefix, 'ipv6')
+}
+
+/** True for addresses that are not on the public internet (loopback, private, link-local...), and for anything that is not an address. */
+export function isPrivateAddress(address: string): boolean {
+  const family = isIP(address)
+  if (family === 0) return true
+  return notPublic.check(address, family === 4 ? 'ipv4' : 'ipv6')
+}
+
+const DOWNLOAD_LIMIT = 5_000_000
+const DOWNLOAD_MS = 5000
 
 /**
  * Downloads a picture from a provider's profile, carefully: https only, a public host (the address
  * comes from whoever owns the provider account), no redirects, 5 seconds, 5 MB. Null when unsuitable.
+ *
+ * The host name is resolved once, every address it has must be public, and the connection is then
+ * made to that checked address (the certificate is still verified against the name). Resolving
+ * again for the connection would let a name answer "public" for the check and "internal" a moment
+ * later.
  */
 async function download(url: string): Promise<Buffer | null> {
   let parsed: URL
@@ -144,20 +182,50 @@ async function download(url: string): Promise<Buffer | null> {
     return null
   }
   if (parsed.protocol !== 'https:' || parsed.username || parsed.password) return null
-  const addresses = await lookup(parsed.hostname, { all: true }).catch(() => [])
+  const addresses = await lookup(parsed.hostname.replace(/^\[|\]$/g, ''), { all: true }).catch(() => [])
   if (!addresses.length || addresses.some((entry) => isPrivateAddress(entry.address))) return null
-  const response = await fetch(parsed, { redirect: 'error', signal: AbortSignal.timeout(5000) }).catch(() => null)
-  if (!response?.ok || !response.body) return null
-  const limit = 5_000_000
-  if (Number(response.headers.get('content-length') ?? 0) > limit) return null
-  const chunks: Uint8Array[] = []
-  let total = 0
-  for await (const chunk of response.body as unknown as AsyncIterable<Uint8Array>) {
-    total += chunk.length
-    if (total > limit) return null
-    chunks.push(chunk)
-  }
-  return Buffer.concat(chunks)
+  const [target] = addresses
+
+  return new Promise<Buffer | null>((resolve) => {
+    let settled = false
+    const finish = (result: Buffer | null) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      request.destroy()
+      resolve(result)
+    }
+    const request = httpsGet(
+      parsed,
+      {
+        // Connect to the address that was checked, whatever the name resolves to by now.
+        lookup: (_host, options, callback) => {
+          const all = typeof options === 'object' && options !== null && (options as { all?: boolean }).all
+          if (all) (callback as unknown as (error: null, list: Array<{ address: string; family: number }>) => void)(null, [target])
+          else callback(null, target.address, target.family)
+        },
+        // The same plain client name Node's own fetch sends; some hosts refuse a request without one.
+        headers: { accept: 'image/*', 'user-agent': 'node' },
+      },
+      (response) => {
+        // No redirects: 3xx is simply not a picture.
+        if (response.statusCode !== 200) return finish(null)
+        if (Number(response.headers['content-length'] ?? 0) > DOWNLOAD_LIMIT) return finish(null)
+        const chunks: Buffer[] = []
+        let total = 0
+        response.on('data', (chunk: Buffer) => {
+          total += chunk.length
+          if (total > DOWNLOAD_LIMIT) return finish(null)
+          chunks.push(chunk)
+        })
+        response.on('end', () => finish(Buffer.concat(chunks)))
+        response.on('error', () => finish(null))
+      },
+    )
+    request.on('error', () => finish(null))
+    // One limit for the whole download, not per step.
+    const timer = setTimeout(() => finish(null), DOWNLOAD_MS)
+  })
 }
 
 /** The `picture` claim of an ID token (already verified by Better Auth when the account was linked). */

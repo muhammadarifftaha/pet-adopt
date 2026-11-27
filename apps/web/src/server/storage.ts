@@ -38,6 +38,9 @@ export type S3Settings = {
  * Reads and checks the S3_* variables. Throws with a message naming the variable to fix, so a
  * misconfigured bucket fails at the first upload or image with a clear reason.
  */
+/** The local storage server's keys in docker-compose.yml: public knowledge, for development only. */
+const DEVELOPMENT_KEYS = { accessKeyId: 'GK0123456789abcdef01234567', secretAccessKey: '0123456789abcdef'.repeat(4) }
+
 export function s3Settings(env: NodeJS.ProcessEnv = process.env): S3Settings {
   const bucket = env.S3_BUCKET?.trim()
   if (!bucket) {
@@ -50,6 +53,10 @@ export function s3Settings(env: NodeJS.ProcessEnv = process.env): S3Settings {
   const secretAccessKey = env.S3_SECRET_ACCESS_KEY?.trim() || undefined
   if (Boolean(accessKeyId) !== Boolean(secretAccessKey)) {
     throw new Error('Set both S3_ACCESS_KEY_ID and S3_SECRET_ACCESS_KEY, or neither.')
+  }
+  // The example file's placeholders, left as they were: say so, instead of a refused request later.
+  if ([accessKeyId, secretAccessKey].some((key) => key && /^your-/i.test(key))) {
+    throw new Error('S3_ACCESS_KEY_ID and S3_SECRET_ACCESS_KEY still hold the placeholders from .env.example. Replace them with your own keys.')
   }
   // Without keys the SDK looks for credentials itself (an IAM role on AWS). Elsewhere that finds
   // nothing, so production insists on them.
@@ -78,6 +85,15 @@ export function s3Settings(env: NodeJS.ProcessEnv = process.env): S3Settings {
     if (!/^[A-Za-z0-9][A-Za-z0-9._-]*(\/[A-Za-z0-9][A-Za-z0-9._-]*)*\/$/.test(prefix)) {
       throw new Error('S3_PREFIX may hold letters, digits, ".", "_", "-" and "/" between folder names (for example site/uploads).')
     }
+  }
+
+  // The development keys are printed in docker-compose.yml for the local storage server. Anyone can
+  // read them, so production refuses them, except for a storage server on this machine (trying a
+  // production build locally), which nobody else can reach.
+  const development = accessKeyId === DEVELOPMENT_KEYS.accessKeyId || secretAccessKey === DEVELOPMENT_KEYS.secretAccessKey
+  const onThisMachine = endpoint ? /^(localhost|.+\.localhost|127(\.\d{1,3}){3}|\[::1\])$/i.test(new URL(endpoint).hostname) : false
+  if (env.NODE_ENV === 'production' && development && !onThisMachine) {
+    throw new Error('S3_ACCESS_KEY_ID and S3_SECRET_ACCESS_KEY are the development keys from docker-compose.yml, which anyone can read. Create keys of your own for this storage.')
   }
 
   return {

@@ -23,7 +23,9 @@ Requires Node.js 22.23.4 or newer (or 24.22.1+), [pnpm](https://pnpm.io), and Do
 git clone <your-fork-url> pet-adopt
 cd pet-adopt
 cp apps/web/.env.example apps/web/.env
-docker compose up -d garage mailpit   # upload storage and a test inbox; their settings are already in .env.example
+# In apps/web/.env, replace the two S3 key placeholders with the development keys
+# shown at the top of docker-compose.yml.
+docker compose up -d garage mailpit   # upload storage and a test inbox
 pnpm install
 pnpm dev
 ```
@@ -250,7 +252,7 @@ People can delete their own account from **Account**. It closes at once, and is 
 **Signing in:**
 
 - **Two-factor:** with an authenticator app and backup codes. It's optional, and admins can require it for chosen roles (**Authentication**).
-- **Your own sign-in provider:** add one under **Authentication → Sign-in providers** (OAuth 2 or OpenID Connect). Each person connects it from **Account**. Providers never create accounts.
+- **Your own sign-in provider:** add one under **Authentication → Sign-in providers** (OAuth 2 or OpenID Connect). Each person connects it from **Account**. Providers never create accounts. A provider's addresses must be on the public internet; set `AUTH_PROVIDER_PRIVATE_ADDRESSES=1` if yours runs on your own network.
 - **Your own account:** everyone manages their picture, name, password, email address, two-factor and connected providers under **Account**.
 
 ### Email
@@ -380,7 +382,7 @@ To add a workspace plugin, run `pnpm --filter @pet-adopt/web add <name>@workspac
 - **Links** typed into blocks and settings are checked when saved, and rendered through a filter that blocks `javascript:` and `data:` addresses.
 - **Encrypted secrets:** the SMTP password, sign-in provider secrets, captcha secret keys and two-factor secrets are stored encrypted. Password reset, invite and email change links are stored only as hashes and work once.
 - **The activity log** records changes, sign-ins and failed sign-ins, naming fields but never their values. It is kept for 365 days (`ACTIVITY_LOG_DAYS`).
-- **Headers** are set in `apps/web/next.config.ts`: `nosniff`, no framing by other sites, a strict referrer policy, and a Content-Security-Policy.
+- **Headers** are set in `apps/web/next.config.ts`: `nosniff`, no framing by other sites, a strict referrer policy, a Content-Security-Policy, and HSTS (one year) when the site's address is https.
   - **What the policy allows:** your own site, plus Google Maps, YouTube (no-cookie) and Vimeo embeds, and the four captcha services.
   - **Inline scripts** stay allowed because Next.js needs them, and a nonce would end page caching.
   - **Adding an embed or script:** extend the policy. Set `CSP_REPORT_ONLY=1` first to see what it would block.

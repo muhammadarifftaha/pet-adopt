@@ -197,10 +197,15 @@ export async function guardSignIn(email: unknown, headers: Headers): Promise<{ k
   } else if (process.env.NODE_ENV === 'production' && !warnedAboutMissingAddress) {
     warnedAboutMissingAddress = true
     console.warn(
-      `Sign-in throttling cannot tell clients apart: no valid address in the "${CLIENT_IP_HEADER}" header. ` +
+      `Sign-in throttling cannot tell clients apart: no valid address in the "${CLIENT_IP_HEADER}" header, so wrong guesses from anyone can lock an email out. ` +
         'Run the site behind a reverse proxy and set CLIENT_IP_HEADER / TRUSTED_PROXY_HOPS to match it.',
     )
   }
+  // Without a client address every attempt on an email counts against one shared pair ("none"), so
+  // the everyday limit becomes a plain per-email limit: wrong guesses from anywhere can lock that
+  // email out for a while. That is deliberate. The other choice, skipping this limit, would leave
+  // only the hourly cap (100 guesses an hour) on a site that is already misconfigured; a locked-out
+  // owner has `pnpm admin:reset-password`, a guessed password has no remedy.
   const pairKey = `login:pair:${digest}|${address ?? 'none'}`
   const emailKey = `login:email:${digest}`
   await consumeAttempt(pairKey, PAIR_RULE)
@@ -216,11 +221,20 @@ export async function guardPasswordChange(userId: string): Promise<{ keys: strin
 }
 
 /**
- * Call before sending a reset email. Throws a UserError when this client, or this email from anyone,
- * asked too often. Counted whether or not the account exists, so the limit says nothing about that.
+ * Call before sending a reset email. Throws a UserError when this client asked too often. Returns
+ * whether an email may still go to this address: false once the address has had its share for the
+ * hour, whoever asked. That case is NOT an error: anyone can type anyone's address, so refusing
+ * would let a stranger show the owner "too many attempts" (and would tell them the count). The
+ * caller answers as usual and sends nothing. Counted whether or not the account exists.
  */
-export async function guardResetRequest(email: unknown, headers: Headers): Promise<void> {
+export async function guardResetRequest(email: unknown, headers: Headers): Promise<boolean> {
   const address = clientAddress(headers)
   if (address) await consumeAttempt(`pwreset:ip:${address}`, RESET_CLIENT_RULE)
-  await consumeAttempt(`pwreset:email:${emailDigest(email)}`, RESET_EMAIL_RULE)
+  try {
+    await consumeAttempt(`pwreset:email:${emailDigest(email)}`, RESET_EMAIL_RULE)
+    return true
+  } catch (error) {
+    if (error instanceof UserError) return false
+    throw error
+  }
 }
