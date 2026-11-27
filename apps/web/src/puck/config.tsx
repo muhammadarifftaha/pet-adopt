@@ -3,6 +3,7 @@ import Link from 'next/link'
 import React from 'react'
 import type { Config, Fields } from '@puckeditor/core'
 import { withPadding } from './padding'
+import { classToken } from './sanitize'
 
 import { PetCard } from '@/components/site/PetCard'
 import { CopyButton } from '@/components/site/CopyButton'
@@ -149,7 +150,7 @@ export function Section({
   children: React.ReactNode
 }) {
   return (
-    <section className={`section section-${background} spacing-${spacing} align-${align}`}>
+    <section className={`section section-${classToken(background)} spacing-${classToken(spacing)} align-${classToken(align)}`}>
       <div className="container">{children}</div>
     </section>
   )
@@ -534,10 +535,10 @@ const blocks: Config<PuckComponents> = {
         if (layout === 'stacked') {
           // A rounded photo with the heading, text and buttons under it, on the page's own colours.
           return (
-            <section className={`hero-stacked align-${align}`}>
+            <section className={`hero-stacked align-${classToken(align)}`}>
               <div className="container">
                 {image && (
-                  <div className={`hero-stacked-image hero-stacked-${height}`}>
+                  <div className={`hero-stacked-image hero-stacked-${classToken(height)}`}>
                     <Image src={image.url} alt={image.alt || ''} fill priority sizes="100vw" />
                   </div>
                 )}
@@ -556,7 +557,7 @@ const blocks: Config<PuckComponents> = {
           )
         }
         return (
-          <section className={`hero hero-${height} align-${align}${image ? ' hero-has-image' : ''}`}>
+          <section className={`hero hero-${classToken(height)} align-${classToken(align)}${image ? ' hero-has-image' : ''}`}>
             {image && <Image src={image.url} alt={image.alt || ''} fill priority sizes="100vw" className="hero-image" />}
             <div className="container hero-content">
               {heading && <HeroTitle level={headingLevel} style={headingStyle}>{heading}</HeroTitle>}
@@ -632,7 +633,7 @@ const blocks: Config<PuckComponents> = {
       render: ({ headingLevel,  heading, columns, items, background, spacing }) => (
         <Section background={background} spacing={spacing}>
           {heading && <Title level={headingLevel}>{heading}</Title>}
-          <div className={`gallery gallery-${columns}`}>
+          <div className={`gallery gallery-${classToken(columns)}`}>
             {items
               .filter((item) => item.image)
               .map((item, i) => (
@@ -983,7 +984,7 @@ const blocks: Config<PuckComponents> = {
         )
         return (
           <Section background={background} spacing={spacing}>
-            <div className={`image-text image-text-${imageSide}${imageWidth === 'wide' ? ' image-text-wide' : ''}`}>
+            <div className={`image-text image-text-${classToken(imageSide)}${imageWidth === 'wide' ? ' image-text-wide' : ''}`}>
               {photoMode === 'pair' ? (
                 <div className="image-text-pair">
                   {photo(image, imageLabel)}
@@ -1242,7 +1243,7 @@ const blocks: Config<PuckComponents> = {
         const details = [labelFor(SPECIES, pet.species), pet.ageDescription, pet.location].filter(Boolean).join(' · ')
         return (
           <Section background={background}>
-            <div className={`spotlight image-text image-text-${imageSide}`}>
+            <div className={`spotlight image-text image-text-${classToken(imageSide)}`}>
               <div className="image-text-media">
                 {pet.image ? (
                   <Image src={pet.image.url} alt={pet.image.alt || pet.name} fill sizes="(max-width: 800px) 100vw, 50vw" />
@@ -1405,7 +1406,7 @@ const blocks: Config<PuckComponents> = {
         <Section background={background} align={align}>
           {heading && <Title level={headingLevel} style={headingStyle}>{heading}</Title>}
           {intro && <p className="section-intro">{intro}</p>}
-          <ul className={`features features-${columns}`}>
+          <ul className={`features features-${classToken(columns)}`}>
             {items.map((item, i) => (
               <li key={i}>
                 {item.icon ? (
@@ -1610,7 +1611,7 @@ const blocks: Config<PuckComponents> = {
       } as Fields<CostTableProps>,
       render: ({ headingLevel,  heading, headingStyle, intro, image, imageSide, itemLabel, valueLabel, rows, note, background }) => (
         <Section background={background}>
-          <div className={`cost-table cost-table-${imageSide}`}>
+          <div className={`cost-table cost-table-${classToken(imageSide)}`}>
             <div className="cost-table-intro">
               {heading && <Title level={headingLevel} style={headingStyle}>{heading}</Title>}
               {paragraphs(intro).map((p, i) => (
@@ -1636,7 +1637,7 @@ const blocks: Config<PuckComponents> = {
                   </thead>
                   <tbody>
                     {rows.map((row, i) => (
-                      <tr key={i} className={row.highlight !== 'none' ? `price-row-${row.highlight}` : undefined}>
+                      <tr key={i} className={row.highlight !== 'none' ? `price-row-${classToken(row.highlight)}` : undefined}>
                         <th scope="row">{row.label}</th>
                         <td>{row.value}</td>
                       </tr>
@@ -1666,7 +1667,7 @@ const blocks: Config<PuckComponents> = {
           ],
         },
       } as Fields<SpacerProps>,
-      render: ({ size }) => <div className={`spacer spacer-${size}`} aria-hidden="true" />,
+      render: ({ size }) => <div className={`spacer spacer-${classToken(size)}`} aria-hidden="true" />,
     },
 
     FormBlock: {
@@ -1735,9 +1736,9 @@ const blocks: Config<PuckComponents> = {
         spacing: spacingField,
       } as Fields<DividerProps>,
       render: ({ width, spacing }) => (
-        <div className={`divider-block spacing-${spacing}`}>
+        <div className={`divider-block spacing-${classToken(spacing)}`}>
           <div className="container">
-            <hr className={`divider divider-${width}`} />
+            <hr className={`divider divider-${classToken(width)}`} />
           </div>
         </div>
       ),

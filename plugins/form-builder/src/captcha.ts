@@ -185,9 +185,14 @@ export const CAPTCHA_UNAVAILABLE =
  */
 export async function requireCaptcha(token: unknown, client: string | null): Promise<void> {
   const view = await getCaptchaSettings()
+  // Switched on and checked, yet not usable (the saved secret no longer opens, for example after
+  // the site's own secret was changed): refuse, like an unreachable service, instead of quietly
+  // letting everything through. The Spam protection screen says what to do.
+  const broken = view.enabled && Boolean(view.checkedAt) && !view.active
+  if (broken) throw new UserError(CAPTCHA_UNAVAILABLE)
   if (!view.active) return
   const saved = await savedKeys()
-  if (!saved) return
+  if (!saved) throw new UserError(CAPTCHA_UNAVAILABLE)
   const outcome = await verifyCaptchaToken(saved.keys, token, client)
   if (outcome === 'unavailable') throw new UserError(CAPTCHA_UNAVAILABLE)
   if (outcome === 'failed') throw new UserError(CAPTCHA_FAILED)

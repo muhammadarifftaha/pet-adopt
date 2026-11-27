@@ -13,7 +13,7 @@
 //
 // Archiving takes a page off the site and makes it read-only, keeping everything (including its
 // address) so it can be restored as it was. Only an archived page can be deleted.
-import type { Data } from '@puckeditor/core'
+import type { Config, Data } from '@puckeditor/core'
 import { and, desc, eq, gte, isNotNull, isNull, lt, lte, ne, sql } from 'drizzle-orm'
 import { isEqual } from 'es-toolkit'
 
@@ -21,6 +21,7 @@ import { getDatabase, type Db, type Schema } from '@/db/client'
 import type * as S from '@/db/schema/sqlite'
 import { RESERVED_SLUGS } from '@/lib/options'
 import { safeRevalidate } from '@/lib/revalidate'
+import { sanitizeLayout } from '@/puck/sanitize'
 import { DEFAULT_HOME_DATA, DEFAULT_PET_PAGE_DATA, DEFAULT_PETS_DATA, isPuckData, PET_PAGE_SLUG, isSystemPageSlug, stripControlChars, stripTransient } from '@/puck/data'
 
 import { getMediaByIds } from './media'
@@ -293,11 +294,23 @@ function atVersion(t: { pages: { updatedAt: Parameters<typeof gte>[0] } }, versi
   return and(gte(t.pages.updatedAt, new Date(version)), lt(t.pages.updatedAt, new Date(version + 1)))
 }
 
-function cleanLayout(data: unknown) {
+/** Every block the builders know: the page blocks and the Pet page template's own. */
+let allBlocks: Promise<Config> | null = null
+function blockConfig(): Promise<Config> {
+  // Loaded on first use: the block files import the pickers, which import this module's actions.
+  allBlocks ??= Promise.all([import('@/puck/config'), import('@/puck/pet-page-config')]).then(
+    ([pages, pet]) => ({ components: { ...pages.config.components, ...pet.petPageConfig.components } }) as unknown as Config,
+  )
+  return allBlocks
+}
+
+async function cleanLayout(data: unknown) {
   // Render-only props (such as PetGrid's `pets`) must never be saved, whatever the save path.
   if (!isPuckData(data)) throw new UserError('The page data looks invalid, so nothing was saved.')
-  // A NUL anywhere in the JSON makes PostgreSQL refuse the whole save.
-  return stripTransient(stripControlChars(data))
+  // A NUL anywhere in the JSON makes PostgreSQL refuse the whole save. Then every block's options
+  // are checked against its fields (src/puck/sanitize.ts): a value of the wrong kind would stop the
+  // page from drawing, and a made-up choice would end up in a class name.
+  return sanitizeLayout(stripTransient(stripControlChars(data)), await blockConfig())
 }
 
 /** Why a guarded update matched nothing: gone, archived, or changed by someone else. */
@@ -425,7 +438,7 @@ async function closeVersion(tx: Db, t: Schema, input: VersionInput): Promise<voi
 export type SaveOptions = { baseVersion?: number; by?: string | null }
 
 export async function saveDraft(id: number, data: unknown, baseVersion?: number, by?: string | null): Promise<{ version: number }> {
-  const layout = cleanLayout(data)
+  const layout = await cleanLayout(data)
   const { t, withTransaction } = await getDatabase()
   const now = nextVersion(baseVersion)
   return withTransaction(
@@ -454,7 +467,7 @@ export async function publishPage(
   by?: string | null,
 ): Promise<{ slug: string; version: number }> {
   const { t, withTransaction } = await getDatabase()
-  const layout = data !== undefined ? cleanLayout(data) : undefined
+  const layout = data !== undefined ? await cleanLayout(data) : undefined
   const now = nextVersion(baseVersion)
   const set = layout !== undefined ? { puckDraft: layout, puckPublished: layout } : { puckPublished: sql`${t.pages.puckDraft}` }
   const result = await withTransaction(
@@ -714,7 +727,7 @@ async function ensureSystemPage(def: SystemPage): Promise<'created' | 'moved' | 
   const [current] = await db.select({ id: t.pages.id }).from(t.pages).where(eq(t.pages.slug, def.slug)).limit(1)
   if (current?.id === def.id) return 'exists'
 
-  const layout = cleanLayout(def.data)
+  const layout = await cleanLayout(def.data)
   const result = await withTransaction(
     async (tx) => {
       const [page] = await tx.select({ id: t.pages.id }).from(t.pages).where(eq(t.pages.slug, def.slug)).limit(1)

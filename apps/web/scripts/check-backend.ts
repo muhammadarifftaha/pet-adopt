@@ -76,6 +76,11 @@ import { createResetLink, isResetTokenValid, prepareResetEmail, resetPasswordWit
 import { accessOf, accessPermission, asRole, can, host, pluginTablePrefix, provideHost, ROLES, type EmailMessage, type PluginEmail, type Role } from '@pet-adopt/plugin-sdk'
 import { formBuilderStorage, openFormsDatabase } from '@pet-adopt/plugin-form-builder'
 import * as forms from '@pet-adopt/plugin-form-builder/server'
+import * as formFields from '@pet-adopt/plugin-form-builder/fields'
+import { classToken, sanitizeLayout } from '../src/puck/sanitize'
+import { DEFAULT_HOME_DATA, DEFAULT_PET_PAGE_DATA, DEFAULT_PETS_DATA } from '../src/puck/data'
+import { config as pageBlocks } from '../src/puck/config'
+import { petPageConfig as petPageBlocks } from '../src/puck/pet-page-config'
 import * as captcha from '../../../plugins/form-builder/src/captcha'
 // The services plugins reach through `host()` (sign-in, limits, phone, email), as the server registers them.
 import '../src/plugins/host'
@@ -2005,6 +2010,20 @@ await check('form builder spam protection: keys saved sealed, only checked keys 
     ok(calls.at(-1)!.url.includes('hcaptcha.com') && calls.at(-1)!.body.get('sitekey') === 'h-site-key-123', 'hCaptcha is also sent the site key')
     ok((await captcha.verifyCaptchaToken(v3, 'x'.repeat(9000), null)) === 'failed' && (await captcha.verifyCaptchaToken(v3, 42, null)) === 'failed', 'oversized or non-text tokens fail without a call')
 
+    // Switched on but unusable (the site's secret changed, so the saved captcha secret no longer
+    // opens): answers are refused, not let through unprotected.
+    const usable = await captcha.getCaptchaSettings()
+    ok(usable.active, 'protected at this point')
+    const siteSecret = process.env.BETTER_AUTH_SECRET
+    process.env.BETTER_AUTH_SECRET = 'another-site-secret-for-this-check-0123456789abcdef'
+    try {
+      const broken = await captcha.getCaptchaSettings()
+      ok(broken.enabled && broken.secretUnreadable && !broken.active, 'the saved secret no longer opens')
+      ok((await userError(captcha.requireCaptcha('tok', null))) === captcha.CAPTCHA_UNAVAILABLE, 'answers are refused while it is broken')
+    } finally {
+      process.env.BETTER_AUTH_SECRET = siteSecret
+    }
+
     // A new key clears the check and switches protection off.
     const changed = await captcha.saveCaptchaSettings({ provider: 'turnstile', siteKey: '0x4AAAAAAAotherkey', enabled: true })
     ok(!changed.active && changed.checkedAt === null && !changed.enabled, 'a changed key switches protection off until checked')
@@ -2518,6 +2537,15 @@ await check('email templates: only allowed blocks and placeholders, no answers t
     const results = []
     for (let i = 0; i < 4; i++) results.push(await forms.confirmToVisitor(form, answers, `10.88.0.${i}`))
     ok(isEqual(results, [true, true, true, false]), `three confirmations an hour to one address: ${results}`)
+    // One mailbox per confirmation: a "+tag" counts as the same mailbox, and an address that a
+    // mailer would read as a list is never a recipient.
+    const sentBefore = captured.length
+    const withMail = (value: string) => [answers[0], { ...answers[1], value }]
+    ok(!(await forms.confirmToVisitor(form, withMail('visitor+two@example.test'), '10.88.1.1')) && !(await forms.confirmToVisitor(form, withMail('VISITOR+3@Example.test'), '10.88.1.2')), 'a +tag does not get round the limit')
+    for (const list of ['x1,victim@example.test', 'a@b.test;victim@example.test', '<a@b.test>victim@example.test', '"x"@b.test', 'a@b.test,c@d.test']) {
+      ok(!formFields.EMAIL_PATTERN.test(list) && !(await forms.confirmToVisitor(form, withMail(list), '10.88.2.1')), `${list} is not one mailbox`)
+    }
+    ok(captured.length === sentBefore && formFields.EMAIL_PATTERN.test('first.last+tag@sub.example.co') && formFields.mailboxKey(' First.Last+Tag@Example.CO ') === 'first.last@example.co', 'ordinary addresses still pass')
     ok(captured[0].purpose === 'visitor-message' && captured[0].to === 'visitor@example.test' && !captured[0].details && captured[0].values?.title === 'Confirm me' && captured[0].fallback === 'form-builder:confirmation', `the confirmation: ${JSON.stringify(captured[0])}`)
     await forms.notifyNewResponse(form, answers)
     const note = captured.at(-1)!
@@ -3141,6 +3169,41 @@ await check('recovering an account cancels the links made before it: an email ch
   ok((await invites()) === 1, 'an invite waits')
   await resetPasswordWithToken({ token: tokenOf((await createResetLink(invited.id)).url), password })
   ok((await invites()) === 0, 'a reset link cancels the invite')
+})
+
+await check('layouts are checked against each block\'s fields: wrong kinds of value and made-up choices are removed, on save and when drawn; the built-in layouts pass untouched', async () => {
+  const blocks = { components: { ...pageBlocks.components, ...petPageBlocks.components } } as unknown as Parameters<typeof sanitizeLayout>[1]
+  for (const [name, layout] of [['home', DEFAULT_HOME_DATA], ['pets', DEFAULT_PETS_DATA], ['pet page', DEFAULT_PET_PAGE_DATA]] as const) {
+    ok(isEqual(sanitizeLayout(layout, blocks), layout), `the default ${name} layout is unchanged`)
+  }
+  const hostile = {
+    root: { props: {} },
+    zones: {},
+    content: [
+      { type: 'TextSection', props: { id: 't1', heading: { evil: true }, body: ['not', 'text'], align: 'center fixed inset-0 z-50', background: 'tint', spacing: { x: 1 }, extra: { nested: true }, note: 'kept' } },
+      { type: 'ImageGallery', props: { id: 'g1', heading: 'Photos', columns: '4 fixed', items: [{ image: { id: 7, url: { no: 1 }, alt: 'A cat' }, caption: { no: 1 } }, 'junk', { image: 'nope', caption: 'Fine' }] } },
+      { type: 'Spacer', props: { id: 's1', size: 'md' } },
+      { type: 'NoSuchBlock', props: { id: 'u1', anything: { goes: true } } },
+    ],
+  }
+  const page = await savePageDetails(null, { title: 'Hostile', slug: 'hostile-layout' })
+  await saveDraft(page.id, hostile)
+  const { db, t } = await getDatabase()
+  const [row] = await db.select({ draft: t.pages.puckDraft }).from(t.pages).where(eq(t.pages.id, page.id))
+  const saved = (row.draft as typeof hostile).content
+  const text = saved[0].props as Record<string, unknown>
+  ok(!('heading' in text) && !('body' in text) && !('align' in text) && !('spacing' in text) && !('extra' in text), `wrong values are removed: ${JSON.stringify(text)}`)
+  ok(text.background === 'tint' && text.note === 'kept' && text.id === 't1', 'good values stay')
+  const gallery = saved[1].props as { columns?: unknown; items: Array<{ image?: unknown; caption?: unknown }> }
+  const firstImage = (gallery.items[0]?.image ?? {}) as Record<string, unknown>
+  ok(!('columns' in gallery) && gallery.items.length === 2, 'a made-up choice is removed; a row that is not an object is dropped')
+  ok(firstImage.id === 7 && firstImage.alt === 'A cat' && !('url' in firstImage) && !('caption' in gallery.items[0]), `inside a row too: ${JSON.stringify(gallery.items[0])}`)
+  ok(gallery.items[1].caption === 'Fine' && gallery.items[1].image === 'nope', 'a plain value in a picker is kept as it is')
+  ok(isEqual(saved[2], hostile.content[2]) && isEqual(saved[3], hostile.content[3]), 'a correct block and an unknown block are untouched')
+  ok(isEqual(sanitizeLayout(row.draft as Parameters<typeof sanitizeLayout>[0], blocks), row.draft), 'checking twice changes nothing more')
+  ok(classToken('center fixed inset-0') === 'default' && classToken('lg') === 'lg' && classToken(4) === '4' && classToken({}) === 'default' && classToken('a"b', 'none') === 'none', 'class names take one safe word')
+  await archivePage(page.id)
+  await deletePage(page.id)
 })
 
 await check('small rules from the security review: an archived page cannot be unpublished, an image in an email template is in use, form responses are routed only by people who may see them', async () => {

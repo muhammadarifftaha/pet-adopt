@@ -4,6 +4,7 @@ import React from 'react'
 
 import { config } from '@/puck/config'
 import { assignHeadingLevels } from '@/puck/data'
+import { sanitizeLayout } from '@/puck/sanitize'
 import type { CatalogParams, PetPageData } from '@/lib/queries'
 import { petPageConfig } from '@/puck/pet-page-config'
 import { buildSiteMetadata } from '@/puck/server'
@@ -33,7 +34,8 @@ export async function BuilderContent({
 }) {
   const metadata = await buildSiteMetadata(searchParams, pet)
   const blocks = pet ? loosePetConfig : looseConfig
-  const resolved = await resolveAllData(data, blocks, metadata)
+  // Checked again when drawn: a layout stored before the check existed must not break a page.
+  const resolved = await resolveAllData(sanitizeLayout(data, blocks), blocks, metadata)
   const { data: leveled, hasH1 } = assignHeadingLevels(resolved)
   return (
     <>

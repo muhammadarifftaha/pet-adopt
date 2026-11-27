@@ -92,7 +92,23 @@ export const FORM_LIMITS = {
 export const DEFAULT_SUBMIT_LABEL = 'Send'
 export const DEFAULT_SUCCESS_MESSAGE = 'Thank you. We have received your answers and will be in touch.'
 
-export const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+/**
+ * One mailbox: `name@host.tld`. No spaces and none of the characters a mailer reads as a list or a
+ * display name (`,` `;` `<` `>` `(` `)` `"` `:` `[` `]` `\`), so an address a visitor types can never
+ * turn into several recipients.
+ */
+export const EMAIL_PATTERN = /^[^\s@<>()",;:[\]\\]+@[^\s@<>()",;:[\]\\]+\.[^\s@<>()",;:[\]\\]+$/
+
+/**
+ * An address as the confirmation limit counts it: lower case, without a `+tag` (most providers
+ * deliver `name+anything@host` to `name@host`), so tags cannot be used to send one mailbox more.
+ */
+export function mailboxKey(address: string): string {
+  const lower = address.trim().toLowerCase()
+  const at = lower.lastIndexOf('@')
+  if (at <= 0) return lower
+  return `${lower.slice(0, at).split('+')[0]}${lower.slice(at)}`
+}
 const FIELD_ID = /^[A-Za-z0-9_-]{1,40}$/
 /**
  * Names the visitor's form already uses for its own boxes: the spam trap is `website`. A question

@@ -11,6 +11,8 @@ import {
   cleanLine,
   cleanText,
   DEFAULT_SUBMIT_LABEL,
+  EMAIL_PATTERN,
+  mailboxKey,
   DEFAULT_SUCCESS_MESSAGE,
   FORM_LIMITS,
   validateAnswers,
@@ -384,10 +386,12 @@ export async function confirmToVisitor(form: FormRecord, answers: FormAnswer[], 
   const fieldId = form.settings.confirmationFieldId
   const field = fieldId ? form.fields.find((item) => item.id === fieldId && item.type === 'email') : undefined
   const to = field ? answers.find((answer) => answer.id === field.id)?.value : undefined
-  if (typeof to !== 'string' || !to) return false
+  // The answer was checked when it was sent; checked again here because this is where it becomes a
+  // recipient: one mailbox, never a list.
+  if (typeof to !== 'string' || !to || to.length > 254 || !EMAIL_PATTERN.test(to)) return false
   try {
     // Keyed by a hash, so the counters table never holds visitors' addresses.
-    const hash = createHash('sha256').update(to.toLowerCase()).digest('hex').slice(0, 32)
+    const hash = createHash('sha256').update(mailboxKey(to)).digest('hex').slice(0, 32)
     await host().consumeAttempt(`form-builder:confirm:${hash}`, CONFIRM_ADDRESS_RULE)
     if (client) await host().consumeAttempt(`form-builder:confirm-ip:${client}`, CONFIRM_CLIENT_RULE)
   } catch (error) {

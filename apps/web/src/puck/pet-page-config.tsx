@@ -20,6 +20,7 @@ import { fillPetPlaceholders } from '@/lib/pet-placeholders'
 import { fillMessage } from '@/lib/whatsapp'
 
 import { config as siteConfig, headingClass, headingStyleField, Section, type HeadingStyle, type Level, type PuckComponents } from './config'
+import { classToken } from './sanitize'
 import { withPadding } from './padding'
 import type { PuckSiteMetadata } from './types'
 
@@ -240,7 +241,7 @@ const petBlocks: Config<PetPageComponents> = {
           <>
             <div className="pet-title">
               <Name className={headingClass(headingStyle, 'block-heading')}>{pet.name}</Name>
-              {showStatus !== false ? <span className={`badge badge-${pet.status}`}>{pet.statusLabel}</span> : null}
+              {showStatus !== false ? <span className={`badge badge-${classToken(pet.status)}`}>{pet.statusLabel}</span> : null}
             </div>
             {rows.length ? (
               <dl className="facts">

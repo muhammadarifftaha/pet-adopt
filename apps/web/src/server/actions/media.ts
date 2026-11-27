@@ -1,7 +1,7 @@
 'use server'
 
 import { changedFields, quoted, recordActivity, type Actor } from '../activity'
-import { getMedia, getMediaByIds, listMedia, mediaUsage, updateMediaAlt, updateMediaDetails } from '../media'
+import { getMedia, getMediaByIds, listMedia, loadLayoutTexts, mediaUsage, updateMediaAlt, updateMediaDetails } from '../media'
 import { assertId, run, UserError, ValidationError, type ActionResult } from '../result'
 import { requirePermission } from '../session'
 import type { MediaItem } from '../types'
@@ -94,9 +94,11 @@ export async function deleteManyMediaAction(ids: number[]): Promise<ActionResult
     const failed: Array<{ id: number; message: string }> = []
     const before = await getMediaByIds(unique)
     // One after another: each delete checks where the image is used, and the files are removed last.
+    // The page layouts and email templates are read once for the whole batch, not once per image.
+    const layoutTexts = await loadLayoutTexts()
     for (const id of unique) {
       try {
-        await removeUpload(id)
+        await removeUpload(id, layoutTexts)
         deleted.push(id)
         await recordDelete(user, id, before.get(id) ?? null)
       } catch (error) {
