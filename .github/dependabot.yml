@@ -1,0 +1,8 @@
+# The CI actions are pinned to commit SHAs (a tag can be moved, a commit cannot). Dependabot keeps
+# those pins current.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
