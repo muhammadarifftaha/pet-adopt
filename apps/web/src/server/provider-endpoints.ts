@@ -11,11 +11,9 @@ import { isLoopbackHost } from './email'
 // provider really is on a private network (a company's own identity server, for example).
 //
 // Checked when a provider is saved (a field error) and again each time the sign-in setup is built
-// (the provider is skipped), because a host name can be pointed somewhere else later. Better Auth
-// resolves the name again and reads the discovery document again for its own requests, so this is
-// not a guarantee against a provider that answers the check one way and the request another; it
-// stops the plain cases. Closing that would mean making the token, user-info and key requests
-// ourselves, pinned to the checked address (as avatars.ts does for pictures).
+// (the provider is skipped). These checks give people a clear message early; they are not the
+// guarantee, because whoever runs a provider can answer a check one way and the real request
+// another. The guarantee is provider-guard.ts, which refuses the connection itself.
 
 /** The switch that allows providers on private addresses. */
 export const PRIVATE_PROVIDERS_VARIABLE = 'AUTH_PROVIDER_PRIVATE_ADDRESSES'

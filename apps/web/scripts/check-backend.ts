@@ -79,6 +79,7 @@ import * as forms from '@pet-adopt/plugin-form-builder/server'
 import * as formFields from '@pet-adopt/plugin-form-builder/fields'
 import { classToken, sanitizeLayout } from '../src/puck/sanitize'
 import { discoveryProblem, endpointProblem } from '../src/server/provider-endpoints'
+import { guarded } from '../src/server/provider-guard'
 import { DEFAULT_HOME_DATA, DEFAULT_PET_PAGE_DATA, DEFAULT_PETS_DATA } from '../src/puck/data'
 import { config as pageBlocks } from '../src/puck/config'
 import { petPageConfig as petPageBlocks } from '../src/puck/pet-page-config'
@@ -101,7 +102,7 @@ import {
   recordedRecently,
   recordFailedSignIn,
 } from '../src/server/activity'
-import { getEmailSender, getEmailSettingsView, isLoopbackHost, parseFrom, resolveSmtp, saveEmailSettings, sendsToLocalServer } from '../src/server/email'
+import { getEmailSender, getEmailSettingsView, isLoopbackHost, parseFrom, resolveSmtp, saveEmailSettings, sendsToLocalServer, smtpTarget } from '../src/server/email'
 import { open, seal } from '../src/server/secret-box'
 import { acceptInvite, createInvite, isInviteTokenValid, sendInvite } from '../src/server/invites'
 import { forgetEmailChange } from '../src/server/pending-links'
@@ -2314,6 +2315,26 @@ await check('email: SMTP settings are validated, the password is stored only enc
     ok(bad.host && bad.port && bad.security && bad.fromAddress && bad.replyTo, `field errors: ${Object.keys(bad)}`)
     ok((await fieldErrors(saveEmailSettings({ host: 'smtp.example.test' }))).fromAddress, 'a server needs a sender address')
     ok((await fieldErrors(saveEmailSettings({ port: '25.5' }))).port, 'a port is a whole number')
+    // A typed mail server must be public: the site connects to it.
+    ok(/private network/.test((await fieldErrors(saveEmailSettings({ host: '10.0.0.5', fromAddress: 'a@b.test' }))).host ?? ''), 'a mail server inside a private network is refused')
+    ok(/private network/.test((await fieldErrors(saveEmailSettings({ host: '169.254.169.254', fromAddress: 'a@b.test' }))).host ?? ''), 'so is a link-local address')
+    const smtpRefused = async (run: () => Promise<unknown>) => run().then(() => '', (error) => String(error))
+    ok(/private network/.test(await smtpRefused(() => smtpTarget('192.168.1.20'))) && /private network/.test(await smtpRefused(() => smtpTarget('fd00::25'))), 'and refused again when sending')
+    ok(isEqual(await smtpTarget('10.0.0.5', true), { host: '10.0.0.5' }), 'a server from SMTP_HOST is trusted')
+    ok(isEqual(await smtpTarget('localhost'), { host: 'localhost' }) && isEqual(await smtpTarget('93.184.216.34'), { host: '93.184.216.34' }), 'this machine (development) and public addresses pass')
+    process.env.SMTP_PRIVATE_ADDRESSES = '1'
+    try {
+      ok(isEqual(await smtpTarget('10.0.0.5'), { host: '10.0.0.5' }), 'SMTP_PRIVATE_ADDRESSES=1 allows it')
+    } finally {
+      delete process.env.SMTP_PRIVATE_ADDRESSES
+    }
+    const smtpMode = process.env.NODE_ENV
+    try {
+      ;(process.env as Record<string, string>).NODE_ENV = 'production'
+      ok(/private network/.test(await smtpRefused(() => smtpTarget('localhost'))) && /private network/.test(await smtpRefused(() => smtpTarget('127.0.0.1'))), 'this machine is refused in production (by name, through the lookup, and by address)')
+    } finally {
+      ;(process.env as Record<string, string | undefined>).NODE_ENV = smtpMode
+    }
 
     // Saved with a password: encrypted at rest, never in the view.
     const first = await saveEmailSettings({ host: 'localhost', port: 1025, security: 'none', username: 'mailer', password: 'pa55-word!', fromName: 'Pet Adopt', fromAddress: 'no-reply@pet-adopt.test', replyTo: 'team@pet-adopt.test' })
@@ -2932,10 +2953,52 @@ await check('sign-in providers: https only, secret encrypted, never an account o
     } finally {
       delete process.env.AUTH_PROVIDER_PRIVATE_ADDRESSES
     }
+    // The rule that cannot be dodged: inside guarded(), a connection to a private address is
+    // refused, whatever led there (an address written out, a name, a redirect).
+    const reason = async (run: () => Promise<unknown>) => {
+      try {
+        await run()
+        return 'no error'
+      } catch (error) {
+        const cause = (error as { cause?: unknown }).cause
+        return `${String(error)} ${String(cause)} ${String((cause as { cause?: unknown } | undefined)?.cause)}`
+      }
+    }
+    const hop = createServer((req, res) => {
+      if (req.url === '/doc') {
+        res.writeHead(200, { 'content-type': 'application/json' })
+        return res.end('{"fine":true}')
+      }
+      res.writeHead(302, { location: req.url === '/name' ? 'http://internal.localtest.invalid./x' : 'http://169.254.169.254/latest/meta-data/' })
+      res.end()
+    })
+    await new Promise<void>((resolve) => hop.listen(0, '127.0.0.1', resolve))
+    const hopUrl = `http://127.0.0.1:${(hop.address() as { port: number }).port}`
+    try {
+      ok(/private network/.test(await reason(() => guarded(() => fetch('https://10.0.0.5/token')))), 'guarded: a private address is refused')
+      ok(/private network/.test(await reason(() => guarded(() => fetch('http://[fd00::1]/token')))), 'guarded: a private IPv6 address is refused')
+      ok(/private network/.test(await reason(() => guarded(() => fetch(`${hopUrl}/redirect`)))), 'guarded: a redirect to a private address is refused')
+      const viaGuard = await guarded(() => fetch(`${hopUrl}/doc`))
+      ok(viaGuard.ok && ((await viaGuard.json()) as { fine?: boolean }).fine === true, 'guarded: this machine still answers in development, and the response reads as usual')
+      const viaRequest = await guarded(() => fetch(new Request(`${hopUrl}/doc`, { headers: { accept: 'application/json' } })))
+      ok(viaRequest.ok, 'guarded: a Request object works too')
+      ok((await fetch(`${hopUrl}/doc`)).ok, 'outside guarded(), fetch is untouched')
+      process.env.AUTH_PROVIDER_PRIVATE_ADDRESSES = '1'
+      try {
+        ok(!/private network/.test(await reason(() => guarded(() => fetch('http://10.255.255.1:8099/x', { signal: AbortSignal.timeout(300) })))), 'guarded: the switch lets private addresses through')
+      } finally {
+        delete process.env.AUTH_PROVIDER_PRIVATE_ADDRESSES
+      }
+    } finally {
+      hop.close()
+    }
     const mode = process.env.NODE_ENV
     try {
       ;(process.env as Record<string, string>).NODE_ENV = 'production'
       ok(/private network/.test((await endpointProblem('https://127.0.0.1/token')) ?? ''), 'this machine counts as private in production')
+      ok(/private network/.test(await reason(() => guarded(() => fetch('http://127.0.0.1:8099/x')))), 'guarded: this machine is refused in production')
+      // A NAME that resolves to a private address: refused by the lookup, not by reading the name.
+      ok(/private network/.test(await reason(() => guarded(() => fetch('http://localhost:8099/x')))), 'guarded: a name that resolves to a private address is refused')
     } finally {
       ;(process.env as Record<string, string | undefined>).NODE_ENV = mode
     }
@@ -3271,6 +3334,17 @@ await check('small rules from the security review: an archived page cannot be un
     keyError = String(error)
   }
   ok(/placeholders/.test(keyError), 'the example file\'s storage key placeholders are refused')
+  const devKeys = { S3_BUCKET: 'b', S3_ACCESS_KEY_ID: 'GK0123456789abcdef01234567', S3_SECRET_ACCESS_KEY: '0123456789abcdef'.repeat(4) }
+  const tryKeys = (env: Record<string, string>) => {
+    try {
+      s3Settings(env as unknown as NodeJS.ProcessEnv)
+      return ''
+    } catch (error) {
+      return String(error)
+    }
+  }
+  ok(/development keys/.test(tryKeys({ ...devKeys, NODE_ENV: 'production', S3_ENDPOINT: 'https://storage.example.com' })) && /development keys/.test(tryKeys({ ...devKeys, NODE_ENV: 'production' })), 'production refuses the development storage keys')
+  ok(tryKeys({ ...devKeys, NODE_ENV: 'production', S3_ENDPOINT: 'http://localhost:9000' }) === '' && tryKeys({ ...devKeys, S3_ENDPOINT: 'https://storage.example.com' }) === '', 'except for storage on this machine; development is unchanged')
 
   const page = await savePageDetails(null, { title: 'Archive me', slug: 'archive-me' })
   await publishPage(page.id, { root: { props: {} }, zones: {}, content: [{ type: 'TextSection', props: { id: 'a', heading: 'Archive me' } }] })
