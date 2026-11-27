@@ -335,6 +335,8 @@ To add a workspace plugin, run `pnpm --filter @pet-adopt/web add <name>@workspac
 
 ## Production
 
+This is the short version. **[docs/deployment.md](docs/deployment.md)** goes step by step: the reverse proxy and client address settings, hosting a site for someone else, backups, updating and troubleshooting.
+
 1. **Use PostgreSQL.**
    - Set `DATABASE_URL=postgres://...` (Neon, Supabase, your own server).
    - `docker compose up -d postgres` starts a local one for testing. It only listens on `127.0.0.1`, and `POSTGRES_PASSWORD` changes its password.
