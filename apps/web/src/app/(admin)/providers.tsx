@@ -3,14 +3,18 @@
 import React from "react";
 import { NuqsAdapter } from "nuqs/adapters/next/app";
 import { SWRConfig } from "swr";
+import { SiteTimeProvider } from "@/components/admin/site-time";
 import { TooltipProvider } from "@pet-adopt/ui/components/tooltip";
 
 export default function Providers({
   children,
   userId,
+  timeZone,
 }: {
   children: React.ReactNode;
   userId: string;
+  /** The site's time zone (Site settings > Region), or null. */
+  timeZone: string | null;
 }) {
   return (
     <>
@@ -28,7 +32,9 @@ export default function Providers({
             shouldRetryOnError: false,
           }}
         >
-          <TooltipProvider>{children}</TooltipProvider>
+          <SiteTimeProvider timeZone={timeZone}>
+            <TooltipProvider>{children}</TooltipProvider>
+          </SiteTimeProvider>
         </SWRConfig>
       </NuqsAdapter>
     </>

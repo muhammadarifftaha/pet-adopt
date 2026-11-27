@@ -1,6 +1,6 @@
 'use server'
 
-import { asRole } from '@pet-adopt/plugin-sdk'
+import { asRole, formatWhen } from '@pet-adopt/plugin-sdk'
 
 import { eq } from 'drizzle-orm'
 import { headers } from 'next/headers'
@@ -8,6 +8,7 @@ import { headers } from 'next/headers'
 import { getDatabase } from '@/db/client'
 
 import { recordActivity, recordArchivedSignIn, recordFailedSignIn } from '../activity'
+import { getSettings } from '../settings'
 import { ACCOUNT_ARCHIVED, getAuth, MIN_PASSWORD_LENGTH } from '../auth'
 import { authErrorCode, isAuthError } from '../auth-errors'
 import { removeAvatar, saveAvatar } from '../avatars'
@@ -201,7 +202,7 @@ export async function requestAccountDeletionAction(input: { password: string }):
     const sender = await getEmailSender()
     if (sender) {
       try {
-        const date = new Intl.DateTimeFormat('en-GB', { dateStyle: 'long' }).format(deleteAfter)
+        const date = formatWhen(deleteAfter, (await getSettings()).timeZone, 'longDate')
         const message = await renderPurposeEmail({ purpose: 'account-deletion', values: { name, date, days: String(DELETION_GRACE_DAYS) } })
         await sender.send({ to: email, subject: message.subject, text: message.text, html: message.html })
       } catch (error) {

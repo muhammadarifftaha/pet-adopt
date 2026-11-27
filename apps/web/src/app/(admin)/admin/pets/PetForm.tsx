@@ -19,6 +19,7 @@ import {
   TextareaField,
   focusField,
 } from "@/components/admin/pets/form/fields";
+import { LocationFields } from "@/components/admin/pets/form/LocationFields";
 import { PhotosField } from "@/components/admin/pets/form/PhotosField";
 import { RichTextField } from "@/components/admin/pets/form/RichTextField";
 import { useViewOnly, ViewOnlyFieldset } from "@/components/admin/view-only";
@@ -56,14 +57,14 @@ import type { Pet } from "@/server/types";
 //  - "Saving…" and "Saved." go through a polite live region (4.1.3), and the save button stays
 //    focusable while saving, so focus is never lost;
 //  - there is no sticky footer, which could cover a focused field (2.4.11).
-export function PetForm({ pet, siteName }: { pet: Pet | null; siteName: string }) {
+export function PetForm({ pet, siteName, siteCountry }: { pet: Pet | null; siteName: string; siteCountry: string }) {
   // View-only roles (audit) see every field, can switch tabs, and cannot save (the server refuses too).
   const viewOnly = useViewOnly();
   const router = useRouter();
   const invalidatePets = useInvalidatePets();
 
   // `values` makes the form start again with the fresh pet after `router.refresh()` (a save).
-  const initial = React.useMemo(() => petToFormValues(pet), [pet]);
+  const initial = React.useMemo(() => petToFormValues(pet, siteCountry), [pet, siteCountry]);
   const form = useForm<PetFormValues>({
     resolver: zodResolver(petFormSchema),
     values: initial,
@@ -214,10 +215,7 @@ export function PetForm({ pet, siteName }: { pet: Pet | null; siteName: string }
                   hasBirthDate={Boolean(pet?.birthDate)}
                   currentAge={pet?.birthDate ? pet.ageDescription : null}
                 />
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <TextField control={control} name="city" label="City" />
-                  <TextField control={control} name="state" label="State" />
-                </div>
+                <LocationFields control={control} />
                 <TextField
                   control={control}
                   name="location"

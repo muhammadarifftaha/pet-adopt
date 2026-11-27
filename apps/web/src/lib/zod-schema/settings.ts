@@ -1,3 +1,4 @@
+import { isTimeZone } from "@pet-adopt/plugin-sdk";
 import z from "zod";
 
 import { validateLink, validateWebUrl } from "@/lib/links";
@@ -62,6 +63,10 @@ export const settingsFormSchema = z.object({
   footerText: z.string().max(500, "Use at most 500 characters."),
   /** The privacy policy's page id as text ("" for none), for the select. */
   privacyPageId: z.string(),
+  /** ISO 3166-1 alpha-2, or "" for the default country. Picked from a list; the server checks it. */
+  country: z.string().regex(/^([A-Za-z]{2})?$/, "Pick a country from the list."),
+  /** An IANA time zone, or "" for each person's own device time. */
+  timeZone: z.string().refine((value) => value === "" || isTimeZone(value), "Pick a time zone from the list."),
 });
 
 export type SettingsFormValues = z.infer<typeof settingsFormSchema>;
@@ -81,6 +86,8 @@ export function settingsToFormValues(settings: SiteSetting): SettingsFormValues 
     nav: (settings.nav ?? []).map((item) => ({ label: item.label, href: item.href })),
     footerText: settings.footerText ?? "",
     privacyPageId: settings.privacyPageId ? String(settings.privacyPageId) : "",
+    country: settings.country ?? "",
+    timeZone: settings.timeZone ?? "",
   };
 }
 
@@ -102,10 +109,12 @@ export function toSettingsInput(values: SettingsFormValues) {
     nav: values.nav.map((item) => ({ label: item.label.trim(), href: item.href.trim() })),
     footerText: orNull(values.footerText),
     privacyPageId: values.privacyPageId ? Number(values.privacyPageId) : null,
+    country: orNull(values.country),
+    timeZone: orNull(values.timeZone),
   };
 }
 
-export type SettingsTab = "brand" | "contact" | "navigation";
+export type SettingsTab = "brand" | "contact" | "region" | "navigation";
 
 /** Which tab a field (or a list row's field, `socials.2.url`) is on, and its name in error messages. */
 export function settingsFieldInfo(name: string): { tab: SettingsTab; label: string } {
@@ -134,6 +143,10 @@ export function settingsFieldInfo(name: string): { tab: SettingsTab; label: stri
       return { tab: "contact", label: "Opening hours" };
     case "socials":
       return { tab: "contact", label: `Social link${row}${sub === "platform" ? ", platform" : sub === "url" ? ", link" : ""}` };
+    case "country":
+      return { tab: "region", label: "Country" };
+    case "timeZone":
+      return { tab: "region", label: "Time zone" };
     case "nav":
       return { tab: "navigation", label: `Menu link${row}${sub === "label" ? ", text" : sub === "href" ? ", address" : ""}` };
     case "footerText":

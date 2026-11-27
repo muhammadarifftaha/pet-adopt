@@ -67,7 +67,7 @@ function Required() {
   return <span className="font-normal text-muted-foreground"> (required)</span>;
 }
 
-function describedBy(name: string, hasDescription: boolean, hasError: boolean) {
+export function describedBy(name: string, hasDescription: boolean, hasError: boolean) {
   const ids = [
     hasDescription ? `${fieldId(name)}-description` : null,
     hasError ? `${fieldId(name)}-error` : null,

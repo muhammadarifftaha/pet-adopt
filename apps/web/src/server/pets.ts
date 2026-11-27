@@ -29,6 +29,7 @@ import { slugify } from '@/lib/slugify'
 import { normalizePhone } from '@/lib/whatsapp'
 
 import { getMediaByIds, toMedia } from './media'
+import { findPlaceCountry } from './places'
 import { asRecord, Fields, isForeignKeyViolation, isUniqueViolation, UserError, ValidationError } from './result'
 import type { MediaItem, Pet, PetPage, PetSummary } from './types'
 
@@ -273,6 +274,7 @@ function toPet(row: PetRow, photos: MediaItem[], seoImage: MediaItem | null): Pe
     color: row.color,
     city: row.city,
     state: row.state,
+    country: row.country,
     vaccinated: row.vaccinated,
     neutered: row.neutered,
     microchipped: row.microchipped,
@@ -389,6 +391,10 @@ export async function savePet(id: number | null, raw: unknown): Promise<{ id: nu
   put('color', f.text('color', 60))
   put('city', f.text('city', 60, { collapse: true }))
   put('state', f.text('state', 60, { collapse: true }))
+  // The pet's country, as its ISO code. The form starts it as the site's country (Site settings).
+  const country = f.text('country', 2, { validate: (s) => /^[A-Za-z]{2}$/.test(s) || 'Pick a country from the list.' })
+  if (country && !(await findPlaceCountry(country))) f.fail_('country', 'Pick a country from the list.')
+  put('country', country ? country.toUpperCase() : country)
   put('location', f.text('location', 120))
   put('featured', f.flag('featured'))
   put('unlisted', f.flag('unlisted'))

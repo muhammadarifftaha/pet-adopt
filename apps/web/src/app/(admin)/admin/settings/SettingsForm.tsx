@@ -12,6 +12,7 @@ import { FiArrowDown, FiArrowUp, FiPlus, FiTrash2 } from 'react-icons/fi'
 import { ErrorSummary, type SummaryItem } from '@/components/admin/pets/form/ErrorSummary'
 import { MediaPickerDialog } from '@/components/admin/pets/form/MediaPickerDialog'
 import { PhoneInput } from '@/components/admin/PhoneInput'
+import { RegionFields } from '@/components/admin/settings/RegionFields'
 import { useUnsavedChanges } from '@/components/admin/useUnsavedChanges'
 import { Button, buttonVariants } from '@pet-adopt/ui/components/button'
 import { Checkbox } from '@pet-adopt/ui/components/checkbox'
@@ -34,7 +35,7 @@ import {
 import { updateSettingsAction } from '@/server/actions/settings'
 import type { SiteSetting } from '@/server/types'
 
-// The site settings (admin only): Brand, Contact and Navigation. The look of the site has its own
+// The site settings (admin only): Brand, Contact, Region and Navigation. The look of the site has its own
 // screen (/admin/theme). Built like the pet and page forms for WCAG 2.2 AA: visible labels and
 // "(required)", hints and errors tied with aria-describedby, tabs that count their errors, an error
 // summary that takes focus and opens the right tab, list rows moved with buttons (announced), and
@@ -46,6 +47,7 @@ type Name = FieldPath<Values>
 const TABS: Array<{ id: SettingsTab; label: string }> = [
   { id: 'brand', label: 'Brand' },
   { id: 'contact', label: 'Contact' },
+  { id: 'region', label: 'Region' },
   { id: 'navigation', label: 'Navigation' },
 ]
 const MAX_ROWS = 20
@@ -515,6 +517,14 @@ export function SettingsForm({
                 </Button>
               </div>
             </FieldSet>
+          </FieldGroup>
+          </ViewOnlyFieldset>
+        </TabsContent>
+
+        <TabsContent value="region" className="min-w-0">
+          <ViewOnlyFieldset>
+          <FieldGroup className="max-w-2xl">
+            <RegionFields control={control} setTimeZone={(value) => form.setValue('timeZone', value, { shouldDirty: true, shouldValidate: true })} />
           </FieldGroup>
           </ViewOnlyFieldset>
         </TabsContent>

@@ -2,6 +2,7 @@ import { headers } from 'next/headers'
 
 import { PageHeader } from '@/components/admin/PageHeader'
 import { requirePermissionPage } from '@/lib/admin/unwrap'
+import { siteCountryCode } from '@/lib/places'
 import { getSettings } from '@/server/settings'
 
 import { PetForm } from '../PetForm'
@@ -13,12 +14,13 @@ export default async function NewPetPage() {
   // database may not exist (see "Build without a DB" in CLAUDE.md).
   await headers()
   await requirePermissionPage('pets:edit')
-  const { siteName } = await getSettings()
+  const settings = await getSettings()
+  const { siteName } = settings
 
   return (
     <>
       <PageHeader title="Add pet" />
-      <PetForm pet={null} siteName={siteName} />
+      <PetForm pet={null} siteName={siteName} siteCountry={siteCountryCode(settings)} />
     </>
   )
 }

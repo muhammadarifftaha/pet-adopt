@@ -55,6 +55,8 @@ export type Pet = Omit<PetSummary, 'photos'> & {
   color: string | null
   city: string | null
   state: string | null
+  /** ISO 3166-1 alpha-2 ("MY"); null on pets saved before countries were kept. */
+  country: string | null
   vaccinated: boolean
   neutered: boolean
   microchipped: boolean
@@ -157,6 +159,10 @@ export type SiteSetting = {
   footerText: string | null
   /** The privacy policy's page (any state; see getPrivacyPolicy for the live one), or null. */
   privacyPageId: number | null
+  /** ISO 3166-1 alpha-2 ("MY"), or null for the default country. */
+  country: string | null
+  /** IANA time zone ("Asia/Kuala_Lumpur"), or null for each person's own device time. */
+  timeZone: string | null
   updatedAt: Date | null
 }
 

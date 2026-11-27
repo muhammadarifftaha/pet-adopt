@@ -448,6 +448,11 @@ export type PluginHost = {
    */
   privacyPolicy(): Promise<{ policy: { title: string; href: string } | null; settingsHref: string }>
   /**
+   * The time zone chosen in Site settings, or null when none is. Pass it to `formatWhen` wherever a
+   * screen shows a time, so every screen agrees.
+   */
+  timeZone(): Promise<string | null>
+  /**
    * Encrypts a secret (an API key) for storage, with a key derived from the site's secret, the same
    * way the SMTP password is kept. `purpose` names what it is (`form-builder:captcha`): a value only
    * opens with the purpose it was sealed for. `open` returns null when it cannot be opened (another
@@ -506,6 +511,112 @@ export function host(): PluginHost {
 /** For the app only. Plugins never call this. */
 export function provideHost(services: PluginHost): void {
   hostSlot[HOST] = services
+}
+
+// --- Dates and times -------------------------------------------------------------------------
+
+/**
+ * The time zone a site shows its times in (Site settings), as an IANA name such as
+ * "Asia/Kuala_Lumpur"; null means none was chosen and each person sees their own device's time.
+ */
+export type SiteTimeZone = string | null | undefined
+
+/** Whether a string is a time zone this runtime knows ("Asia/Kuala_Lumpur", "UTC"). */
+export function isTimeZone(value: string): boolean {
+  if (!/^[A-Za-z][A-Za-z0-9_+\-/]{0,63}$/.test(value)) return false
+  try {
+    new Intl.DateTimeFormat('en-GB', { timeZone: value })
+    return true
+  } catch {
+    return false
+  }
+}
+
+const usable = (timeZone: SiteTimeZone) => (timeZone && isTimeZone(timeZone) ? timeZone : undefined)
+
+export type WhenStyle = 'date' | 'dateTime' | 'longDate'
+
+const whenFormats = new Map<string, Intl.DateTimeFormat>()
+
+/**
+ * A date as the admin shows it: "27 Nov 2026, 18:46" (`dateTime`, the default), "27 Nov 2026"
+ * (`date`) or "27 November 2026" (`longDate`), in the site's time zone. Without one (or with a name
+ * this runtime does not know) the runtime's own zone is used: the viewer's in a browser, the
+ * server's on the server. One fixed locale, so the server and the browser draw the same text.
+ */
+export function formatWhen(value: Date | string | number, timeZone?: SiteTimeZone, style: WhenStyle = 'dateTime'): string {
+  const date = value instanceof Date ? value : new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  const zone = usable(timeZone)
+  const key = `${style}|${zone ?? ''}`
+  let format = whenFormats.get(key)
+  if (!format) {
+    format = new Intl.DateTimeFormat('en-GB', {
+      dateStyle: style === 'longDate' ? 'long' : 'medium',
+      ...(style === 'dateTime' ? { timeStyle: 'short' as const } : {}),
+      timeZone: zone,
+    })
+    whenFormats.set(key, format)
+  }
+  return format.format(date)
+}
+
+const partFormats = new Map<string, Intl.DateTimeFormat>()
+
+/** The calendar date and clock time an instant has in a time zone. */
+function wallClock(at: number, timeZone: string) {
+  let format = partFormats.get(timeZone)
+  if (!format) {
+    format = new Intl.DateTimeFormat('en-GB', {
+      timeZone,
+      hourCycle: 'h23',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    })
+    partFormats.set(timeZone, format)
+  }
+  const parts: Record<string, number> = {}
+  for (const part of format.formatToParts(new Date(at))) if (part.type !== 'literal') parts[part.type] = Number(part.value)
+  return parts as { year: number; month: number; day: number; hour: number; minute: number; second: number }
+}
+
+const pad = (value: number) => String(value).padStart(2, '0')
+
+/** The day (`YYYY-MM-DD`) an instant falls on in the site's time zone (the runtime's without one). */
+export function dayInZone(value: Date | string | number, timeZone?: SiteTimeZone): string {
+  const date = value instanceof Date ? value : new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  const zone = usable(timeZone)
+  if (!zone) return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
+  const clock = wallClock(date.getTime(), zone)
+  return `${clock.year}-${pad(clock.month)}-${pad(clock.day)}`
+}
+
+/**
+ * The instant a day (`YYYY-MM-DD`) starts at in the site's time zone (the runtime's without one),
+ * or with `addDays` that many days later. Null for anything that is not a real date.
+ */
+export function startOfDayInZone(day: string, timeZone?: SiteTimeZone, addDays = 0): Date | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(day)
+  if (!match) return null
+  const [year, month, date] = [Number(match[1]), Number(match[2]), Number(match[3])]
+  const real = new Date(Date.UTC(year, month - 1, date))
+  if (real.getUTCFullYear() !== year || real.getUTCMonth() !== month - 1 || real.getUTCDate() !== date) return null
+  const zone = usable(timeZone)
+  if (!zone) return new Date(year, month - 1, date + addDays)
+  // Midnight as if the zone were UTC, then moved by the zone's offset at that moment. The offset is
+  // read again at the result, because the first guess can sit on the other side of a clock change.
+  const wanted = Date.UTC(year, month - 1, date + addDays)
+  const offsetAt = (at: number) => {
+    const clock = wallClock(at, zone)
+    return Date.UTC(clock.year, clock.month - 1, clock.day, clock.hour, clock.minute, clock.second) - at
+  }
+  const first = wanted - offsetAt(wanted)
+  return new Date(wanted - offsetAt(first))
 }
 
 // --- Search ----------------------------------------------------------------------------------

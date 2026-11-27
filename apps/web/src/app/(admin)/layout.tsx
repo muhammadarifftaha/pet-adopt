@@ -56,7 +56,7 @@ export default async function AdminRootLayout({
       </head>
       {/* The page background, text colour and font come from the shadcn tokens, which follow the theme. */}
       <body className="min-h-screen bg-background font-sans text-foreground antialiased">
-        <Providers userId={user.id}>
+        <Providers userId={user.id} timeZone={settings.timeZone}>
           {setupFirst ? <TwoFactorRequired user={user} siteName={settings.siteName} /> : children}
         </Providers>
       </body>

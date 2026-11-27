@@ -10,15 +10,15 @@ import { Input } from "@pet-adopt/ui/components/input";
 import { resendInviteAction } from "@/server/actions/users";
 import type { InviteResult } from "@/server/invites";
 import type { UserListItem } from "@/server/users";
+import { useWhen } from "@/components/admin/site-time";
 
 // Email invites on the Users screen (src/server/invites.ts): the result of an invite (emailed, or the
 // link to copy when the site could not email it) and "Resend invite" for someone who has not
 // accepted yet.
 
-const when = new Intl.DateTimeFormat("en-GB", { dateStyle: "medium", timeStyle: "short" });
-
 /** The outcome of an invite: "emailed to …", or the link with Copy when it was not emailed. */
 export function InviteOutcome({ invite, user }: { invite: InviteResult; user: { name: string; email: string } }) {
+  const when = useWhen();
   const [note, setNote] = React.useState("");
   const inputRef = React.useRef<HTMLInputElement>(null);
   const id = "invite-link";
@@ -38,11 +38,11 @@ export function InviteOutcome({ invite, user }: { invite: InviteResult; user: { 
       {invite.sent ? (
         <p role="status">
           An invite was emailed to {user.email}. {user.name} chooses a password with its link, which works once until{" "}
-          {when.format(new Date(invite.expiresAt))}.
+          {when(invite.expiresAt)}.
         </p>
       ) : (
         <p role="alert">
-          {invite.problem ?? "The invite was not emailed."} Send {user.name} this link yourself; it works once until {when.format(new Date(invite.expiresAt))}.
+          {invite.problem ?? "The invite was not emailed."} Send {user.name} this link yourself; it works once until {when(invite.expiresAt)}.
         </p>
       )}
       {invite.sent ? null : (
@@ -67,6 +67,7 @@ export function InviteOutcome({ invite, user }: { invite: InviteResult; user: { 
 
 /** A new invite for someone who has not accepted yet (the old link stops working). */
 export function ResendInviteDialog({ user, onDone }: { user: UserListItem; onDone: (message: string) => void }) {
+  const when = useWhen();
   const [open, setOpen] = React.useState(false);
   const [invite, setInvite] = React.useState<InviteResult | null>(null);
   const [error, setError] = React.useState<string | null>(null);
@@ -103,7 +104,7 @@ export function ResendInviteDialog({ user, onDone }: { user: UserListItem; onDon
         <DialogHeader>
           <DialogTitle>Resend the invite to {user.name}?</DialogTitle>
           <DialogDescription>
-            {!user.inviteActive ? "Their invite has expired or was never sent." : `Their invite works until ${when.format(new Date(user.inviteExpiresAt as Date))}.`} A
+            {!user.inviteActive ? "Their invite has expired or was never sent." : `Their invite works until ${when(user.inviteExpiresAt as Date)}.`} A
             new one works for 7 days, and the old link stops working.
           </DialogDescription>
         </DialogHeader>

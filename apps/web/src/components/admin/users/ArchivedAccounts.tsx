@@ -20,16 +20,16 @@ import { Button } from "@pet-adopt/ui/components/button";
 import { useViewOnly } from "@/components/admin/view-only";
 import { deleteUserAction, restoreUserAction } from "@/server/actions/users";
 import type { UserListItem } from "@/server/users";
+import { useWhen } from "@/components/admin/site-time";
 
 // Authentication > Archived accounts: accounts that cannot sign in, with Restore (back as they
 // were) and Delete (for good). Accounts are archived from the Users screen. Results go to one
 // status line: polite for success, an alert for failures.
 
-const when = new Intl.DateTimeFormat("en-GB", { dateStyle: "medium" });
-
 type Announce = (message: string, isError?: boolean) => void;
 
 export function ArchivedAccounts({ users }: { users: UserListItem[] }) {
+  const when = useWhen();
   const router = useRouter();
   const viewOnly = useViewOnly();
   const [message, setMessage] = React.useState<{ text: string; isError: boolean; id: number } | null>(null);
@@ -72,11 +72,11 @@ export function ArchivedAccounts({ users }: { users: UserListItem[] }) {
                   <Badge variant="outline">{ROLE_INFO[user.role].label}</Badge>
                 </span>
                 <span className="text-sm break-all text-muted-foreground">
-                  {user.email} · archived {when.format(new Date(user.archivedAt as Date))}
+                  {user.email} · archived {when(user.archivedAt as Date, "date")}
                 </span>
                 {user.deleteAfter ? (
                   <span className="text-sm text-destructive">
-                    Asked to be deleted · deletes on {when.format(new Date(user.deleteAfter))} unless restored
+                    Asked to be deleted · deletes on {when(user.deleteAfter, "date")} unless restored
                   </span>
                 ) : null}
               </span>

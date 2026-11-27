@@ -176,6 +176,13 @@
       "when": 1795700753318,
       "tag": "0024_uneven_ken_ellis",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1795776538246,
+      "tag": "0025_rich_white_queen",
+      "breakpoints": true
     }
   ]
 }

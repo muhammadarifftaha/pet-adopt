@@ -16,6 +16,7 @@ import { clientAddress, consumeAttempt } from '@/server/throttle'
 
 import { getEmailSender } from '@/server/email'
 import { getPrivacyPolicy } from '@/server/privacy'
+import { getSettings } from '@/server/settings'
 import { open, seal } from '@/server/secret-box'
 
 import { getPluginInfo } from './registry'
@@ -62,6 +63,7 @@ provideHost({
     const policy = await getPrivacyPolicy()
     return { policy: policy ? { title: policy.title, href: policy.href } : null, settingsHref: '/admin/settings?tab=navigation' }
   },
+  timeZone: async () => (await getSettings()).timeZone,
   emailTemplates: async (purpose) => (await listEmailTemplates(purpose)).map(({ id, name, seedKey }) => ({ id, name, seedKey })),
   logError,
   // Plugins log changes made by the signed-in person, under the area `plugins`. An action must start

@@ -6,8 +6,9 @@ import { PageHeader } from '@/components/admin/PageHeader'
 import { buttonVariants } from '@pet-adopt/ui/components/button'
 import { ViewOnly, ViewOnlyNotice } from '@/components/admin/view-only'
 import { parseId, requirePermissionPage, unwrapOrNotFound } from '@/lib/admin/unwrap'
-import { can } from '@pet-adopt/plugin-sdk'
+import { can, formatWhen } from '@pet-adopt/plugin-sdk'
 import { extensionOf } from '@/lib/media-name'
+import { getSettings } from '@/lib/queries'
 import { getMediaAction } from '@/server/actions/media'
 
 export const metadata = { title: 'Image' }
@@ -63,7 +64,7 @@ export default async function MediaImagePage({ params }: { params: Promise<{ id:
                 </>
               ) : null}
               <dt className="text-muted-foreground">Uploaded</dt>
-              <dd>{new Date(media.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}</dd>
+              <dd>{formatWhen(media.createdAt, (await getSettings()).timeZone, 'longDate')}</dd>
             </dl>
           </section>
           <section aria-labelledby="media-usage-heading">

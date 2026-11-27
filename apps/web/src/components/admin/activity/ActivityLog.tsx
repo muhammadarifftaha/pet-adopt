@@ -10,9 +10,10 @@ import { ACTIVITY_AREA_LABELS, fieldLabel, isActivityArea } from "@/lib/activity
 import { exportActivityCsvAction } from "@/server/actions/activity";
 
 import type { ActivityFilterValues } from "./ActivityFilters";
+import { useWhen } from "@/components/admin/site-time";
 
-// The activity log's entries and its CSV download. Times are shown in the viewer's own timezone
-// and locale (this is a client component for that reason); the CSV has them in UTC.
+// The activity log's entries and its CSV download. Times are shown in the site's time zone (Site
+// settings > Region), or the viewer's own without one; the CSV has them in UTC.
 
 export type ActivityRow = {
   id: number;
@@ -25,14 +26,14 @@ export type ActivityRow = {
   client: string | null;
 };
 
-const when = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" });
-
 export function Time({ at }: { at: Date | string }) {
+  const when = useWhen();
   const date = new Date(at);
-  // The server renders in its own timezone; the browser corrects it (hence the warning is muted).
+  // Without a site time zone the server draws its own time and the browser corrects it to the
+  // viewer's (hence the warning is muted); with one, both draw the same.
   return (
     <time dateTime={date.toISOString()} suppressHydrationWarning>
-      {when.format(date)}
+      {when(date)}
     </time>
   );
 }

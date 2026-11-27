@@ -8,30 +8,29 @@ import { Input } from "@pet-adopt/ui/components/input";
 import { Label } from "@pet-adopt/ui/components/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@pet-adopt/ui/components/select";
 import { ACTIVITY_AREA_LABELS, ACTIVITY_AREAS } from "@/lib/activity";
+import { useSiteTimeZone } from "@/components/admin/site-time";
+import { dayInZone, startOfDayInZone } from "@pet-adopt/plugin-sdk";
 
 // Filters for the activity log, kept in the URL (?area=&actor=&from=&to=), so a view can be linked
-// to and the back button works. Dates are picked as days in the viewer's own timezone and sent as
+// to and the back button works. Dates are picked as days in the site's time zone (the viewer's own without one) and sent as
 // the instants they start at (`from`) and the instant after the last one ends (`to`, exclusive).
 
 export type ActivityFilterValues = { area: string | null; actor: string | null; from: string | null; to: string | null };
 
-/** The local day (YYYY-MM-DD) an instant falls on, for a date input. */
-function localDay(iso: string | null, endExclusive = false): string {
+/** The day (YYYY-MM-DD) an instant falls on, for a date input. */
+function dayOf(iso: string | null, timeZone: string | null, endExclusive = false): string {
   if (!iso) return "";
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return "";
-  if (endExclusive) date.setDate(date.getDate() - 1);
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+  // `to` is the instant after the last day ends: one millisecond earlier is still that day.
+  return dayInZone(endExclusive ? date.getTime() - 1 : date, timeZone);
 }
 
-/** The instant a local day starts at (or, with `next`, the day after it). */
-function dayStart(day: string, next = false): string | null {
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(day);
+/** The instant a day starts at (or, with `next`, the day after it). */
+function dayStart(day: string, timeZone: string | null, next = false): string | null {
   // Typing a year digit by digit passes through 0002, 0020...: only real years count.
-  if (!match || Number(match[1]) < 1970) return null;
-  const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]) + (next ? 1 : 0));
-  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+  if (Number(day.slice(0, 4)) < 1970) return null;
+  return startOfDayInZone(day, timeZone, next ? 1 : 0)?.toISOString() ?? null;
 }
 
 export function ActivityFilters({
@@ -46,15 +45,16 @@ export function ActivityFilters({
   const pathname = usePathname();
   const [pending, startTransition] = React.useTransition();
   const id = React.useId();
+  const timeZone = useSiteTimeZone();
   // The date boxes, kept in step with the URL when it changes from elsewhere (Back, Clear filters)
   // without re-creating them, which would move keyboard focus.
-  const [from, setFrom] = React.useState(localDay(values.from));
-  const [to, setTo] = React.useState(localDay(values.to, true));
+  const [from, setFrom] = React.useState(dayOf(values.from, timeZone));
+  const [to, setTo] = React.useState(dayOf(values.to, timeZone, true));
   const [seen, setSeen] = React.useState({ from: values.from, to: values.to });
   if (seen.from !== values.from || seen.to !== values.to) {
     setSeen({ from: values.from, to: values.to });
-    setFrom(localDay(values.from));
-    setTo(localDay(values.to, true));
+    setFrom(dayOf(values.from, timeZone));
+    setTo(dayOf(values.to, timeZone, true));
   }
 
   function apply(change: Partial<ActivityFilterValues>) {
@@ -116,7 +116,7 @@ export function ActivityFilters({
             const value = event.currentTarget.value;
             setFrom(value);
             if (!value) apply({ from: null });
-            else if (dayStart(value)) apply({ from: dayStart(value) });
+            else if (dayStart(value, timeZone)) apply({ from: dayStart(value, timeZone) });
           }}
         />
       </div>
@@ -131,7 +131,7 @@ export function ActivityFilters({
             const value = event.currentTarget.value;
             setTo(value);
             if (!value) apply({ to: null });
-            else if (dayStart(value, true)) apply({ to: dayStart(value, true) });
+            else if (dayStart(value, timeZone, true)) apply({ to: dayStart(value, timeZone, true) });
           }}
         />
       </div>

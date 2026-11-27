@@ -27,16 +27,16 @@ import type { UserListItem } from "@/server/users";
 
 import { ResendInviteDialog } from "./InviteDialogs";
 import { AddUserDialog, EditUserDialog, PasswordDialog, ResetLinkDialog } from "./UserDialogs";
+import { useWhen } from "@/components/admin/site-time";
 
 // The admin list of accounts. Every rule (the last admin stays, roles, password length) is
 // enforced on the server; the screen shows its messages and warns before you lock yourself out.
 // Results go to one status line: polite for success, an alert for failures.
 
-const added = new Intl.DateTimeFormat("en-GB", { dateStyle: "medium" });
-
 type Announce = (message: string, isError?: boolean) => void;
 
 export function UsersTable({ users, meId, minPasswordLength }: { users: UserListItem[]; meId: string; minPasswordLength: number }) {
+  const when = useWhen();
   const router = useRouter();
   // `id` changes with every message, so the same text twice is announced twice.
   const [message, setMessage] = React.useState<{ text: string; isError: boolean; id: number } | null>(null);
@@ -149,7 +149,7 @@ export function UsersTable({ users, meId, minPasswordLength }: { users: UserList
               {badges(user)}
             </span>
             <span className="text-sm break-all">{user.email}</span>
-            <span className="text-sm text-muted-foreground">Added {added.format(new Date(user.createdAt))}</span>
+            <span className="text-sm text-muted-foreground">Added {when(user.createdAt, "date")}</span>
             {viewOnly ? null : <span className="flex flex-wrap gap-2 pt-1">{actions(user)}</span>}
           </li>
         ))}
@@ -183,7 +183,7 @@ export function UsersTable({ users, meId, minPasswordLength }: { users: UserList
                   </TableCell>
                   <TableCell className="break-all">{user.email}</TableCell>
                   <TableCell>{roleBadge(user)}</TableCell>
-                  <TableCell className="whitespace-nowrap">{added.format(new Date(user.createdAt))}</TableCell>
+                  <TableCell className="whitespace-nowrap">{when(user.createdAt, "date")}</TableCell>
                   {viewOnly ? null : (
                     <TableCell>
                       <span className="flex flex-wrap items-center justify-end gap-2">{actions(user)}</span>

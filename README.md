@@ -144,7 +144,7 @@ In **Pets**, add a name, photos and details. The form is split into tabs:
 
 | Tab | Holds |
 | --- | --- |
-| **Basics** | Species, breed, sex, age, size, colour, and city and state (they fill in the location visitors see; spell them the same way every time so filters group them) |
+| **Basics** | Species, breed, sex, age, size, colour, and country, city and state. The country starts as your site's (Site settings > Region) and can be changed for a pet somewhere else. City and state suggest that country's places, and picking a city fills its state; anything else can still be typed, so spell it the same way every time and the filters group it. They fill in the location visitors see, and a pet in another country gets the country's name added on its page |
 | **Health and behaviour** | Vaccinated, neutered, microchipped, house-trained, special needs, health notes, temperament, who they get along with, personality notes |
 | **Photos and story** | Up to 10 photos (the first is the cover), the description, a video link |
 | **Adoption** | Fee, rescue date, and an optional WhatsApp number for pets with a foster |
@@ -270,6 +270,7 @@ Both are designed in a drag-and-drop email builder and sent as email-safe HTML, 
 
 - **Brand:** name, tagline, logo, site icon, and the light/dark switch.
 - **Contact:** the WhatsApp number and message (`{pet}` becomes the pet's name), address, opening hours and social links.
+- **Region:** your country and time zone. New pets start with the country (each pet can have its own), and the pet form suggests its cities and states. The admin shows every time (the activity log, page versions, form responses) in the time zone; leave it empty and each person sees their own device's time. Until you pick a country, the one of `NEXT_PUBLIC_DEFAULT_COUNTRY_CODE` is used.
 - **Navigation:** the menu, footer text and privacy policy page.
 
 Numbers without a country code use `NEXT_PUBLIC_DEFAULT_COUNTRY_CODE` (default `60`, Malaysia).
@@ -430,3 +431,11 @@ Found a security problem? Please see [`SECURITY.md`](SECURITY.md) and report it 
 ## License
 
 [MIT](LICENSE), copyright © 2026 muhammadarifftaha.
+
+### Data credits
+
+The countries, and the city and state suggestions in the pet form, come from the [Countries States Cities Database](https://github.com/dr5hn/countries-states-cities-database), installed as the npm package [`@countrystatecity/countries`](https://www.npmjs.com/package/@countrystatecity/countries). That database is made available under the [Open Database License (ODbL) 1.0](https://opendatacommons.org/licenses/odbl/1-0/), and any rights in its individual contents under the [Database Contents License](https://opendatacommons.org/licenses/dbcl/1-0/). It is not covered by this project's MIT licence.
+
+- The site reads the data unchanged from the installed package and keeps only the place names people pick; this repository holds no copy of it.
+- The database draws on other open sources (national statistics offices, postal services, GeoNames and others), each with its own credit. They are listed in the `NOTICE-*.txt` files inside the package (`node_modules/@countrystatecity/countries/`). If you pass the data on, for example in a container image or another bundle of the site, keep those files and the package's `LICENSE` with it.
+- If you publish a changed version of the database, the ODbL asks you to share it under the same licence.

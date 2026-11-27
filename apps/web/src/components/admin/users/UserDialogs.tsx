@@ -23,6 +23,7 @@ import type { InviteResult } from "@/server/invites";
 import type { UserListItem } from "@/server/users";
 
 import { InviteOutcome } from "./InviteDialogs";
+import { useWhen } from "@/components/admin/site-time";
 
 // The dialogs of the Users screen. Each form lives inside its DialogContent, so it starts fresh
 // every time the dialog opens. Forms with several fields show plain error text under each field
@@ -38,8 +39,6 @@ export type Done = (message: string) => void;
 
 // The order people usually pick from: the everyday role first, full access last.
 const ROLE_CHOICES = (["editor", "developer", "audit", "admin"] as const).map((value) => ({ value, ...ROLE_INFO[value] }));
-
-const when = new Intl.DateTimeFormat("en-GB", { dateStyle: "medium", timeStyle: "short" });
 
 /** A strong password from the browser's random generator: 20 characters, no look-alikes. */
 function generatePassword(length = 20) {
@@ -536,6 +535,7 @@ export function ResetLinkDialog({ user, onDone }: { user: UserListItem; onDone: 
 }
 
 function ResetLinkPanel({ user, onDone }: { user: UserListItem; onDone: Done }) {
+  const when = useWhen();
   const [link, setLink] = React.useState<{ url: string; expiresAt: Date } | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [copyNote, setCopyNote] = React.useState("");
@@ -596,7 +596,7 @@ function ResetLinkPanel({ user, onDone }: { user: UserListItem; onDone: Done }) 
             </Button>
           </div>
           <p id={`${id}-expiry`} className="text-sm text-muted-foreground">
-            Expires {when.format(link.expiresAt)}.
+            Expires {when(link.expiresAt)}.
           </p>
           <p aria-live="polite" className="text-sm">
             {copyNote}
