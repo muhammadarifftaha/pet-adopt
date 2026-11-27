@@ -22,11 +22,9 @@ Requires Node.js 22.23.4 or newer (or 24.22.1+), [pnpm](https://pnpm.io), and Do
 ```bash
 git clone <your-fork-url> pet-adopt
 cd pet-adopt
-cp apps/web/.env.example apps/web/.env
-# In apps/web/.env, replace the two S3 key placeholders with the development keys
-# shown at the top of docker-compose.yml.
-docker compose up -d garage mailpit   # upload storage and a test inbox
 pnpm install
+pnpm setup:env                        # writes apps/web/.env with a new secret
+docker compose up -d garage mailpit   # upload storage and a test inbox
 pnpm dev
 ```
 
@@ -35,7 +33,7 @@ Open <http://localhost:3000>, then follow the setup link in the server's log (se
 - **Database:** local development uses a SQLite file (`data/pet-adopt.db` at the repo root, git-ignored). It creates and migrates its own schema on first start.
 - **Uploads:** they always go to S3-compatible storage, never to the server's disk. In development that is the Garage server in `docker-compose.yml`, a small single-node S3 server on port 9000. `pnpm --filter @pet-adopt/web storage:check` confirms it works.
 - **Email:** in development, mail goes to Mailpit. It accepts any mail on port 1025 and shows it at <http://localhost:8025>; point Admin → Email at it.
-- **Secret:** set `BETTER_AUTH_SECRET` in `.env` to a long random string (`openssl rand -hex 32`). It is required in production.
+- **Settings:** `pnpm setup:env` copies `apps/web/.env.example` to `apps/web/.env`, fills in a random `BETTER_AUTH_SECRET` and the development storage keys, and never overwrites an existing file. `pnpm setup:env --production` leaves the storage keys for you to fill in. To do it by hand, copy the example file and follow its comments.
 
 ### The first account
 
