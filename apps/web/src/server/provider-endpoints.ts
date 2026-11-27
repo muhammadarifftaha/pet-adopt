@@ -12,8 +12,10 @@ import { isLoopbackHost } from './email'
 //
 // Checked when a provider is saved (a field error) and again each time the sign-in setup is built
 // (the provider is skipped), because a host name can be pointed somewhere else later. Better Auth
-// resolves the name again for its own requests, so this is not a guarantee against a name that
-// changes its answer between the check and the request; it stops the plain cases.
+// resolves the name again and reads the discovery document again for its own requests, so this is
+// not a guarantee against a provider that answers the check one way and the request another; it
+// stops the plain cases. Closing that would mean making the token, user-info and key requests
+// ourselves, pinned to the checked address (as avatars.ts does for pictures).
 
 /** The switch that allows providers on private addresses. */
 export const PRIVATE_PROVIDERS_VARIABLE = 'AUTH_PROVIDER_PRIVATE_ADDRESSES'
@@ -50,10 +52,14 @@ const CALLED = ['token_endpoint', 'userinfo_endpoint', 'jwks_uri'] as const
 
 /**
  * Why a discovery document must not be used, or null: it answers with a redirect (which would be
- * followed to an address nobody checked), or it names an address inside a private network. A
- * document that cannot be read at all is no problem here: the provider then simply does not work.
+ * followed to an address nobody checked), or it names an address inside a private network.
+ *
+ * A document that cannot be read: with `strict` (when the sign-in setup is built) that is a
+ * problem too, so a provider is never used unchecked; without it (when saving, where the provider
+ * may simply be offline) it is not.
  */
-export async function discoveryProblem(discoveryUrl: string): Promise<string | null> {
+export async function discoveryProblem(discoveryUrl: string, { strict = false } = {}): Promise<string | null> {
+  const unread = strict ? 'Its discovery document could not be read, so its addresses could not be checked.' : null
   if (privateProvidersAllowed()) return null
   const own = await endpointProblem(discoveryUrl)
   if (own) return own
@@ -61,14 +67,14 @@ export async function discoveryProblem(discoveryUrl: string): Promise<string | n
   try {
     const response = await fetch(discoveryUrl, { redirect: 'manual', signal: AbortSignal.timeout(DISCOVERY_MS), headers: { accept: 'application/json' } })
     if (response.status >= 300 && response.status < 400) return 'This address redirects somewhere else. Enter the final address of the discovery document.'
-    if (!response.ok) return null
+    if (!response.ok) return unread
     const text = await response.text()
-    if (text.length > DISCOVERY_LIMIT) return null
+    if (text.length > DISCOVERY_LIMIT) return unread
     const parsed: unknown = JSON.parse(text)
-    if (!parsed || typeof parsed !== 'object') return null
+    if (!parsed || typeof parsed !== 'object') return unread
     document = parsed as Record<string, unknown>
   } catch {
-    return null
+    return unread
   }
   for (const key of CALLED) {
     const named = document[key]

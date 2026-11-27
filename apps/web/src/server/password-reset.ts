@@ -109,7 +109,7 @@ export async function resetPasswordWithToken(raw: unknown): Promise<{ id: string
 }
 
 /**
- * "Email me a reset link". Checks the address and the request limits now (they throw), and returns
+ * "Email me a reset link". Checks the address and the client's request limit now (they throw), and returns
  * the rest as a job to run after the response: find the account and send the email. The job never
  * throws; a failure is logged, because the person must get the same answer either way.
  */
@@ -122,7 +122,9 @@ export async function prepareResetEmail(
   const email = f.requiredText('email', 200, { validate: (s) => EMAIL.test(s) || 'Enter a valid email address.' })
   f.done()
   const address = (email as string).toLowerCase()
-  await guardResetRequest(address, headers)
+  // Past the address's limit: the same answer, and nothing is sent or made (a new link would
+  // cancel the one already in their inbox).
+  if (!(await guardResetRequest(address, headers))) return async () => undefined
 
   return async () => {
     try {

@@ -1703,7 +1703,7 @@ await check('reset links: one use, hashed at rest, expire, cancel older ones, en
   await removeAccount(id)
 })
 
-await check('reset emails: same answer for unknown addresses, sent only to real accounts, limited per email', async () => {
+await check('reset emails: same answer for unknown addresses, sent only to real accounts, limited per email without an error', async () => {
   const sent: EmailMessage[] = []
   const sender = { send: async (m: EmailMessage) => void sent.push(m) }
   const email = 'mailme@example.test'
@@ -1723,7 +1723,16 @@ await check('reset emails: same answer for unknown addresses, sent only to real 
   // A failing sender is logged, never thrown at the person.
   await (await prepareResetEmail(email, ip(72), { send: async () => { throw new Error('down') } }))()
   await (await prepareResetEmail(email, ip(73), sender))()
-  ok(/Too many attempts/.test(await userError(prepareResetEmail(email, ip(74), sender))), 'the fourth request for one email within the hour is refused')
+  // Past three an hour for one address: no error (anyone could cause it), nothing sent, and the
+  // link already in the inbox keeps working.
+  const before = sent.length
+  const lastToken = new URL(sent.at(-1)!.text.match(/https?:\/\/\S+/)?.[0] ?? '').searchParams.get('token')
+  await (await prepareResetEmail(email, ip(74), sender))()
+  await (await prepareResetEmail(email, ip(75), sender))()
+  ok(sent.length === before, 'the fourth request for one email within the hour sends nothing, without an error')
+  ok(await isResetTokenValid(lastToken), 'and the last emailed link still works')
+  for (let i = 0; i < 10; i++) await prepareResetEmail(`flood-${i}@example.test`, ip(76), sender)
+  ok(/Too many attempts/.test(await userError(prepareResetEmail('flood-10@example.test', ip(76), sender))), 'one client asking for many addresses is still refused')
 
   await removeAccount(id)
 })
@@ -2912,6 +2921,8 @@ await check('sign-in providers: https only, secret encrypted, never an account o
       ok(/redirects/.test((await discoveryProblem('https://93.184.216.34/.well-known/openid-configuration')) ?? ''), 'a discovery address that redirects is refused')
       globalThis.fetch = (async () => new Response(JSON.stringify({ issuer: 'https://93.184.216.34', token_endpoint: 'https://93.184.216.34/token', jwks_uri: '/keys' }), { status: 200 })) as typeof fetch
       ok((await discoveryProblem('https://93.184.216.34/.well-known/openid-configuration')) === null, 'a public discovery document passes')
+      globalThis.fetch = (async () => new Response('nope', { status: 500 })) as typeof fetch
+      ok((await discoveryProblem('https://93.184.216.34/x')) === null && /could not be read/.test((await discoveryProblem('https://93.184.216.34/x', { strict: true })) ?? ''), 'an unreadable document can be saved, but the provider is not used')
     } finally {
       globalThis.fetch = realFetch
     }

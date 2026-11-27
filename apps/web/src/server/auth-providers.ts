@@ -280,7 +280,7 @@ export async function providerConfigs() {
       row.kind === 'oauth2'
         ? ((row.tokenUrl ? await endpointProblem(row.tokenUrl) : null) ?? (row.userInfoUrl ? await endpointProblem(row.userInfoUrl) : null))
         : row.discoveryUrl
-          ? await discoveryProblem(row.discoveryUrl)
+          ? await discoveryProblem(row.discoveryUrl, { strict: true })
           : null
     if (problem) {
       logError(new Error(problem), `sign-in provider "${row.slug}" skipped`)

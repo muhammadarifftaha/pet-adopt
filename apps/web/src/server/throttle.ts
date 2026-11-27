@@ -221,11 +221,20 @@ export async function guardPasswordChange(userId: string): Promise<{ keys: strin
 }
 
 /**
- * Call before sending a reset email. Throws a UserError when this client, or this email from anyone,
- * asked too often. Counted whether or not the account exists, so the limit says nothing about that.
+ * Call before sending a reset email. Throws a UserError when this client asked too often. Returns
+ * whether an email may still go to this address: false once the address has had its share for the
+ * hour, whoever asked. That case is NOT an error: anyone can type anyone's address, so refusing
+ * would let a stranger show the owner "too many attempts" (and would tell them the count). The
+ * caller answers as usual and sends nothing. Counted whether or not the account exists.
  */
-export async function guardResetRequest(email: unknown, headers: Headers): Promise<void> {
+export async function guardResetRequest(email: unknown, headers: Headers): Promise<boolean> {
   const address = clientAddress(headers)
   if (address) await consumeAttempt(`pwreset:ip:${address}`, RESET_CLIENT_RULE)
-  await consumeAttempt(`pwreset:email:${emailDigest(email)}`, RESET_EMAIL_RULE)
+  try {
+    await consumeAttempt(`pwreset:email:${emailDigest(email)}`, RESET_EMAIL_RULE)
+    return true
+  } catch (error) {
+    if (error instanceof UserError) return false
+    throw error
+  }
 }
