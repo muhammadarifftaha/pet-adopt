@@ -12,6 +12,7 @@ import { Field, FieldError, FieldGroup, FieldLabel } from "@pet-adopt/ui/compone
 import { Input } from "@pet-adopt/ui/components/input";
 import { cancelEmailChangeAction, requestEmailChangeAction, type EmailChangeStatus } from "@/server/actions/email-change";
 import type { SessionUser } from "@/server/types";
+import { useWhen } from "@/components/admin/site-time";
 
 // The Account page's email: the address you sign in with. A change needs your current password and
 // is confirmed from the new address (src/server/email-change.ts); the old one gets a notice. Without
@@ -23,9 +24,8 @@ const schema = z.object({
 });
 type Values = z.infer<typeof schema>;
 
-const when = new Intl.DateTimeFormat("en-GB", { dateStyle: "medium", timeStyle: "short" });
-
 export function EmailCard({ user, status }: { user: SessionUser; status: EmailChangeStatus }) {
+  const when = useWhen();
   const router = useRouter();
   const [message, setMessage] = React.useState<string | null>(null);
   const [cancelling, startCancel] = React.useTransition();
@@ -75,7 +75,7 @@ export function EmailCard({ user, status }: { user: SessionUser; status: EmailCh
         {pending ? (
           <div className="flex flex-wrap items-center gap-3 rounded-md border p-3 text-sm">
             <span className="mr-auto">
-              Waiting for confirmation from <strong className="break-all">{pending.email}</strong> until {when.format(new Date(pending.expiresAt))}.
+              Waiting for confirmation from <strong className="break-all">{pending.email}</strong> until {when(pending.expiresAt)}.
             </span>
             <Button type="button" variant="outline" size="sm" onClick={cancel} aria-disabled={cancelling || undefined}>
               {cancelling ? "Cancelling…" : "Cancel change"}

@@ -24,6 +24,7 @@ import { useViewOnly } from "@/components/admin/view-only";
 import { unwrapResult } from "@/lib/admin/unwrap-client";
 import { listPageVersionsAction, restoreAndPublishPageVersionAction, restorePageVersionAction } from "@/server/actions/pages";
 import type { PageVersionSummary } from "@/server/types";
+import { useWhen } from "@/components/admin/site-time";
 
 // The page's saved versions, in the page settings sidebar under Publishing. Open one to see it,
 // step to older or newer ones, and restore it. A restore never rewrites history: the old layout
@@ -31,7 +32,6 @@ import type { PageVersionSummary } from "@/server/types";
 // stays). "Restore" puts it in the draft; "Restore and publish" also makes it live, for a quick
 // rollback. View-only roles can look through versions but not restore.
 
-const when = new Intl.DateTimeFormat("en-GB", { dateStyle: "medium", timeStyle: "short" });
 
 type Props = {
   pageId: number;
@@ -44,6 +44,7 @@ type Props = {
 };
 
 export function PageVersions({ pageId, pageTitle, updatedAt, live, archived }: Props) {
+  const when = useWhen();
   const viewOnly = useViewOnly();
   const router = useRouter();
   const [openIndex, setOpenIndex] = React.useState<number | null>(null);
@@ -103,7 +104,7 @@ export function PageVersions({ pageId, pageTitle, updatedAt, live, archived }: P
                     Version {v.number}
                     <VersionBadges number={v.number} draftNumber={draftNumber} liveNumber={liveNumber} />
                   </span>
-                  <span className="text-xs text-muted-foreground">{describe(v)}</span>
+                  <span className="text-xs text-muted-foreground">{describe(v, when)}</span>
                 </span>
                 <Button type="button" variant="outline" size="sm" onClick={() => setOpenIndex(index)}>
                   View
@@ -144,9 +145,9 @@ function VersionBadges({ number, draftNumber, liveNumber }: { number: number; dr
 }
 
 /** "Published, 3 Dec 2026, 10:04 by Siti" / "Restored from version 2, ...". */
-function describe(v: PageVersionSummary) {
+function describe(v: PageVersionSummary, when: (value: Date | string) => string) {
   const what = v.restoredFrom ? `Restored from version ${v.restoredFrom}` : v.kind === "published" ? "Published" : "Not published";
-  return `${what}, ${when.format(new Date(v.updatedAt))}${v.createdBy ? ` by ${v.createdBy}` : ""}`;
+  return `${what}, ${when(v.updatedAt)}${v.createdBy ? ` by ${v.createdBy}` : ""}`;
 }
 
 function VersionDialog({
@@ -174,6 +175,7 @@ function VersionDialog({
   canRestore: boolean;
   onDone: (message: string) => void;
 }) {
+  const when = useWhen();
   const version = versions[index];
   const [pending, startTransition] = React.useTransition();
   const [error, setError] = React.useState<string | null>(null);
@@ -216,7 +218,7 @@ function VersionDialog({
             Version {version.number} of “{pageTitle}”
             <VersionBadges number={version.number} draftNumber={draftNumber} liveNumber={liveNumber} />
           </DialogTitle>
-          <DialogDescription>{describe(version)}.</DialogDescription>
+          <DialogDescription>{describe(version, when)}.</DialogDescription>
         </DialogHeader>
 
         {/* Click through the history without closing the dialog. */}

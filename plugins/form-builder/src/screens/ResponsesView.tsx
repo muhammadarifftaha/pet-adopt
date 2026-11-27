@@ -1,5 +1,6 @@
 'use client'
 
+import { formatWhen } from '@pet-adopt/plugin-sdk'
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -24,7 +25,6 @@ import { answerToText } from '../fields'
 import type { FormResponse } from '../server'
 import { BASE, editHref, responsesHref } from './paths'
 
-const when = new Intl.DateTimeFormat('en-GB', { dateStyle: 'medium', timeStyle: 'short' })
 
 // A form's responses, newest first: each as a card with every answer under the question it was
 // given under. Select some to mark as read or delete; download all as CSV. Results of each action
@@ -34,6 +34,7 @@ export function ResponsesView({
   list,
   canEdit = true,
   canExport = true,
+  timeZone = null,
 }: {
   form: { id: number; name: string }
   list: { items: FormResponse[]; total: number; page: number; totalPages: number }
@@ -41,6 +42,8 @@ export function ResponsesView({
   canEdit?: boolean
   /** Download as CSV (personalData:export). Audit may read responses but not take a copy. */
   canExport?: boolean
+  /** The site's time zone (`host().timeZone()`), which the times are shown in. */
+  timeZone?: string | null
 }) {
   const router = useRouter()
   const [selected, setSelected] = useState<number[]>([])
@@ -179,11 +182,11 @@ export function ResponsesView({
                       <>
                         <Checkbox id={`fb-response-${item.id}`} checked={selected.includes(item.id)} onCheckedChange={(checked) => toggle(item.id, checked === true)} />
                         <Label htmlFor={`fb-response-${item.id}`} className="font-medium">
-                          Response from {when.format(new Date(item.createdAt))}
+                          Response from {formatWhen(item.createdAt, timeZone)}
                         </Label>
                       </>
                     ) : (
-                      <span className="font-medium">Response from {when.format(new Date(item.createdAt))}</span>
+                      <span className="font-medium">Response from {formatWhen(item.createdAt, timeZone)}</span>
                     )}
                     {!item.readAt && <Badge>New</Badge>}
                   </CardHeader>

@@ -31,6 +31,7 @@ import {
   saveEmailTemplateAction,
 } from '@/server/actions/email-templates'
 import type { EmailTemplateSummary } from '@/server/email-templates'
+import { useWhen } from '@/components/admin/site-time'
 
 // Email > Templates, as one table:
 //  - System emails first (password reset, test email): one each, edited in place, with "Restore
@@ -70,10 +71,9 @@ const TYPE_HINTS: Record<EmailPurpose, string> = {
   'visitor-message': 'To someone outside the team; never repeats what they typed',
 }
 
-const date = new Intl.DateTimeFormat('en-GB', { dateStyle: 'medium' })
-const when = (value: Date | string | null) => (value ? date.format(new Date(value)) : null)
 
 export function EmailTemplates({ templates, system }: { templates: TemplateRow[]; system: SystemEmailStatus[] }) {
+  const when = useWhen()
   const router = useRouter()
   const viewOnly = useViewOnly()
   const [message, setMessage] = React.useState<{ text: string; isError: boolean; id: number } | null>(null)
@@ -136,7 +136,7 @@ export function EmailTemplates({ templates, system }: { templates: TemplateRow[]
     </span>
   )
   const systemStatus = (email: SystemEmailStatus) =>
-    email.customised ? <span>{when(email.updatedAt)}</span> : <span className="text-muted-foreground">Never</span>
+    email.customised ? <span>{email.updatedAt ? when(email.updatedAt, 'date') : null}</span> : <span className="text-muted-foreground">Never</span>
 
   return (
     <div className="flex flex-col gap-3">
@@ -180,7 +180,7 @@ export function EmailTemplates({ templates, system }: { templates: TemplateRow[]
               {usedBy(template)}
             </span>
             <span className="text-muted-foreground">
-              Edited {when(template.updatedAt)}
+              Edited {template.updatedAt ? when(template.updatedAt, 'date') : null}
               {template.createdByName ? ` · Created by ${template.createdByName}` : ''}
             </span>
             <span className="flex flex-wrap gap-2 pt-1">{templateActions(template)}</span>
@@ -231,7 +231,7 @@ export function EmailTemplates({ templates, system }: { templates: TemplateRow[]
                 </TableCell>
                 <TableCell className="whitespace-normal">{usedBy(template)}</TableCell>
                 <TableCell className="whitespace-normal">{template.createdByName ?? <span className="sr-only">None</span>}</TableCell>
-                <TableCell className="whitespace-nowrap">{when(template.updatedAt)}</TableCell>
+                <TableCell className="whitespace-nowrap">{template.updatedAt ? when(template.updatedAt, 'date') : null}</TableCell>
                 <TableCell>
                   <span className="flex flex-wrap items-center justify-end gap-2">{templateActions(template)}</span>
                 </TableCell>

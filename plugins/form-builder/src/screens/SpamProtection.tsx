@@ -1,4 +1,4 @@
-import { accessPermission, can, type PluginUser } from '@pet-adopt/plugin-sdk'
+import { accessPermission, can, host, type PluginUser } from '@pet-adopt/plugin-sdk'
 
 import { getCaptchaSettings } from '../captcha'
 import { SpamProtectionForm } from './SpamProtectionForm'
@@ -7,5 +7,5 @@ import { SpamProtectionForm } from './SpamProtectionForm'
 // change it, audit views it (the screen's access level is `admin`).
 export async function SpamProtection({ user }: { user: PluginUser }) {
   const settings = await getCaptchaSettings()
-  return <SpamProtectionForm initial={settings} canEdit={can(user.role, accessPermission('admin', 'edit'))} />
+  return <SpamProtectionForm initial={settings} canEdit={can(user.role, accessPermission('admin', 'edit'))} timeZone={await host().timeZone()} />
 }

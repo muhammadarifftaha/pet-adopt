@@ -35,6 +35,7 @@ export const FIELD_TAB: Record<FieldName, TabId | null> = {
   ageGroup: "basics",
   city: "basics",
   state: "basics",
+  country: "basics",
   location: "basics",
   vaccinated: "health",
   neutered: "health",
@@ -79,6 +80,7 @@ export const FIELD_LABELS: Record<FieldName, string> = {
   ageGroup: "Age group",
   city: "City",
   state: "State",
+  country: "Country",
   location: "Location",
   vaccinated: "Vaccinated",
   neutered: "Neutered",
@@ -119,8 +121,11 @@ const toRef = (media: MediaItem): PetFormMedia => ({
   alt: media.alt,
 });
 
-/** The values the form starts with: a new pet, or the pet being edited. */
-export function petToFormValues(pet: Pet | null): PetFormValues {
+/**
+ * The values the form starts with: a new pet, or the pet being edited. `defaultCountry` is the
+ * site's country (ISO code), which a pet without one starts with.
+ */
+export function petToFormValues(pet: Pet | null, defaultCountry: string): PetFormValues {
   // A pet with a birth date keeps its age unless the owner picks another way; one without it
   // shows the typed description and picked group. (`ageDescription` and `ageGroup` on a pet with a
   // birth date are worked out live, so they are not put in the form.)
@@ -135,6 +140,8 @@ export function petToFormValues(pet: Pet | null): PetFormValues {
     color: pet?.color ?? "",
     city: pet?.city ?? "",
     state: pet?.state ?? "",
+    // A new pet, and one saved before countries were kept, starts as the site's country.
+    country: pet?.country ?? defaultCountry,
     location: pet?.location ?? "",
 
     ageMode: dated ? "keep" : pet ? "none" : "estimate",
@@ -192,6 +199,7 @@ export function toPetInput(values: PetFormValues): Record<string, unknown> {
     color: blank(values.color),
     city: blank(values.city),
     state: blank(values.state),
+    country: blank(values.country),
     location: blank(values.location),
     vaccinated: values.vaccinated,
     neutered: values.neutered,

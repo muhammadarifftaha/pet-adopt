@@ -24,7 +24,10 @@ import { getPrivacyPolicy as loadPrivacyPolicy, type PrivacyPolicy } from '@/ser
 import * as pets from '@/server/pets'
 import { describeError } from '@/server/result'
 import type { PetFilters } from '@/server/pets'
+import { displayLocation } from '@/server/places'
 import { DEFAULT_SETTINGS, getSettings as loadSettings } from '@/server/settings'
+
+import { siteCountryCode } from './places'
 import type { MediaItem, Page, Pet, PetPage, PetSummary, SiteSetting } from '@/server/types'
 
 export type { PetFilters }
@@ -224,14 +227,16 @@ export type PetPageData = PetSpotlightData & {
   unlisted: boolean
 }
 
-function toPetPage(pet: Pet): PetPageData {
+async function toPetPage(pet: Pet): Promise<PetPageData> {
+  // The country is named only for a pet outside the site's own country (see displayLocation).
+  const location = await displayLocation(pet, siteCountryCode(await getSettings()))
   return {
     ...toSpotlight(pet),
     statusLabel: labelFor(STATUSES, pet.status),
     photos: pet.photos.map(mediaOf).filter((m): m is { url: string; alt: string } => Boolean(m)),
     sizeLabel: pet.size ? labelFor(SIZES, pet.size) : null,
     ageLabel: pet.ageDescription || (pet.ageGroup ? labelFor(AGE_GROUPS, pet.ageGroup) : null),
-    location: pet.location,
+    location,
     state: pet.state,
     unlisted: pet.unlisted,
   }
@@ -244,7 +249,7 @@ function toPetPage(pet: Pet): PetPageData {
 export async function getPetPage(slug: string): Promise<PetPageData | null> {
   return safely(async () => {
     const pet = await pets.getPetBySlug(slug)
-    return pet ? toPetPage(pet) : null
+    return pet ? await toPetPage(pet) : null
   }, null)
 }
 
@@ -252,7 +257,7 @@ export async function getPetPage(slug: string): Promise<PetPageData | null> {
 export async function getPetPagePreview(id: number): Promise<PetPageData | null> {
   return safely(async () => {
     const pet = await pets.getPetById(id)
-    return pet ? toPetPage(pet) : null
+    return pet ? await toPetPage(pet) : null
   }, null)
 }
 

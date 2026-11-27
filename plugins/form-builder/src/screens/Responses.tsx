@@ -1,4 +1,4 @@
-import { accessPermission, can, type PluginUser } from '@pet-adopt/plugin-sdk'
+import { accessPermission, can, type PluginUser, host } from '@pet-adopt/plugin-sdk'
 import { notFound } from 'next/navigation'
 
 import { getForm, listResponses, toFormId } from '../server'
@@ -21,6 +21,7 @@ export async function Responses({ id, page, user }: { id: string; page?: string 
       list={list}
       canEdit={can(user.role, accessPermission('personalData', 'edit'))}
       canExport={can(user.role, 'personalData:export')}
+      timeZone={await host().timeZone()}
     />
   )
 }

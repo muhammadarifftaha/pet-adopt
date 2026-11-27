@@ -74,6 +74,8 @@ export const petFormSchema = z
     color: text(60, "The colour"),
     city: text(60, "The city"),
     state: text(60, "The state"),
+    /** ISO 3166-1 alpha-2, picked from a list (the server checks it is a real one). */
+    country: z.string().trim().regex(/^([A-Za-z]{2})?$/, "Pick a country from the list."),
     location: text(120, "The location"),
 
     ageMode: z.enum(AGE_MODES),

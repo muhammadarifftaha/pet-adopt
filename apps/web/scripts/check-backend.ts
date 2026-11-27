@@ -50,6 +50,9 @@ import {
 } from '../src/server/pages'
 import { ageGroupOf, ageGroupRange, estimateBirthDate, formatAge, subtractDays, subtractMonths, todayISO } from '../src/lib/age'
 import { deletePet, getLocationOptions, getPetById, getPetBySlug, getSpeciesOptions, queryPets, rankSimilarPets, savePet } from '../src/server/pets'
+import { cityChoices, matchPlaces, PLACE_LIMIT } from '../src/lib/places'
+import { displayLocation, listCountryTimeZones, listPlaceCountries, listPlaces } from '../src/server/places'
+import { dayInZone, formatWhen, isTimeZone, startOfDayInZone } from '@pet-adopt/plugin-sdk'
 import { Fields, ValidationError, UserError, assertId, describeError } from '../src/server/result'
 import { getStorage, s3Settings } from '../src/server/storage'
 import { StripError, stripMetadata } from '../src/server/strip-metadata'
@@ -552,6 +555,64 @@ await check('unlisted pets are hidden from listings but open by link', async () 
   const options = await getLocationOptions()
   ok(!options.cities.includes('Ipoh') && options.cities.includes('Petaling Jaya'), `options ${JSON.stringify(options)}`)
   await deletePet(hidden.id)
+})
+
+await check('place suggestions: countries, one country\'s states and cities, accent-free search, the typed state first', async () => {
+  const countries = await listPlaceCountries()
+  ok(countries.length > 200 && countries.some((c) => c.code === 'MY' && c.name === 'Malaysia'), 'the country list')
+  const my = await listPlaces('my')
+  ok(my.code === 'MY' && my.states.includes('Selangor') && my.states.includes('Kuala Lumpur'), `states ${my.states.length}`)
+  ok(my.cities.length > 100 && my.cities.every(([name, state]) => name.length <= 60 && state >= -1 && state < my.states.length), 'cities point at states')
+  ok(new Set(my.cities.map(([name, state]) => `${name}|${state}`)).size === my.cities.length, 'no city is listed twice in a state')
+  const empty = await listPlaces('XX')
+  ok(empty.states.length === 0 && empty.cities.length === 0, 'an unknown country has nothing to suggest')
+  ok((await listPlaces('../etc')).cities.length === 0, 'a code that is not two letters reads no file')
+
+  const choices = cityChoices(my)
+  const found = matchPlaces(choices, (c) => c.city, 'ipoh')
+  ok(found[0]?.city === 'Ipoh' && found[0].state === 'Perak', `ipoh -> ${JSON.stringify(found[0])}`)
+  ok(matchPlaces(choices, (c) => c.city, '').length === PLACE_LIMIT, 'an empty box draws a capped list')
+  ok(cityChoices(my, 'perak')[0]?.state === 'Perak' && cityChoices(my, 'Nowhere').length === choices.length, 'the typed state comes first; an unknown one changes nothing')
+  const es = cityChoices(await listPlaces('ES'))
+  ok(matchPlaces(es, (c) => c.city, 'malaga')[0]?.city === 'Málaga', 'accents are ignored in the search')
+  const names = ['Port Dickson', 'Dickson', 'Dicksonia']
+  ok(matchPlaces(names, (n) => n, 'dick').join() === 'Dickson,Dicksonia,Port Dickson', 'names that start with the text come first')
+})
+
+await check('country and time zone: site settings check both, a pet keeps its own country, its page names a country other than the site\'s', async () => {
+  const before = await getSettings()
+  ok(before.country === null && before.timeZone === null, 'both start unset')
+  const saved = await updateSettings({ country: 'my', timeZone: 'Asia/Kuala_Lumpur' })
+  ok(saved.country === 'MY' && saved.timeZone === 'Asia/Kuala_Lumpur', `saved ${saved.country} ${saved.timeZone}`)
+  for (const [input, key] of [[{ country: 'ZZ' }, 'country'], [{ country: 'Malaysia' }, 'country'], [{ timeZone: 'Mars/Olympus' }, 'timeZone'], [{ timeZone: '../etc' }, 'timeZone']] as const) {
+    const error = await updateSettings(input).catch((e) => e)
+    ok(error instanceof ValidationError && key in error.fieldErrors, `${JSON.stringify(input)} must be refused`)
+  }
+  ok((await listCountryTimeZones('MY')).includes('Asia/Kuala_Lumpur') && (await listCountryTimeZones('US')).length > 1, 'a country\'s time zones')
+
+  const abroad = await savePet(null, { name: 'Paella', species: 'cat', photoIds: [mediaA], city: 'Málaga', state: 'Málaga', country: 'es' })
+  const pet = await getPetById(abroad.id)
+  ok(pet?.country === 'ES' && pet.location === 'Málaga', `stored ${pet?.country} ${pet?.location}`)
+  ok((await displayLocation(pet!, 'MY')) === 'Málaga, Spain', 'another country is named')
+  ok((await displayLocation(pet!, 'ES')) === 'Málaga', 'the site\'s own country is not')
+  ok((await displayLocation({ location: 'Somewhere nice', city: null, state: null, country: 'ES' }, 'MY')) === 'Somewhere nice', 'a typed location is left alone')
+  ok((await displayLocation({ ...pet!, country: null }, 'MY')) === 'Málaga', 'a pet without a country counts as the site\'s')
+  const bad = await savePet(abroad.id, { country: 'ZZ' }).catch((e) => e)
+  ok(bad instanceof ValidationError && 'country' in bad.fieldErrors, 'an unknown pet country is refused')
+  await savePet(abroad.id, { name: 'Paella 2' })
+  ok((await getPetById(abroad.id))?.country === 'ES', 'a partial update keeps the country')
+  await deletePet(abroad.id)
+
+  // Times: one instant, shown in the site's zone; days start at the zone's midnight, clock changes included.
+  const at = new Date('2026-03-08T16:30:00Z')
+  ok(formatWhen(at, 'Asia/Kuala_Lumpur') === '9 Mar 2026, 00:30' && formatWhen(at, 'UTC', 'date') === '8 Mar 2026' && formatWhen(at, 'UTC', 'longDate') === '8 March 2026', formatWhen(at, 'Asia/Kuala_Lumpur'))
+  ok(isTimeZone('Europe/London') && isTimeZone('UTC') && !isTimeZone('Nope/Nowhere') && !isTimeZone(''), 'isTimeZone')
+  ok(dayInZone(at, 'Asia/Kuala_Lumpur') === '2026-03-09' && dayInZone(at, 'America/New_York') === '2026-03-08', 'dayInZone')
+  ok(startOfDayInZone('2026-03-09', 'Asia/Kuala_Lumpur')?.toISOString() === '2026-03-08T16:00:00.000Z', 'midnight in Kuala Lumpur')
+  ok(startOfDayInZone('2026-03-08', 'America/New_York')?.toISOString() === '2026-03-08T05:00:00.000Z', 'the day the clocks go forward starts on winter time')
+  ok(startOfDayInZone('2026-03-08', 'America/New_York', 1)?.toISOString() === '2026-03-09T04:00:00.000Z', 'and the next day on summer time')
+  ok(startOfDayInZone('2026-02-30', 'UTC') === null && startOfDayInZone('soon', 'UTC') === null, 'only real dates')
+  await updateSettings({ country: null, timeZone: null })
 })
 
 await check('filters, location search (wildcards stripped) and paging', async () => {

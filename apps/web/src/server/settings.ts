@@ -1,4 +1,5 @@
 // Site settings: one row that holds the brand, theme, contact details and menu.
+import { isTimeZone } from '@pet-adopt/plugin-sdk'
 import { eq } from 'drizzle-orm'
 
 import { getDatabase } from '@/db/client'
@@ -23,6 +24,7 @@ import {
 import { toE164, validatePhone } from '@/lib/phone'
 
 import { getMediaByIds } from './media'
+import { findPlaceCountry } from './places'
 import { asRecord, Fields, ValidationError, type FieldErrors } from './result'
 import type { MediaItem, SiteSetting } from './types'
 
@@ -53,6 +55,8 @@ export const DEFAULT_SETTINGS: SiteSetting = {
   nav: [],
   footerText: null,
   privacyPageId: null,
+  country: null,
+  timeZone: null,
   updatedAt: null,
 }
 
@@ -93,6 +97,8 @@ function toSettings(row: SettingsRow, logo: SiteSetting['logo'], favicon: SiteSe
     nav: row.nav ?? [],
     footerText: row.footerText,
     privacyPageId: row.privacyPageId ?? null,
+    country: row.country ?? null,
+    timeZone: row.timeZone ?? null,
     updatedAt: row.updatedAt,
   }
 }
@@ -222,6 +228,10 @@ export async function updateSettings(raw: unknown): Promise<SiteSetting> {
   put('openingHours', f.text('openingHours', 500))
   put('footerText', f.text('footerText', 500))
   put('privacyPageId', f.id('privacyPageId'))
+  // Where the site is: the country new pets start with, and the time zone the admin shows times in.
+  const country = f.text('country', 2, { validate: (s) => /^[A-Za-z]{2}$/.test(s) || 'Pick a country from the list.' })
+  put('country', country ? country.toUpperCase() : country)
+  put('timeZone', f.text('timeZone', 64, { validate: (s) => isTimeZone(s) || 'Pick a time zone from the list.' }))
 
   const errors: FieldErrors = { ...f.errors }
 
@@ -291,6 +301,7 @@ export async function updateSettings(raw: unknown): Promise<SiteSetting> {
     const problem = faviconProblem(images.get(v.faviconId))
     if (problem) errors.faviconId = problem
   }
+  if (v.country && !(await findPlaceCountry(v.country))) errors.country = 'Pick a country from the list.'
   // The privacy policy must be an ordinary page of this site (not the homepage, Pets page or Pet
   // page template) that is not archived. It may still be a draft: it is linked once it is live.
   if (v.privacyPageId) {

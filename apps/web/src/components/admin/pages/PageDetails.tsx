@@ -13,6 +13,7 @@ import { unwrapResult } from "@/lib/admin/unwrap-client";
 import { listPageVersionsAction, restorePageVersionAction } from "@/server/actions/pages";
 import type { PageListItem } from "@/server/pages";
 import type { PageVersionKind } from "@/server/types";
+import { useWhen } from "@/components/admin/site-time";
 
 // The opened row of the pages table: a scaled-down preview of the page (an iframe of
 // /edit/<id>/preview, in the site's own styles) and the page's saved versions. A version can be
@@ -24,9 +25,6 @@ const KIND_LABEL: Record<PageVersionKind, string> = {
   published: "Published",
 };
 
-const formatWhen = (date: Date) =>
-  new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(date);
-
 export function PageDetails({
   page,
   onMessage,
@@ -37,6 +35,7 @@ export function PageDetails({
   /** The site has a dark theme (its light/dark toggle is on), so offer a dark preview. */
   darkMode?: boolean;
 }) {
+  const when = useWhen();
   const viewOnly = useViewOnly();
   const router = useRouter();
   // Bumped after a restore so the preview reloads with the new draft.
@@ -161,7 +160,7 @@ export function PageDetails({
                   </span>
                   <span className="text-xs text-muted-foreground">
                     {v.kind === "published" ? "Published " : "Last saved "}
-                    {formatWhen(new Date(v.updatedAt))}
+                    {when(v.updatedAt)}
                     {v.createdBy ? ` · ${v.createdBy}` : ""}
                     {v.restoredFrom ? ` · from version ${v.restoredFrom}` : ""}
                   </span>

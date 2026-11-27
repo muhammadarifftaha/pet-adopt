@@ -12,7 +12,7 @@ import { SettingsForm } from './SettingsForm'
 
 export const metadata = { title: 'Site settings' }
 
-const TABS: SettingsTab[] = ['brand', 'contact', 'navigation']
+const TABS: SettingsTab[] = ['brand', 'contact', 'region', 'navigation']
 
 export default async function SettingsPage({ searchParams }: { searchParams: Promise<{ tab?: string | string[] }> }) {
   const user = await requirePermissionPage('settings:view')

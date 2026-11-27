@@ -183,6 +183,8 @@ export const pets = pgTable(
     color: text('color'),
     city: text('city'),
     state: text('state'),
+    // ISO 3166-1 alpha-2 ("MY"). Null on pets saved before the column: read as the site's country.
+    country: text('country'),
     location: text('location'),
     /** Name, breed and location folded for the admin search (foldText); filled on save, backfilled on start. */
     searchText: text('search_text'),
@@ -330,6 +332,11 @@ export const siteSettings = pgTable('site_settings', {
   // The page holding the privacy policy (Site settings > Navigation). While it is live, the footer
   // and every form link to it, and the form builder stops warning about it.
   privacyPageId: integer('privacy_page_id').references(() => pages.id, { onDelete: 'set null', onUpdate: 'cascade' }),
+  // Where the site is: the country (ISO 3166-1 alpha-2) the pet form suggests cities and states
+  // for, and the time zone (IANA name) the admin shows times in. Null: the default country, and each
+  // person's own device time.
+  country: text('country'),
+  timeZone: text('time_zone'),
   // First-time setup (src/server/setup.ts): the setup link's key, sealed, while no account exists;
   // and when the guided setup was finished or skipped.
   setupKeyEncrypted: text('setup_key_encrypted'),

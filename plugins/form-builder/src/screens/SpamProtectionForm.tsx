@@ -1,5 +1,6 @@
 'use client'
 
+import { formatWhen } from '@pet-adopt/plugin-sdk'
 import { Badge } from '@pet-adopt/ui/components/badge'
 import { Button } from '@pet-adopt/ui/components/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@pet-adopt/ui/components/card'
@@ -14,7 +15,6 @@ import type { CaptchaSettingsView } from '../captcha'
 import { CAPTCHA_INFO, CAPTCHA_PROVIDERS, type CaptchaProvider } from '../captcha-providers'
 import { CaptchaWidget, type CaptchaHandle } from '../captcha-widget'
 
-const when = new Intl.DateTimeFormat('en-GB', { dateStyle: 'medium', timeStyle: 'short' })
 const SCORES = [
   { value: '30', label: '0.3 (lenient)' },
   { value: '50', label: '0.5 (Google’s suggestion)' },
@@ -24,7 +24,7 @@ const SCORES = [
 // The screen: choose a service, paste its keys, save, then "Check these keys" with the real widget.
 // Only checked keys can protect forms (a typo would otherwise stop every form), and the secret key
 // is never shown again once saved (a blank box keeps it).
-export function SpamProtectionForm({ initial, canEdit }: { initial: CaptchaSettingsView; canEdit: boolean }) {
+export function SpamProtectionForm({ initial, canEdit, timeZone = null }: { initial: CaptchaSettingsView; canEdit: boolean; timeZone?: string | null }) {
   const [view, setView] = useState(initial)
   const [provider, setProvider] = useState<string>(initial.provider ?? '')
   const [siteKey, setSiteKey] = useState(initial.siteKey)
@@ -202,7 +202,7 @@ export function SpamProtectionForm({ initial, canEdit }: { initial: CaptchaSetti
           <CardHeader>
             <CardTitle>Check these keys</CardTitle>
             <CardDescription>
-              {view.checkedAt ? `Last checked ${when.format(view.checkedAt)}.` : 'Not checked yet.'} The saved keys, tried for real: the check below comes from{' '}
+              {view.checkedAt ? `Last checked ${formatWhen(view.checkedAt, timeZone)}.` : 'Not checked yet.'} The saved keys, tried for real: the check below comes from{' '}
               {CAPTCHA_INFO[view.provider].label} and is verified with the secret key.
               {CAPTCHA_INFO[view.provider].invisible ? ' It is invisible: just press the button.' : ''}
             </CardDescription>

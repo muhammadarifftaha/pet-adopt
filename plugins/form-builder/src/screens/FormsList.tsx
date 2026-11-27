@@ -1,4 +1,4 @@
-import { accessPermission, can, host, type PluginUser } from '@pet-adopt/plugin-sdk'
+import { accessPermission, can, formatWhen, host, type PluginUser } from '@pet-adopt/plugin-sdk'
 import { Badge } from '@pet-adopt/ui/components/badge'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@pet-adopt/ui/components/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@pet-adopt/ui/components/table'
@@ -9,11 +9,9 @@ import { NewFormButton } from './NewFormButton'
 import { PrivacyWarning } from './PrivacyWarning'
 import { editHref, responsesHref, spamProtectionHref } from './paths'
 
-const when = new Intl.DateTimeFormat('en-GB', { dateStyle: 'medium', timeStyle: 'short' })
-
 // The form builder's home: every form with its responses, and "New form".
 export async function FormsList({ user }: { user: PluginUser }) {
-  const [forms, privacy] = await Promise.all([listForms(), host().privacyPolicy()])
+  const [forms, privacy, timeZone] = await Promise.all([listForms(), host().privacyPolicy(), host().timeZone()])
   const warning = privacy.policy ? null : <PrivacyWarning settingsHref={privacy.settingsHref} canChoose={can(user.role, 'settings:edit')} />
   const canEdit = can(user.role, accessPermission('all', 'edit'))
   const canSeeResponses = can(user.role, accessPermission('personalData', 'view'))
@@ -82,7 +80,7 @@ export async function FormsList({ user }: { user: PluginUser }) {
                         </Badge>
                       )}
                     </TableCell>
-                    <TableCell className="text-muted-foreground">{form.lastResponseAt ? when.format(form.lastResponseAt) : 'None yet'}</TableCell>
+                    <TableCell className="text-muted-foreground">{form.lastResponseAt ? formatWhen(form.lastResponseAt, timeZone) : 'None yet'}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>
