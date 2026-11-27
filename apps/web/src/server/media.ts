@@ -135,11 +135,15 @@ export async function mediaUsage(id: number) {
   // not as references the database can see. Their file name is random and unique, so finding it in
   // the JSON text finds exactly the pages that use it.
   let layouts = 0
+  let emails = 0
   if (row) {
     const rows = await db.select({ draft: t.pages.puckDraft, published: t.pages.puckPublished }).from(t.pages)
     layouts = rows.filter((page) => JSON.stringify([page.draft, page.published]).includes(row.filename)).length
+    // Email templates keep their Image blocks the same way.
+    const templates = await db.select({ data: t.emailTemplates.data }).from(t.emailTemplates)
+    emails = templates.filter((template) => JSON.stringify(template.data).includes(row.filename)).length
   }
-  return { pets: petPhotos + petShares, pages, logo: logo > 0, favicon: favicon > 0, layouts }
+  return { pets: petPhotos + petShares, pages, logo: logo > 0, favicon: favicon > 0, layouts, emails }
 }
 
 /** Deletes the row and returns its filename so the caller can remove the stored files. */
@@ -153,12 +157,13 @@ export async function deleteMediaRow(id: number): Promise<string> {
       usage.pets ? `${usage.pets} pet(s)` : '',
       usage.pages ? `${usage.pages} page(s)` : '',
       usage.layouts ? `${usage.layouts} page layout(s)` : '',
+      usage.emails ? `${usage.emails} email template(s)` : '',
       usage.logo ? 'the site logo' : '',
       usage.favicon ? 'the site icon (favicon)' : '',
     ].filter(Boolean)
     return new UserError(`This image is still used by ${where.join(' and ') || 'something else'}. Replace it there first.`)
   }
-  if (usage.pets + usage.pages + usage.layouts > 0 || usage.logo || usage.favicon) throw stillUsed()
+  if (usage.pets + usage.pages + usage.layouts + usage.emails > 0 || usage.logo || usage.favicon) throw stillUsed()
   try {
     await db.delete(t.media).where(eq(t.media.id, id))
   } catch (error) {

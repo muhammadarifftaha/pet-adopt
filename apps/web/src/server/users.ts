@@ -20,6 +20,7 @@ import { ROLES } from '@/lib/options'
 
 import { getAuth, MIN_PASSWORD_LENGTH } from './auth'
 import { deleteAvatarFile } from './avatars'
+import { cancelPendingLinks } from './pending-links'
 import { asRecord, Fields, isUniqueViolation, logError, UserError, ValidationError } from './result'
 import type { Role } from './types'
 
@@ -211,6 +212,9 @@ export async function updateUser(id: string, raw: unknown, opts: { canChangeRole
           // A new address from an admin is not confirmed: the person confirms it themselves.
           .set({ ...(name ? { name } : {}), ...(role ? { role } : {}), ...(changesEmail ? { email: address, emailVerified: false } : {}), updatedAt: new Date() })
           .where(eq(t.users.id, id))
+        // Links already sent to the old address must not outlive it: a reset link, and a pending
+        // change or confirmation. (A pending invite is sent again to the new address by the action.)
+        if (changesEmail) await cancelPendingLinks(tx, t, id, ['password-reset', 'email-change', 'invite'])
         return { email: changesEmail ? { from: existing.email, to: address } : null }
       },
       { lock: ADMIN_LOCK },
@@ -241,7 +245,8 @@ export async function resetPassword(id: string, raw: unknown): Promise<void> {
     await writeCredential(tx, t, id, hash)
     await tx.delete(t.sessions).where(eq(t.sessions.userId, id))
     // They have a password now: a pending invite (src/server/invites.ts) is no longer needed.
-    await tx.delete(t.verifications).where(and(like(t.verifications.identifier, 'invite:%'), eq(t.verifications.value, id)))
+    // So is an email change asked for with the old password (it may be why the password is reset).
+    await cancelPendingLinks(tx, t, id, ['invite', 'email-change'])
   })
 }
 

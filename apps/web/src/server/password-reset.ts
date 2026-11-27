@@ -19,6 +19,7 @@ import { asRole, type EmailSender, type Role } from '@pet-adopt/plugin-sdk'
 import { getDatabase } from '@/db/client'
 
 import { getAuth, SITE_URL } from './auth'
+import { cancelPendingLinks } from './pending-links'
 import { asRecord, Fields, logError, UserError } from './result'
 import { renderPurposeEmail } from './email-templates'
 import { clearLockoutsFor, guardResetRequest } from './throttle'
@@ -97,6 +98,9 @@ export async function resetPasswordWithToken(raw: unknown): Promise<{ id: string
     if (!user || user.archivedAt) throw new UserError(EXPIRED)
     await writeCredential(tx, t, user.id, hash)
     await tx.delete(t.sessions).where(eq(t.sessions.userId, user.id))
+    // Links made before this reset stop working: an email change asked for by whoever had the old
+    // password, and an invite that could otherwise set the password again.
+    await cancelPendingLinks(tx, t, user.id, ['email-change', 'invite'])
     return user
   })
   // They proved who they are, so earlier wrong guesses should not keep them out.

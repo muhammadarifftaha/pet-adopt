@@ -2,6 +2,7 @@ import { asRole } from '@pet-adopt/plugin-sdk'
 
 import { recordActivity, recordArchivedSignIn, recordFailedSignIn } from '@/server/activity'
 import { ACCOUNT_ARCHIVED, getAuth } from '@/server/auth'
+import { forgetEmailChange } from '@/server/pending-links'
 import { UserError } from '@/server/result'
 import { clearAttempts, guardPasswordChange, guardSignIn } from '@/server/throttle'
 
@@ -90,6 +91,7 @@ async function handle(request: Request) {
       if (response.ok) {
         await clearAttempts(keys)
         const { id, name, role } = session.user as { id: string; name: string; role?: string | null }
+        await forgetEmailChange(id)
         await recordActivity({ actor: { id, name, role: asRole(role) }, action: 'account.password', area: 'account', summary: 'Changed their own password' })
       }
       return response

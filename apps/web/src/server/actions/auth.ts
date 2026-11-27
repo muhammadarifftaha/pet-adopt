@@ -9,6 +9,7 @@ import { getDatabase } from '@/db/client'
 
 import { recordActivity, recordArchivedSignIn, recordFailedSignIn } from '../activity'
 import { getSettings } from '../settings'
+import { forgetEmailChange } from '../pending-links'
 import { ACCOUNT_ARCHIVED, getAuth, MIN_PASSWORD_LENGTH } from '../auth'
 import { authErrorCode, isAuthError } from '../auth-errors'
 import { removeAvatar, saveAvatar } from '../avatars'
@@ -140,6 +141,7 @@ export async function changePasswordAction(input: { currentPassword: string; new
         headers: await headers(),
       })
       await clearAttempts(keys)
+      await forgetEmailChange(user.id)
       await recordActivity({ actor: user, action: 'account.password', area: 'account', summary: 'Changed their own password (signed out on other devices)' })
     } catch (error) {
       if (isAuthError(error)) {

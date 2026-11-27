@@ -97,7 +97,8 @@ import {
 } from '../src/server/activity'
 import { getEmailSender, getEmailSettingsView, isLoopbackHost, parseFrom, resolveSmtp, saveEmailSettings, sendsToLocalServer } from '../src/server/email'
 import { open, seal } from '../src/server/secret-box'
-import { acceptInvite, isInviteTokenValid, sendInvite } from '../src/server/invites'
+import { acceptInvite, createInvite, isInviteTokenValid, sendInvite } from '../src/server/invites'
+import { forgetEmailChange } from '../src/server/pending-links'
 import { cancelEmailChange, confirmEmailChange, emailChangeFor, needsEmailConfirmation, pendingEmailChange, requestEmailChange, requestEmailVerification, sendEmailChangeNotice } from '../src/server/email-change'
 import { adoptProviderPicture, AVATAR_SIZE, isPrivateAddress, pictureFromIdToken, removeAvatar, saveAvatar } from '../src/server/avatars'
 import { backupCodesLeft, forgetTrustedDevices, needsTwoFactorSetup, resetTwoFactor, saveTwoFactorRoles } from '../src/server/two-factor'
@@ -2283,6 +2284,17 @@ await check('email: SMTP settings are validated, the password is stored only enc
     // Saving without a password keeps it; clearing removes it, and then a user without a password is not ready.
     const second = await saveEmailSettings({ host: 'localhost', fromName: 'Pet Adopt Team' })
     ok(isEqual(second.changed, ['sender name']) && (await resolveSmtp()).config.password === 'pa55-word!', `a blank password keeps the saved one: ${second.changed}`)
+    // The saved password belongs to its server: moving the server needs it typed again (or removed),
+    // or whoever may edit the settings could have it sent to a server of their own.
+    ok((await fieldErrors(saveEmailSettings({ host: 'smtp.elsewhere.test' }))).password, 'a new server needs the password again')
+    ok((await resolveSmtp()).config.host === 'localhost' && (await resolveSmtp()).config.password === 'pa55-word!', 'and nothing was saved')
+    await saveEmailSettings({ host: 'LOCALHOST' })
+    await saveEmailSettings({ host: 'smtp.elsewhere.test', password: 'typed-again-1' })
+    ok((await resolveSmtp()).config.password === 'typed-again-1', 'typed again: saved for the new server')
+    process.env.SMTP_PASSWORD = 'from-the-environment'
+    ok((await fieldErrors(saveEmailSettings({ host: 'smtp.third.test' }))).host, 'a password from the environment stays with its server')
+    delete process.env.SMTP_PASSWORD
+    await saveEmailSettings({ host: 'localhost', password: 'pa55-word!' })
     await saveEmailSettings({ clearPassword: true })
     const cleared = await getEmailSettingsView()
     ok(!cleared.passwordSet && !cleared.ready && cleared.problems.some((p) => /password/.test(p)), 'cleared: the user now needs a password')
@@ -3066,7 +3078,7 @@ await check('profile pictures: checked like uploads, cropped as the browser show
   await removeAvatar(id)
   ok(!(await adoptProviderPicture(id, 'https://img.example/p.png', async () => Buffer.from('junk'))) && (await imageOf()) === null, 'an unreadable picture is not used')
   ok(!(await adoptProviderPicture(id, 'http://img.example/p.png')) && !(await adoptProviderPicture(id, 'https://127.0.0.1/p.png')) && !(await adoptProviderPicture(id, 'https://localhost/p.png')), 'only https, never a private or local address')
-  for (const address of ['127.0.0.1', '10.1.2.3', '172.16.0.1', '192.168.1.1', '169.254.169.254', '100.64.0.1', '0.0.0.0', '::1', 'fd00::1', 'fe80::1', '::ffff:10.0.0.1']) {
+  for (const address of ['127.0.0.1', '10.1.2.3', '172.16.0.1', '192.168.1.1', '169.254.169.254', '100.64.0.1', '0.0.0.0', '::1', 'fd00::1', 'fe80::1', '::ffff:10.0.0.1', '::ffff:7f00:1', '::', '198.18.0.1', '192.0.0.8', '64:ff9b::a00:1', '2002:7f00:1::', 'fec0::1', '::10.0.0.1', 'not-an-address']) {
     ok(isPrivateAddress(address), `${address} is private`)
   }
   ok(!isPrivateAddress('93.184.216.34') && !isPrivateAddress('2606:4700::1111'), 'public addresses are fine')
@@ -3075,6 +3087,82 @@ await check('profile pictures: checked like uploads, cropped as the browser show
   const last = await saveAvatar(id, photo, { x: 0, y: 0, size: 30 })
   await removeAccount(id)
   ok(!(await storage.exists(fileOf(last))), 'the picture goes with the account')
+})
+
+await check('recovering an account cancels the links made before it: an email change on a new password, reset link or two-factor reset; a reset link on an admin\'s email change', async () => {
+  const email = 'recover@example.test'
+  const password = 'recover-password-123'
+  const { id } = await createUser({ email, name: 'Rae Cover', password, role: 'editor' })
+  const inbox: EmailMessage[] = []
+  const sender = { send: async (message: EmailMessage) => void inbox.push(message) }
+  const tokenOf = (url: string) => new URL(url).searchParams.get('token')!
+  // Someone who had the session and the password asks for the email to be changed to theirs.
+  const ask = async (to: string) => {
+    await requestEmailChange(id, { email: to, password }, sender)
+    const token = /token=([A-Za-z0-9_-]{43})/.exec(inbox[inbox.length - 2].text)?.[1] ?? ''
+    ok(Boolean(await emailChangeFor(token)), `${to}: the link works before the recovery`)
+    return token
+  }
+  const gone = async (token: string, why: string) => {
+    ok(!(await emailChangeFor(token)) && !(await pendingEmailChange(id)) && /expired/.test(await userError(confirmEmailChange(token))), why)
+  }
+
+  let token = await ask('thief.one@example.test')
+  await resetPassword(id, { password })
+  await gone(token, 'a new password from an admin cancels it')
+
+  token = await ask('thief.two@example.test')
+  await resetPasswordWithToken({ token: tokenOf((await createResetLink(id)).url), password })
+  await gone(token, 'a reset link cancels it')
+
+  token = await ask('thief.three@example.test')
+  await resetTwoFactor(id)
+  await gone(token, 'a two-factor reset cancels it')
+
+  token = await ask('thief.four@example.test')
+  await forgetEmailChange(id)
+  await gone(token, 'changing the own password cancels it')
+  ok((await listUsers()).find((u) => u.id === id)?.email === email, 'the address never changed')
+
+  // A reset link sent to the old address does not outlive an admin's change of the address.
+  const old = tokenOf((await createResetLink(id)).url)
+  ok(await isResetTokenValid(old), 'valid before the change')
+  await updateUser(id, { name: 'Rae Cover', email: 'recover.new@example.test' }, { canChangeRole: true })
+  ok(!(await isResetTokenValid(old)), 'cancelled with the old address')
+  // An invite waiting when a reset link sets the password can no longer set it again.
+  const invited = await createUser({ email: 'late-invite@example.test', name: 'Late Invite', role: 'editor', invite: true })
+  const { db, t } = await getDatabase()
+  const invites = async () => (await db.select().from(t.verifications)).filter((row) => row.identifier.startsWith('invite:') && row.value === invited.id).length
+  await createInvite(invited.id)
+  ok((await invites()) === 1, 'an invite waits')
+  await resetPasswordWithToken({ token: tokenOf((await createResetLink(invited.id)).url), password })
+  ok((await invites()) === 0, 'a reset link cancels the invite')
+})
+
+await check('small rules from the security review: an archived page cannot be unpublished, an image in an email template is in use, form responses are routed only by people who may see them', async () => {
+  const page = await savePageDetails(null, { title: 'Archive me', slug: 'archive-me' })
+  await publishPage(page.id, { root: { props: {} }, zones: {}, content: [{ type: 'TextSection', props: { id: 'a', heading: 'Archive me' } }] })
+  await archivePage(page.id)
+  ok(/archived/.test(await userError(unpublishPage(page.id))), 'an archived page is read-only')
+  ok(/not found/i.test(await userError(unpublishPage(987654))), 'a missing page is still "not found"')
+  await restorePage(page.id)
+  await unpublishPage(page.id)
+  await archivePage(page.id)
+  await deletePage(page.id)
+
+  // "Email new responses to" decides who receives personal data.
+  const stored = { settings: { notifyEmail: 'team@example.test' } } as Parameters<typeof forms.assertMayRouteResponses>[2]
+  const refused = (role: Parameters<typeof forms.assertMayRouteResponses>[0], input: unknown, before: typeof stored) => {
+    try {
+      forms.assertMayRouteResponses(role, input, before)
+      return false
+    } catch (error) {
+      return error instanceof ValidationError && 'settings.notifyEmail' in error.fieldErrors
+    }
+  }
+  ok(refused('developer', { settings: { notifyEmail: 'me@developer.test' } }, stored) && refused('developer', { name: 'New', settings: { notifyEmail: 'me@developer.test' } }, null), 'a developer cannot send responses to an address')
+  ok(!refused('developer', { settings: { notifyEmail: ' Team@Example.test ' } }, stored) && !refused('developer', { settings: { notifyEmail: '' } }, stored) && !refused('developer', { name: 'Only the name' }, stored), 'unchanged, cleared or untouched is fine')
+  ok(!refused('admin', { settings: { notifyEmail: 'new@example.test' } }, stored) && !refused('editor', { settings: { notifyEmail: 'new@example.test' } }, stored), 'admins and editors may')
 })
 
 await check('email changes: yourself with your password and a link to the new address (the old one is told), confirmed once; an admin at once with notices to both; addresses stay unique; the two emails need their links', async () => {

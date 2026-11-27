@@ -380,7 +380,7 @@ To add a workspace plugin, run `pnpm --filter @pet-adopt/web add <name>@workspac
 - **Links** typed into blocks and settings are checked when saved, and rendered through a filter that blocks `javascript:` and `data:` addresses.
 - **Encrypted secrets:** the SMTP password, sign-in provider secrets, captcha secret keys and two-factor secrets are stored encrypted. Password reset, invite and email change links are stored only as hashes and work once.
 - **The activity log** records changes, sign-ins and failed sign-ins, naming fields but never their values. It is kept for 365 days (`ACTIVITY_LOG_DAYS`).
-- **Headers** are set in `apps/web/next.config.ts`: `nosniff`, no framing by other sites, a strict referrer policy, and a Content-Security-Policy.
+- **Headers** are set in `apps/web/next.config.ts`: `nosniff`, no framing by other sites, a strict referrer policy, a Content-Security-Policy, and HSTS (one year) when the site's address is https.
   - **What the policy allows:** your own site, plus Google Maps, YouTube (no-cookie) and Vimeo embeds, and the four captcha services.
   - **Inline scripts** stay allowed because Next.js needs them, and a nonce would end page caching.
   - **Adding an embed or script:** extend the policy. Set `CSP_REPORT_ONLY=1` first to see what it would block.

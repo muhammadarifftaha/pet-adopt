@@ -89,6 +89,9 @@ const nextConfig: NextConfig = {
           { key: 'X-Frame-Options', value: 'SAMEORIGIN' },
           { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
           { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=()' },
+          // Browsers that have seen the site over HTTPS keep using it for a year, so a later plain-HTTP
+          // request cannot be intercepted. Only when the site's own address is https (never for local http).
+          ...(siteURL.startsWith('https://') ? [{ key: 'Strict-Transport-Security', value: 'max-age=31536000' }] : []),
           {
             key: process.env.CSP_REPORT_ONLY === '1' ? 'Content-Security-Policy-Report-Only' : 'Content-Security-Policy',
             value: contentSecurityPolicy,

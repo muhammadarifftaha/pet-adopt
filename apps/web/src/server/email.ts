@@ -270,6 +270,20 @@ export async function saveEmailSettings(raw: unknown): Promise<{ changed: string
   const set = <K extends keyof Stored>(field: EmailField, key: K, value: Stored[K] | undefined) => {
     if (value !== undefined && !locked.has(field)) next[key] = value
   }
+  // A password belongs to the server it was typed for. Moving the server while keeping the password
+  // would hand it to whoever runs the new one (the next email, or "Send a test email", signs in
+  // there with it), so someone who may change the settings but never saw the password could read
+  // it that way. A new server therefore needs the password typed again, or removed.
+  const movesServer = host !== undefined && !locked.has('host') && (host ?? '').toLowerCase() !== (before?.host ?? '').toLowerCase()
+  if (movesServer) {
+    if (locked.has('password')) {
+      throw new ValidationError({ host: `The password comes from ${EMAIL_ENV.password}, which is set for the current server. Set ${EMAIL_ENV.host} beside it to use another server.` })
+    }
+    const typesPassword = typeof password === 'string' && password !== ''
+    if (before?.passwordEncrypted && !typesPassword && !clearPassword) {
+      throw new ValidationError({ password: 'Type the password again (or remove it): it was saved for the previous server.' })
+    }
+  }
   set('host', 'host', host)
   set('port', 'port', port)
   set('security', 'security', security ?? undefined)

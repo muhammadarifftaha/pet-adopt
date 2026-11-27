@@ -18,6 +18,7 @@ import { cache } from 'react'
 import { getDatabase } from '@/db/client'
 
 import { getAuth } from './auth'
+import { cancelPendingLinks } from './pending-links'
 import { UserError, ValidationError } from './result'
 import { open, seal } from './secret-box'
 import type { Role, SessionUser } from './types'
@@ -94,6 +95,8 @@ export async function resetTwoFactor(userId: string): Promise<{ id: string; name
     await tx.delete(t.twoFactors).where(eq(t.twoFactors.userId, userId))
     await tx.update(t.users).set({ twoFactorEnabled: false }).where(eq(t.users.id, userId))
     await tx.delete(t.verifications).where(and(like(t.verifications.identifier, `${TRUSTED_DEVICE_PREFIX}%`), eq(t.verifications.value, userId)))
+    // A recovery step, like a new password: an email change asked for before it stops working.
+    await cancelPendingLinks(tx, t, userId, ['email-change'])
     return { id: user.id, name: user.name, email: user.email, role: asRole(user.role), wasEnabled: Boolean(user.enabled) }
   })
 }

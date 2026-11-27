@@ -3,7 +3,7 @@
 // these through ./actions.ts; check:backend calls them directly.
 import { createHash } from 'node:crypto'
 
-import { csvCell, foldText, host, UserError, ValidationError, type EmailTemplateUse } from '@pet-adopt/plugin-sdk'
+import { accessPermission, can, csvCell, foldText, host, UserError, ValidationError, type EmailTemplateUse, type Role } from '@pet-adopt/plugin-sdk'
 import { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm'
 
 import {
@@ -239,6 +239,22 @@ export async function createForm(raw: unknown): Promise<{ id: number }> {
     },
     { lock: 'form-builder:forms' },
   )
+}
+
+/**
+ * Responses are personal data, and the address in "Email new responses to" receives every one of
+ * them. Building a form needs only the plugin-content permission (developers have it and must never
+ * see personal data), so choosing that address needs the right to see responses as well. Clearing
+ * the address, or sending the settings back unchanged, is always allowed. `input` is the untrusted
+ * form input; `before` the stored form (null for a new one).
+ */
+export function assertMayRouteResponses(role: Role, input: unknown, before: Pick<FormRecord, 'settings'> | null): void {
+  const settings = input && typeof input === 'object' ? (input as { settings?: unknown }).settings : undefined
+  const typed = settings && typeof settings === 'object' ? (settings as { notifyEmail?: unknown }).notifyEmail : undefined
+  const wanted = typeof typed === 'string' ? typed.trim().toLowerCase() : ''
+  if (!wanted || wanted === (before?.settings.notifyEmail ?? '').trim().toLowerCase()) return
+  if (can(role, accessPermission('personalData', 'edit'))) return
+  throw new ValidationError({ 'settings.notifyEmail': 'Only people who may see responses (admins and editors) can choose where they are emailed.' })
 }
 
 /** Any of `{ name, description, fields, settings, isOpen }`. `fields` and `settings` replace what is stored. */

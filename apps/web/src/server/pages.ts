@@ -494,9 +494,13 @@ export async function unpublishPage(id: number): Promise<void> {
   const [row] = await db
     .update(t.pages)
     .set({ puckPublished: null, status: 'draft' as PageStatus, publishedAt: null, updatedAt: new Date() })
-    .where(eq(t.pages.id, id))
+    // An archived page is read-only (and already off the site).
+    .where(and(eq(t.pages.id, id), isNull(t.pages.archivedAt)))
     .returning({ slug: t.pages.slug })
-  if (!row) throw new UserError('Page not found.')
+  if (!row) {
+    const [page] = await db.select({ id: t.pages.id }).from(t.pages).where(eq(t.pages.id, id)).limit(1)
+    throw new UserError(page ? ARCHIVED : 'Page not found.')
+  }
   await revalidatePage(id, [toPath(row.slug)])
 }
 
