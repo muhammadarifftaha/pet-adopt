@@ -1,0 +1,184 @@
+---
+title: Deploy a site
+description: What a production site needs, and how to set one up step by step.
+---
+
+How to run a site in production: on your own server, or on a server you run for someone else.
+
+This page goes step by step. The other pages in this section explain the settings that are easy to get wrong:
+
+<Cards>
+  <Card title="The reverse proxy" href="/docs/developers/deployment/reverse-proxy" description="HTTPS, and telling the site each visitor's address." />
+  <Card title="Hosting for someone else" href="/docs/developers/deployment/hosting-for-others" description="Keep a client's admins away from your network." />
+  <Card title="Backups and updates" href="/docs/developers/deployment/backups-and-updates" description="What to back up, how to update, and running more than one server." />
+  <Card title="Settings" href="/docs/developers/deployment/settings" description="Every environment variable, with its default." />
+  <Card title="Security" href="/docs/developers/deployment/security" description="What the site does by default, and how to run it safely." />
+  <Card title="Troubleshooting" href="/docs/developers/deployment/troubleshooting" description="Common problems, and what has been tested." />
+</Cards>
+
+## What you need
+
+| Piece | What it is for | Notes |
+|---|---|---|
+| **Node.js** 22.23.4 or newer, or 24.22.1 or newer | Runs the site | With [pnpm](https://pnpm.io). There is no npm lockfile. |
+| **A database** | Pets, pages, accounts, settings | PostgreSQL for production. A SQLite file works for one small server. |
+| **S3-compatible object storage** | Every uploaded image | Required. Nothing is stored on the server's disk. |
+| **A reverse proxy you control** | HTTPS, and telling the site each visitor's address | Required. See [The reverse proxy](./reverse-proxy.mdx). |
+| **An SMTP server** | Invites, password resets, form notifications | Optional, but most of the account features depend on it. |
+
+"S3-compatible" means a storage service that speaks the same API as Amazon S3. Many providers offer one, and you can also run such a server yourself.
+
+The site itself keeps no files, so the server can be replaced at any time. Everything that matters lives in the database and the storage bucket.
+
+## Step by step
+
+### 1. Get the code and install
+
+```bash
+git clone <your-fork-url> pet-adopt
+cd pet-adopt
+pnpm install --frozen-lockfile
+pnpm setup:env --production
+```
+
+**`pnpm setup:env --production`** copies `apps/web/.env.example` to `apps/web/.env` and fills in a new random `BETTER_AUTH_SECRET`. It leaves the storage keys for you to fill in, and the file is readable by its owner only. It never overwrites or reads a file that is already there: if `apps/web/.env` exists, it stops and changes nothing. `--file <path>` writes somewhere else, for example to prepare the settings for your host's environment screen. To do it by hand instead, copy the example file and set the secret yourself.
+
+On your own machine, for development, run `pnpm setup:env` without `--production`: it also fills in the keys of the local storage server from `docker-compose.yml`. Those keys only work for that local server, and production refuses them.
+
+Every setting below goes in `apps/web/.env`, or in your host's environment settings. `apps/web/.env.example` documents each one, and the [settings reference](./settings.mdx) lists them all with their defaults.
+
+### 2. Set the two required values
+
+```dotenv
+# apps/web/.env
+BETTER_AUTH_SECRET=<already filled in by setup:env; otherwise the output of: openssl rand -hex 32>
+NEXT_PUBLIC_SERVER_URL=https://adopt.example.com
+```
+
+- **`BETTER_AUTH_SECRET`** signs sessions and encrypts stored secrets (the SMTP password, sign-in provider secrets, captcha keys, two-factor secrets). It must be at least 32 random characters, or the server refuses to start.
+  - **Keep it safe and keep it the same.** If it changes, everyone is signed out, two-factor stops working for accounts that had it, and every stored secret has to be typed in again.
+  - **Back it up** with your other secrets. A database backup is not fully usable without it.
+- **`NEXT_PUBLIC_SERVER_URL`** is the site's exact public address, with `https://` and no trailing slash. Links in emails and share cards are built from it, and it is the only origin allowed to make signed-in requests.
+  - **It must be set when you build**, not only when you start: part of it is compiled into the pages. Changing it means building again.
+
+### 3. Choose the database
+
+**PostgreSQL (recommended):**
+
+```dotenv
+DATABASE_URL=postgres://user:password@db.example.com:5432/pet_adopt
+```
+
+- A managed service (Neon, Supabase) or your own server both work.
+- Give the site its own database and a user that owns only that database.
+- Never expose the database port to the internet.
+- On a pooled connection (a connection pooler sits between the site and the database and shares connections), use the pooler's address. On serverless hosts set `DB_POOL_MAX` low (1 to 3); the default is 10 connections per server.
+- To try PostgreSQL on your own machine, `docker compose up -d postgres` starts one. It only listens on `127.0.0.1`, and `POSTGRES_PASSWORD` changes its password.
+
+**A SQLite file (one small server only):**
+
+```dotenv
+DATABASE_URL=file:/var/lib/pet-adopt/pet-adopt.db
+```
+
+- The folder must be on a disk that survives restarts and redeploys, and the site's user must be able to write to it.
+- One server only. Two servers cannot share a SQLite file.
+
+**Hosted libSQL** (SQLite run as a server, such as Turso) is also supported, as an option: `DATABASE_URL=libsql://…` with `DATABASE_AUTH_TOKEN`.
+
+### 4. Set up upload storage
+
+```dotenv
+S3_BUCKET=pet-adopt-media
+S3_ENDPOINT=https://s3.example.com     # leave unset for AWS S3
+S3_ACCESS_KEY_ID=<your key>
+S3_SECRET_ACCESS_KEY=<your secret>
+# S3_REGION=        # default us-east-1
+# S3_PREFIX=        # a folder inside the bucket, to share one bucket between sites
+```
+
+- **Where:** AWS S3, another provider with an S3 API (through `S3_ENDPOINT`), or an S3-compatible server you run yourself.
+- **Create keys for this site only**, with read, write and delete access to this one bucket.
+- **The bucket can stay private.** Visitors load images through the site's own `/media` route.
+- **Do not use the keys printed in `docker-compose.yml`.** They are for the local development server and anyone can read them. Production refuses them unless the storage server is on the same machine.
+- **Check it** before going further:
+
+  ```bash
+  pnpm --filter @pet-adopt/web storage:check
+  ```
+
+  It writes, reads and deletes a test file, and names the setting that is wrong if a step fails.
+
+### 5. Build
+
+```bash
+pnpm build
+```
+
+For PostgreSQL and hosted libSQL, the build **migrates the database first** (the site's tables, then each plugin's) and fails if it cannot. That way new code never runs against an older database. A SQLite file migrates itself when the site first opens it. `pnpm migrate` runs the same migrations on their own, at any time.
+
+If the build machine cannot reach the database (a container image built elsewhere, for example):
+
+```bash
+SKIP_BUILD_MIGRATE=1 pnpm build     # on the build machine
+pnpm migrate                        # on a machine that can reach the database, before starting
+```
+
+**Preview builds on Vercel** (`VERCEL_ENV` other than `production`) skip migrations, because a preview usually shares the production database. Set `MIGRATE_ON_PREVIEW=1` when previews have their own database.
+
+### 6. Start
+
+```bash
+pnpm --filter @pet-adopt/web exec next start -H 127.0.0.1 -p 3000
+```
+
+- `-H 127.0.0.1` makes the site listen only on the server itself, so visitors can only reach it through your reverse proxy. Use this whenever the proxy runs on the same machine.
+- `pnpm start` also works, but listens on every network interface. Use it only when a firewall or a private network already keeps the port away from the internet. A visitor who can reach the port directly can send any `X-Forwarded-For` header and the site will believe it, which gets them past every limit.
+
+The server stops with a clear message if `BETTER_AUTH_SECRET` is weak, `NEXT_PUBLIC_SERVER_URL` is missing, or the storage settings are wrong.
+
+To keep it running, use a process manager. A systemd unit, as an example:
+
+```ini
+# /etc/systemd/system/pet-adopt.service
+[Unit]
+Description=Pet Adopt
+After=network-online.target
+
+[Service]
+User=petadopt
+WorkingDirectory=/srv/pet-adopt
+ExecStart=/usr/bin/pnpm --filter @pet-adopt/web exec next start -H 127.0.0.1 -p 3000
+Environment=NODE_ENV=production
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+```
+
+### 7. Put the reverse proxy in front
+
+See [The reverse proxy](./reverse-proxy.mdx). Do this before creating the first account.
+
+### 8. Create the first account
+
+On a new site, the server prints a **setup link** in its log when it starts:
+
+```text
+<NEXT_PUBLIC_SERVER_URL>/setup?key=…
+```
+
+Open it, create the admin account, and follow the short guided setup. Whoever can read the log can claim the site, so do this straight away.
+
+For installs with nobody at the keyboard, set `SEED_ADMIN_EMAIL` and `SEED_ADMIN_PASSWORD` (12 characters or more) instead. The server creates that admin on its first start. Remove the two values afterwards.
+
+### 9. Check it
+
+- `https://adopt.example.com/health` answers `{"ok":true}`.
+- The homepage loads over HTTPS.
+- Sign in, upload an image in **Media**, and open it.
+- Set up email in **Email → Sending**, or with the `SMTP_*` variables (see [Email](./settings.mdx#email)), so invites, password resets and form notifications can go out. Without email, an admin makes reset links on the **Users** screen and shares them by hand.
+- In **Email → Sending**, send a test email. If it lands in junk, check that the domain you send from has SPF, DKIM and DMARC records (DNS records that tell mail servers your server may send for that domain), as your mail provider describes.
+- Read the server log for warnings. One to look for is described under [Check the client address](./reverse-proxy.mdx#check-the-client-address).
+
+If something does not work, see [Troubleshooting](./troubleshooting.mdx).

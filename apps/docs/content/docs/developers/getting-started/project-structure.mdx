@@ -1,0 +1,74 @@
+---
+title: Project structure
+description: Where the code lives, which packages are published, and how the pieces fit together.
+---
+
+The repository is a pnpm workspace with [Turborepo](https://turborepo.com): several packages in one repository, with one install and tasks that run across all of them.
+
+## Layout
+
+```text
+apps/web/                 The Next.js app, backend included
+├── src/
+│   ├── app/              Routes (App Router). Each route group has its own layout
+│   │   ├── (frontend)/   The public site; plain CSS driven by theme variables
+│   │   ├── (admin)/      The team admin under /admin
+│   │   ├── (auth)/       Signed-out screens: sign-in, reset password, invites, confirm email
+│   │   ├── (editor)/     The page builder (/edit/[id]) and the email template builder
+│   │   ├── (setup)/      First-time setup
+│   │   ├── sitemap.ts robots.ts
+│   │   └── api/ media/ health/
+│   ├── server/           The backend: plain TypeScript, no UI
+│   │   ├── pets.ts pages.ts media.ts settings.ts users.ts ...   The data rules, one file per area
+│   │   ├── actions/      'use server' functions the UI calls; each checks permission first
+│   │   └── auth.ts session.ts throttle.ts two-factor.ts ...     Sign-in, sessions, limits
+│   ├── db/               schema/sqlite.ts and schema/pg.ts (the same tables twice), client.ts
+│   ├── puck/             Page builder blocks (config.tsx, pet-page-config.tsx, email-config.tsx)
+│   ├── plugins/          The plugin runtime: registry, storage, host services
+│   ├── components/       Public site and admin components
+│   └── lib/              Shared helpers: theme, links, SEO, cached public queries
+├── drizzle/              Generated SQL migrations (sqlite/ and pg/), committed
+├── scripts/              seed, migrate, check-schemas, check-backend, reset-password, ...
+├── pet-adopt.config.ts   Which plugins the site uses
+└── pet-adopt.blocks.ts   Which plugin blocks the page builder offers
+apps/docs/                This documentation site
+packages/ui/              shadcn/ui components (Base UI), shared by the app and plugins
+packages/plugin-sdk/      What plugins import (definePlugin, host(), types). Imports nothing from the app
+plugins/form-builder/     The form builder plugin
+plugins/instagram-feed/   The Instagram feed plugin (optional)
+plugins/adoption-tips/    A small example plugin (not published)
+docs/                     Deployment, plugin, theming and release guides
+```
+
+A **route group** is a folder in brackets, such as `(admin)`: it groups routes under one layout without adding to the address.
+
+## Packages
+
+<Callout type="info" title="Not published yet">
+None of these packages is on npm yet. They are published with the first release. Until then, the repository uses them as workspace packages.
+</Callout>
+
+Three packages are published to npm from the repository:
+
+| Package | Folder | What it is |
+| --- | --- | --- |
+| `@pet-adopt/plugin-sdk` | [`packages/plugin-sdk`](https://github.com/muhammadarifftaha/pet-adopt/tree/main/packages/plugin-sdk) | Everything a plugin and a site's `pet-adopt.config.ts` and `pet-adopt.blocks.ts` import |
+| `@pet-adopt/plugin-form-builder` | [`plugins/form-builder`](https://github.com/muhammadarifftaha/pet-adopt/tree/main/plugins/form-builder) | The form builder plugin and its **Form** block |
+| `@pet-adopt/plugin-instagram-feed` | [`plugins/instagram-feed`](https://github.com/muhammadarifftaha/pet-adopt/tree/main/plugins/instagram-feed) | The Instagram feed plugin and its block |
+
+- **Not published:** the web app and `@pet-adopt/ui`. A site is a clone of the repository, so they are source you own. The example plugin ([`plugins/adoption-tips`](https://github.com/muhammadarifftaha/pet-adopt/tree/main/plugins/adoption-tips)) stays in the repository for plugin authors to copy.
+- **Versions:** the packages share the project's version. [CHANGELOG.md](https://github.com/muhammadarifftaha/pet-adopt/blob/main/CHANGELOG.md) lists what changed, and [Releasing](../contributing/releasing.mdx) is the maintainers' guide to publishing them.
+- **Installing one in a site:** see [Plugins](../plugins/index.mdx).
+
+## How the pieces fit
+
+- **No separate API.** The admin calls the functions in `apps/web/src/server/actions/` directly (Next.js server actions: functions that run on the server but are called from the browser like ordinary functions). Each one checks the signed-in person's permission first, and returns `{ ok: true, data }` or `{ ok: false, error, fieldErrors }`. The public site reads through `src/lib/queries.ts`, which only ever returns published pages and listed pets.
+- **One data layer, two databases.** `src/server` is written once.
+  - Drizzle's SQLite and PostgreSQL table types differ, so the schema exists twice (`src/db/schema/`). `pnpm check:schemas` fails if the two drift apart.
+  - Keep columns portable: integer ids, JSON for lists, plain text for options.
+- **Sign-in** is [Better Auth](https://better-auth.com) on the same database.
+  - Roles and permissions are the project's own (see [Run a site](../../admin/index.mdx)).
+  - Sign-in attempts are rate limited in a table of the project's own.
+- **Uploads** are checked, stripped of metadata without recompressing, and stored under random names in S3-compatible storage.
+- **Theming** is data: a preset plus optional customisations produce CSS variables, and both the public CSS and the shadcn components read those variables.
+- **Plugins** add admin screens, dashboard cards, page builder blocks, their own database tables and email templates. They reach the app only through `host()` from the plugin SDK. The form builder and the Instagram feed are two. See [Plugins](../plugins/index.mdx).

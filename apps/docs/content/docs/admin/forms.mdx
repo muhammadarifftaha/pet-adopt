@@ -1,0 +1,214 @@
+---
+title: Forms
+description: Build forms for adoption applications, sign-ups and questions, and read what visitors send in the admin.
+---
+
+**Forms** is a plugin that comes with Pet Adopt (the form builder, `@pet-adopt/plugin-form-builder`). It adds a **Forms** screen to the admin's Plugins menu, a card on the dashboard, and the **Form** block for the page builder.
+
+- **Forms:** a form editor with ten question types.
+- **Responses:** stored in the site's own database, read and downloaded (CSV) in the admin.
+- **Email:** new responses to your team, and an optional confirmation to the visitor, using the site's email templates.
+- **Privacy:** a warning until the site has a published privacy policy, and a link to it under every form.
+- **Spam:** a hidden spam trap on every form, sending limits, and optional captcha with your own keys.
+
+A site cloned from the Pet Adopt repository has the plugin and its block installed already. To add it to a site from npm, or take it out, see [Packaging and installing plugins](../developers/plugins/packaging.mdx).
+
+## Setting it up
+
+The plugin keeps its forms and responses in tables of its own, in the site's database.
+
+- **A local SQLite file** needs nothing: the tables are made when the site starts.
+- **PostgreSQL and hosted libSQL** need `pnpm migrate`. `pnpm build` runs it too.
+- **Before migrating:** until it has run, the plugin's screens explain what to run instead of failing, and Form blocks show nothing on the site.
+
+Two more things are worth doing before you publish a form:
+
+1. **Set up the site's email** (**Email → Sending**, see [Email](./email.mdx)), so new responses and confirmations can be emailed. Without it, responses are still stored; only the emails are skipped.
+2. **Publish a privacy policy** and choose it in **Site settings → Navigation** (see [Privacy](#privacy)).
+
+## Making a form
+
+In the admin, **Forms** lists every form, with its responses.
+
+1. **New form:** give it a name, then add questions in the editor.
+2. **Place it on a page:** in the page builder, add a **Form** block (under **Plugins**) to a page, or to the Pet page template, and pick the form.
+3. **Read the responses** in **Forms → (the form) → Responses**. New ones are marked until someone opens them.
+
+A site can keep up to 100 forms.
+
+### Questions
+
+| Type | Notes |
+| --- | --- |
+| Short answer, Long answer | Plain text, up to 300 and 5000 characters |
+| Email | Checked as one email address. Commas, semicolons, angle brackets and quotes are refused, so an answer can never turn into a list of recipients |
+| Phone number | Checked with the site's phone rules; stored in international format (`+60…`) |
+| Number, Date | Real numbers and real calendar dates only |
+| One choice | Radio buttons or a dropdown |
+| Several choices | Checkboxes |
+| Tick box | One box, such as "I agree" |
+| Choice from site data | A dropdown filled from the site when the form is shown. Today there is one list: **Pets up for adoption**, the pets that are listed and not adopted. The pick is checked against the current list when the form is sent, and stored as the pet's name plus a reference to the pet |
+
+**Each question can have:**
+
+- a label;
+- a hint;
+- a required mark;
+- options, for the choice types.
+
+**Changing a question** never changes the answers already received, because each answer keeps the label and type it was given under.
+
+**Limits:**
+
+- 50 questions per form;
+- 30 options per question;
+- 200 characters per label.
+
+### Each form's settings
+
+- **Button text** and the **message after sending**.
+- **Email new responses to:** an address for your team, with a choice of template. See [Notifications and confirmations](#notifications-and-confirmations).
+- **Confirmation to the visitor:** sent to the address given in one of the form's Email questions.
+- **Open or closed:** a closed form still shows on the page, with a note that it isn't accepting responses.
+- **Spam trap:** see [Spam](#spam).
+
+## The Form block
+
+The **Form** block sits under **Plugins** in the page builder, on ordinary pages and in the Pet page template.
+
+| Option | What it does |
+| --- | --- |
+| Form | The form to show. Only its name and whether it is closed are listed |
+| Heading | The block's heading. Leave it blank to use the form's name |
+| Show the form's description | Yes or No |
+| Background | Plain, Tinted or Dark |
+| Padding | Top and bottom, like every block |
+
+- **In the page builder,** the form never sends, and a captcha shows as a placeholder, so no captcha service loads into the editor.
+- **If the form is deleted,** the block shows nothing on the site. A page never breaks because of a form.
+- **Errors:** when a visitor's answers have problems, a summary at the top lists them and takes focus, and each error sits beside its question.
+
+## Responses
+
+Responses arrive in **Forms → (the form) → Responses**.
+
+- **Reading:** new responses are marked until someone opens them.
+- **Deleting:** admins and editors can delete responses. Deleting a form deletes its responses too.
+- **Downloading:** **CSV** downloads every response of a form. The cells are spreadsheet-safe, so a cell can't run as a formula.
+- **Limits:** a form accepts up to 10,000 responses. Past that it refuses new ones until some are deleted.
+- **What the activity log records:** changes to forms, deleted responses and downloads, naming fields but never answers. Marking responses as read is not recorded.
+
+## Notifications and confirmations
+
+**Emails need the site's email set up** (**Email → Sending**). Without it, responses are still stored; only the emails are skipped.
+
+- **Team notification:** each new response is emailed to the form's **Email new responses to** address. The email can list the answers, with the template's **Details** block.
+- **Visitor confirmation:** the form emails the address the visitor gave in the Email question you choose.
+  - It never repeats their answers, since anyone can type any address into a public form.
+  - Each address gets at most 3 an hour, and one visitor can trigger at most 10 an hour. Past that the response is still stored; only the email is skipped.
+
+**Templates.** The plugin brings two templates, **Form response** (team notification) and **Form confirmation** (message to a visitor). Forms use them until you pick others, so a form's emails always have a template. You can edit them in **Email → Templates** and restore them, but not delete them. Templates you make yourself can be picked on each form. See [Email templates](./email.mdx#email-templates).
+
+### Who can route responses
+
+Responses are personal data, so only people who may read them choose where they are emailed:
+
+- **Setting or changing** a form's **Email new responses to** address needs a role that can see responses (admin or editor).
+- **Deleting a form that has responses** needs the same.
+
+A developer can build and edit forms, but can never have responses emailed to them.
+
+## Privacy
+
+Forms collect personal data, and visitors must be told how it's used, where they type it.
+
+- **Until the site has a live privacy policy:**
+  - the **Forms** screen and the **New form** dialog show a warning;
+  - admins and developers get a link to choose the policy page in **Site settings → Navigation**.
+
+  It's a warning, not a block, so forms can be drafted while the policy is written.
+- **Once the policy page is live,** every form shows "We use your answers as described in our *Privacy policy*" under its button, linking to it (with your page's own title). The site's footer links to it too.
+- **Who sees responses:** admins and editors. Audit can view them but not download them, and developers can't open them at all.
+
+If you switch on captcha, mention the service in your privacy policy too: it processes visitors' data to tell people from bots.
+
+## Spam
+
+Three layers, in this order, before anything is stored.
+
+### 1. Sending limits
+
+- 10 sends per 10 minutes from one visitor;
+- 200 an hour per form, from everyone.
+
+### 2. The spam trap
+
+Every form has a hidden box labelled "Website" (a honeypot: a trap for automated senders).
+
+- **Who fills it:** people never see it, and screen readers and the keyboard skip it. Bots fill in every box, so a filled trap marks a bot.
+- **What a bot gets:** the usual "sent" message, while nothing is saved, emailed or counted.
+- **Where to change it:** the **Spam trap** card in the form editor, apart from the questions. It's on by default.
+- **When to switch it off:** only if a tool you use fills forms in automatically.
+- **Reserved name:** a question can never have the id `website`, or its real answers would look like spam.
+
+### 3. Captcha (optional)
+
+A captcha is a check that tells people from bots. Set one up in **Forms → Spam protection**. Admins and developers change it; audit can view it.
+
+**Services:**
+
+- Cloudflare Turnstile;
+- Google reCAPTCHA v3 (invisible, with a minimum score of 0.3, 0.5 or 0.7; forms from visitors scored below it are refused);
+- Google reCAPTCHA v2 (checkbox);
+- hCaptcha.
+
+**Setting it up:**
+
+1. Create a site at the service and copy its **site key** and **secret key**.
+2. Choose the **Service**, paste both keys, and save. The secret is stored encrypted and never shown again.
+3. Press **Check these keys**. The real widget is shown with your site key, and its token is verified with your secret key.
+4. Once the keys work, switch on **Protect forms**.
+
+<Callout type="warn" title="Keys must pass a check first">
+Saved keys protect forms only after **Check these keys** verifies a real token with them, so a typo can never stop every form. Changing the service, the site key or the secret key switches protection off until the new keys pass.
+</Callout>
+
+**How it works:**
+
+- **Server check:** each visitor's token is verified with the service on the server, and the answer must name this site's address (a leading `www.` aside). A site running on `localhost` skips the address check, because the services' test keys answer with names of their own.
+- **If the service can't be reached,** the form is refused with an explanation, so nothing slips through during an outage.
+- **If the saved secret can no longer be read** (for example after `BETTER_AUTH_SECRET` changed), forms are refused too. Enter the secret key again and check the keys.
+- **The content security policy** already allows the four services, so nothing needs changing there.
+
+**Testing locally:** Cloudflare's Turnstile test keys always pass and work on localhost:
+
+```text
+Site key:   1x00000000000000000000AA
+Secret key: 1x0000000000000000000000000000000AA
+```
+
+## Who can do what
+
+| | Admin | Editor | Developer | Audit |
+| --- | --- | --- | --- | --- |
+| See forms | Yes | Yes | Yes | Yes |
+| Create, edit, open or close, delete forms | Yes | Yes | Yes | No |
+| Choose where responses are emailed | Yes | Yes | No | No |
+| Read responses | Yes | Yes | No | Yes |
+| Delete responses | Yes | Yes | No | No |
+| Download responses (CSV) | Yes | Yes | No | No |
+| Spam protection settings | Change | No | Change | View |
+
+The roles are explained in [Users and roles](./users-and-roles.mdx).
+
+## What it stores
+
+Its own tables, all named `plugin_form_builder_*`, in the site's database (SQLite or PostgreSQL):
+
+| Table | Holds |
+| --- | --- |
+| `plugin_form_builder_forms` | Each form: name, description, questions, settings, open or closed |
+| `plugin_form_builder_responses` | Each response: the answers (each with the label and type it had), when it arrived, when it was first read. Deleted with its form |
+| `plugin_form_builder_settings` | One row: the spam protection service, site key, encrypted secret key, minimum score, on or off, and when the keys were last checked |
+
+**Removing the plugin** keeps its tables and data; pages that used the Form block stop showing it.

@@ -1,18 +1,21 @@
-# Releasing
+---
+title: Releasing
+description: The maintainers' runbook for publishing the npm packages, tagging the release and writing the GitHub release.
+---
 
-The maintainer's runbook for publishing Pet Adopt's npm packages, tagging the release and writing the GitHub release.
+The maintainers' runbook for publishing Pet Adopt's npm packages, tagging the release and writing the GitHub release.
 
 ## What gets published
 
 | Package | From | What it is |
-|---|---|---|
+| --- | --- | --- |
 | `@pet-adopt/plugin-sdk` | `packages/plugin-sdk` | What plugins and a site's config import |
 | `@pet-adopt/plugin-form-builder` | `plugins/form-builder` | The form builder plugin, with the **Form** block |
 | `@pet-adopt/plugin-instagram-feed` | `plugins/instagram-feed` | The Instagram feed plugin, with the **Instagram feed** block |
 
 **Not published:**
 
-- **The web app** (`apps/web`): a site is a clone of this repository.
+- **The web app** (`apps/web`): a site is a clone of the repository.
 - **`@pet-adopt/ui`** (`packages/ui`): every site keeps its own copy. Plugins take it as a peer dependency.
 - **The example plugin** (`plugins/adoption-tips`): it stays in the repository for plugin authors to copy.
 
@@ -20,9 +23,17 @@ The maintainer's runbook for publishing Pet Adopt's npm packages, tagging the re
 
 - **The three packages share the project's version.** A release sets the same `version` in the root `package.json`, `apps/web`, `packages/plugin-sdk`, `plugins/form-builder`, `plugins/instagram-feed` and `plugins/adoption-tips` (not published, but kept in step).
 - **The git tag is `vX.Y.Z`**, the same number.
-- **Below 1.0,** a minor version (0.2.0) may need action from people who update. A patch version (0.1.1) never does. [`CHANGELOG.md`](../CHANGELOG.md) says the same to readers.
+- **Below 1.0,** a minor version (0.2.0) may need action from people who update. A patch version (0.1.1) never does. [`CHANGELOG.md`](https://github.com/muhammadarifftaha/pet-adopt/blob/main/CHANGELOG.md) says the same to readers.
 - **The plugins' range on the SDK follows by itself.** They name it as `workspace:^`, which pnpm writes as `^X.Y.Z` when it packs.
 - **`@pet-adopt/ui` keeps its own version.** Each site's copy stays at the release the site was cloned from, so plugins peer on it as `>=0.1.0`, not on the current release; otherwise every older site would get a peer warning after each release. Raise that floor only when a plugin needs a component an older copy does not have, and say so under **Upgrading** in the changelog.
+
+## The changelog
+
+[`CHANGELOG.md`](https://github.com/muhammadarifftaha/pet-adopt/blob/main/CHANGELOG.md) lists what changed in each release, newest first, in the [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format.
+
+- **Each release has a section** headed with its version and date. Until it is released, the heading reads `## X.Y.Z (not released yet)`.
+- **Anything that needs action** from people who update goes under **Upgrading** in that release.
+- **The GitHub release** carries that version's section as its notes.
 
 ## What cannot be undone
 
@@ -43,16 +54,17 @@ Do this once, before the first release.
 1. **Two-factor on the account.** Switch it on for the npm account that owns the packages, for sign-in and for publishing.
 2. **The organisation.** The packages are scoped to `@pet-adopt`. Check that the organisation exists and that the publishing account is an owner of it.
 3. **Publish the first version of each package by hand.** npm can only attach a trusted publisher to a package that already exists, so the workflow cannot publish a package's first version. See [The first release](#the-first-release).
-4. **Attach the trusted publisher** to each of the three packages. On the package's page on npmjs.com, open **Settings**, then **Trusted publisher**, choose GitHub Actions, and enter:
+4. **Attach the trusted publisher** to each of the three packages. A trusted publisher lets a named GitHub Actions workflow publish without a stored npm token. On the package's page on npmjs.com, open **Settings**, then **Trusted publisher**, choose GitHub Actions, and enter:
 
    | Field | Value |
-   |---|---|
+   | --- | --- |
    | Organisation or user | `muhammadarifftaha` |
    | Repository | `pet-adopt` |
    | Workflow filename | `publish-packages.yml` |
    | Environment | `release` |
 
    Renaming the workflow file or the environment breaks publishing until all three packages are updated.
+
 5. **The `release` environment on GitHub.** In the repository's **Settings**, open **Environments** and check that `release` exists with:
 
    - **Required reviewers:** the maintainers who may approve a publish.
@@ -60,6 +72,7 @@ Do this once, before the first release.
    - **Deployment branches and tags:** selected branches, `main` only.
 
    A real publish then stops after **Pack and check** and waits for an approval. Read the packed file list and the tarball digest in that job before you approve. A dry run never asks.
+
 6. **After that, publish only through the workflow.** It uses npm's trusted publishing, so no npm token is stored in the repository. Once the workflow has published successfully, set each package to require two-factor and refuse tokens, in the same settings page.
 
 ## Before each release
@@ -67,7 +80,7 @@ Do this once, before the first release.
 Work on a branch from `main`, with a clean working tree.
 
 1. **Set the version** in every `package.json` listed under [Versions](#versions).
-2. **Write the changelog entry** in [`CHANGELOG.md`](../CHANGELOG.md): rename the "not released yet" heading to the version and the date. Put anything that needs action under **Upgrading**.
+2. **Write the changelog entry** in [`CHANGELOG.md`](https://github.com/muhammadarifftaha/pet-adopt/blob/main/CHANGELOG.md): rename the "not released yet" heading to the version and the date. Put anything that needs action under **Upgrading**.
 3. **Run the checks,** from the repository root:
 
    ```bash
@@ -78,7 +91,8 @@ Work on a branch from `main`, with a clean working tree.
    pnpm build
    ```
 
-   Run `pnpm check:backend` twice: once on SQLite and once on PostgreSQL. It needs a throwaway database, the local storage and mail servers (`docker compose up -d garage mailpit`) and a few variables on its command line. The header of `apps/web/scripts/check-backend.ts` gives the command for each database. Never point it at a real site.
+   Run `pnpm check:backend` twice: once on SQLite and once on PostgreSQL. It needs a throwaway database, the local storage and mail servers (`docker compose up -d garage mailpit`) and a few variables on its command line. The header of [`apps/web/scripts/check-backend.ts`](https://github.com/muhammadarifftaha/pet-adopt/blob/main/apps/web/scripts/check-backend.ts) gives the command for each database, and so does [Scripts](../getting-started/scripts.mdx#checks). Never point it at a real site.
+
 4. **Pack the packages by hand** if anything about packaging changed. In each package folder:
 
    ```bash
@@ -111,6 +125,7 @@ Work on a branch from `main`, with a clean working tree.
    Then `pnpm build` and `pnpm start`, and open the admin: **Forms** and **Instagram** should be styled, and both blocks should be in the page builder. The tarballs are compiled JavaScript, so this is what a site gets from npm.
 
    - **To check the styles for real,** delete the line `@source "../../../../plugins";` from `packages/ui/src/styles/globals.css` in the scratch clone first. Otherwise Tailwind still finds the class names in the plugins' source, and a missing `@source` line for `node_modules` would go unnoticed.
+
 6. **Merge to `main`** and wait for CI to pass.
 7. **Run the publish workflow's dry run for each package.** In GitHub, open **Actions**, choose **Publish packages** (`.github/workflows/publish-packages.yml`), and run it from `main` with **Dry run** left on, once for each of the three packages. It installs, typechecks, packs and checks the package, and publishes nothing. Read the list of files it prints, and the summary line with the version.
 
@@ -153,15 +168,15 @@ npm publish <a scratch folder>/<the tarball>.tgz --access public
 
 Then:
 
-1. Attach the trusted publisher to each package (step 4 of the one-time setup).
+1. Attach the trusted publisher to each package (step 4 of the [one-time setup](#one-time-setup-on-npmjscom)).
 2. Tag `v0.1.0`, push the tag, and create the GitHub release.
 3. Delete the "Not published yet" notes. Find them with:
 
    ```bash
-   grep -rn "Not published yet" --include='*.md' --exclude-dir=node_modules .
+   grep -rn "Not published yet" --include='*.md' --include='*.mdx' --exclude-dir=node_modules .
    ```
 
-   They are in `README.md` and in the READMEs of the published packages. Leave the lines in this file alone.
+   They are in `README.md`, in the READMEs of the published packages, and in these docs (the [Project structure](../getting-started/project-structure.mdx#packages) page). Leave the lines in `docs/releasing.md` and on this page alone.
 
 ## After a release
 

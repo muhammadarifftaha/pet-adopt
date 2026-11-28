@@ -1,0 +1,39 @@
+---
+title: Hosting a site for someone else
+description: Keep a client's admins away from your own network, and what to settle with the client.
+---
+
+When you host a site for a client, the client's admins sign in to a server on **your** network. Treat them as people you do not trust with that network: the site is built so that its admins cannot use it to reach machines that only your server can see.
+
+## Addresses the server connects to
+
+Two settings in the admin make the server connect to an address someone typed:
+
+- **Authentication → Sign-in providers**
+- **Email → Sending** (the mail server)
+
+By default the site refuses any such address that is inside a private network, so an admin cannot use these screens to reach machines that only your server can see. "Private" covers the usual private ranges, loopback (the machine itself), link-local and other reserved ranges. The check is made when a setting is saved, and again each time the server connects, so a name that later points somewhere else is refused too.
+
+Two switches turn that protection off:
+
+| Variable | Effect |
+|---|---|
+| `AUTH_PROVIDER_PRIVATE_ADDRESSES=1` | Sign-in providers may be on a private network |
+| `SMTP_PRIVATE_ADDRESSES=1` | A mail server typed on the Email screen may be on a private network |
+
+**Leave both unset when you host for someone else.**
+
+If you want the site to use a mail server on your own network, set it yourself with `SMTP_HOST` (and the other `SMTP_*` variables, see [Email](./settings.mdx#email)). A mail server set that way is trusted, shows as read-only in the admin, and needs no switch.
+
+Outside production, a sign-in provider or a mail server on the machine itself (`localhost`) is allowed, so local test servers work. In production, a mail server on the machine itself is refused on the Email screen too: set it with `SMTP_HOST` instead.
+
+## The mail server password
+
+A saved SMTP password belongs to the server it was typed for. Changing the mail server's host on the Email screen needs the password typed again, or removed. Otherwise someone who may change the settings, but never saw the password, could send it to a mail server of their own. When the password comes from `SMTP_PASSWORD`, the host can only move with `SMTP_HOST`.
+
+## Other things to settle with a client
+
+- **Who holds the admin role.** Admins manage accounts and settings. The developer role can change settings, themes and plugins but cannot see personal data or manage accounts. The audit role can look at everything and change nothing.
+- **Two-factor.** Under **Authentication → Two-factor** you can require it for chosen roles.
+- **A privacy policy.** Forms collect personal data. Choose the policy page under **Site settings → Navigation**; forms then link to it.
+- **Who reads the server log.** On a new site, the log holds the setup link, and whoever can read it can claim the site. Create the first account yourself (see [step 8](./index.mdx#8-create-the-first-account)), then invite the client.

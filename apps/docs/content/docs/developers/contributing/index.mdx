@@ -1,0 +1,101 @@
+---
+title: Contributing
+description: How to contribute to Pet Adopt, the checks to run, and the rules the code keeps.
+---
+
+Issues and pull requests are welcome.
+
+## How to contribute
+
+1. **Fork the repository,** then `pnpm install` and `pnpm dev` (see the [Quick start](../getting-started/index.mdx)). Use pnpm only.
+2. **Make your change on a branch** named as in [Branch names](#branch-names).
+3. **Run the checks** below before opening a pull request.
+4. **Open the pull request** against `main`.
+
+Found a security problem? Please read [`SECURITY.md`](https://github.com/muhammadarifftaha/pet-adopt/blob/main/SECURITY.md) and report it privately, through the repository's **Security** tab, instead of opening a public issue.
+
+## The checks to run
+
+Before opening a pull request, from the repository root:
+
+```bash
+pnpm typecheck
+pnpm lint
+pnpm check:schemas
+```
+
+**If you touched the backend or a schema:**
+
+- Also run `pnpm check:backend`, ideally on both SQLite and PostgreSQL. [Scripts](../getting-started/scripts.mdx#checks) gives the command for each, and what it needs running.
+- If you changed the schema, edit **both** schema files and commit the output of `pnpm db:generate`.
+
+[Scripts](../getting-started/scripts.mdx) explains every command.
+
+## Principles
+
+- **Keep the project self-contained.** New features should work with npm packages only, with no required outside service. Optional integrations (S3 storage, Turso, captcha) are fine when the default needs nothing.
+- **Never put secrets in the repository.** `apps/web/.env` is git-ignored; document new variables in `apps/web/.env.example`.
+
+## Rules to keep
+
+- **Schema changes:** edit both schema files (`apps/web/src/db/schema/sqlite.ts` and `pg.ts`), run `pnpm db:generate`, then `pnpm check:schemas` and `pnpm check:backend`. Keep columns portable between the two databases: integer ids, JSON for lists, plain text for options.
+- **Server actions:** every exported action starts by checking a permission, validates its input, and returns an `ActionResult`. An action that changes something records it in the activity log. `pnpm check:backend` enforces both.
+- **Errors:** never log an error object from the data layer. Database errors carry the values of the query (records, emails, password hashes). Use the logging helpers in `apps/web/src/server/result.ts`.
+- **Transactions:** use `withTransaction` from `apps/web/src/db/client.ts`, not Drizzle's own.
+- **Anything a person can type that ends up in a page** (links, embeds, rich text, block options, theme values) goes through the existing validators and sanitisers. Do not render stored values as HTML or put them into class names unchecked.
+- **Anything the server connects to because someone typed an address** (a sign-in provider, a mail server) follows the existing checks for those settings. Read them before adding another.
+- **Uploads** are raster images only, stored in S3-compatible object storage. Keep code and docs provider-neutral: never name a particular storage provider.
+- **Plugins** never import the app, and their tables carry the plugin's prefix.
+- **UI:** the admin uses `@pet-adopt/ui` and Tailwind; the public site uses plain CSS driven by theme variables. Every colour, radius, font and spacing value is a variable.
+- **Accessibility:** WCAG 2.2 AA. Every control has a visible label, errors are tied to their fields, and nothing depends on drag alone.
+
+## Conventions
+
+- **pnpm only.** Add a dependency to the package that uses it, with `pnpm --filter <package> add <name>`, never at the root.
+- **Scripts** live in `apps/web/scripts`, run with `tsx`, and load `.env` only through the package scripts.
+- **CI actions are pinned to commit SHAs,** with the version in a comment. Pin any new one the same way.
+- **Versions in `package.json` are pinned on purpose.** Check the installed version before assuming an API.
+
+### Branch names
+
+Branch names are `<type>/<topic>`: a type, then a short topic in lower case with dashes.
+
+| Type | For |
+| --- | --- |
+| `feat/` | A new feature |
+| `fix/` | A bug fix |
+| `hotfix/` | An urgent fix |
+| `chore/` | Upkeep: dependencies, tooling, housekeeping |
+| `docs/` | Documentation only |
+| `refactor/` | A change to the code that keeps its behaviour |
+
+For example `feat/pet-location-and-time-zone` or `fix/login-redirect`.
+
+## Working on these docs
+
+This site is a [Fumadocs](https://fumadocs.dev) app in `apps/docs`. Pages are MDX files in `apps/docs/content/docs/`, and each folder's `meta.json` sets its title and page order.
+
+```bash
+pnpm dev:docs        # http://localhost:3001
+```
+
+- One `.mdx` file per page, with `title` and `description` in its front matter.
+- Link to another page by its file path, such as `[Scripts](../getting-started/scripts.mdx)`: the link is checked against the content and turned into the page's address.
+- Keep to plain Markdown where you can, so the file still reads well on GitHub.
+- `pnpm typecheck`, `pnpm lint` and `pnpm build` at the root include this app.
+
+## Releasing
+
+Maintainers publish the npm packages, tag releases and write the GitHub release by following [Releasing](./releasing.mdx).
+
+## Licence
+
+[MIT](https://github.com/muhammadarifftaha/pet-adopt/blob/main/LICENSE), copyright © 2026 muhammadarifftaha.
+
+### Data credits
+
+The countries, and the city and state suggestions in the pet form, come from the [Countries States Cities Database](https://github.com/dr5hn/countries-states-cities-database), installed as the npm package [`@countrystatecity/countries`](https://www.npmjs.com/package/@countrystatecity/countries). That database is made available under the [Open Database License (ODbL) 1.0](https://opendatacommons.org/licenses/odbl/1-0/), and any rights in its individual contents under the [Database Contents License](https://opendatacommons.org/licenses/dbcl/1-0/). It is not covered by the project's MIT licence.
+
+- The site reads the data unchanged from the installed package and keeps only the place names people pick; the repository holds no copy of it.
+- The database draws on other open sources (national statistics offices, postal services, GeoNames and others), each with its own credit. They are listed in the `NOTICE-*.txt` files inside the package (`node_modules/@countrystatecity/countries/`). If you pass the data on, for example in a container image or another bundle of the site, keep those files and the package's `LICENSE` with it.
+- If you publish a changed version of the database, the ODbL asks you to share it under the same licence.

@@ -1,0 +1,13 @@
+{
+  "title": "Plugins",
+  "pages": [
+    "index",
+    "screens-and-cards",
+    "storage",
+    "blocks",
+    "host-services",
+    "email",
+    "theming",
+    "packaging"
+  ]
+}

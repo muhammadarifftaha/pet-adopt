@@ -1,0 +1,187 @@
+---
+title: Signing in
+description: Passwords and lockouts, reset links, two-factor sign-in, your own sign-in providers, and changing your sign-in email.
+---
+
+The team signs in at `/admin/login`. Visitors never sign in: there are no visitor accounts and no public sign-up. Who can do what once signed in is on [Users and roles](./users-and-roles.mdx).
+
+Everyone manages their own picture, name, password, email address, two-factor and connected providers on the **Account** page.
+
+## Passwords
+
+- **Length:** at least 12 characters on a production site (8 in development), and at most 128.
+- **Sessions** last two hours. Cookies are HTTP-only, and HTTPS-only in production.
+- **Changing your password:** on the **Account** page, with your current password. It signs you out on your other devices. It also cancels a pending change of your sign-in email and any reset link made before, since whoever had the old password may have asked for them.
+
+### Attempt limits
+
+Sign-in attempts are counted before the password is checked, so a burst of guesses at once can't slip past:
+
+| Limit | Counts | Then |
+| --- | --- | --- |
+| 30 per 10 minutes | Every attempt from one client address | That address waits |
+| 5 per 10 minutes | Attempts on one email from one client address | That email is locked for that client |
+| 100 per hour | Attempts on one email, from anywhere | That email is locked |
+
+- **Why the middle limit is per client:** someone typing an owner's email from their own machine only locks themselves out, not the owner.
+- **A lock doesn't grow** while it lasts: it ends a fixed time after the attempt that reached the limit. A successful sign-in clears that email's counters.
+- **Changing your password** (and confirming it to delete your account) has its own limit: 5 wrong tries per 10 minutes, per person.
+- **Failed sign-ins** are recorded in the [activity log](./activity-log.mdx), against the account they were aimed at. The email that was typed is never stored.
+
+**Client addresses** come from the `X-Forwarded-For` header (or the one named in `CLIENT_IP_HEADER`), counting `TRUSTED_PROXY_HOPS` entries from the end. Only a reverse proxy you control can be trusted to set it, so run the site behind one. See [The reverse proxy](../developers/deployment/reverse-proxy.mdx).
+
+### A locked-out owner
+
+If an owner is locked out or has forgotten their password, and no other admin can help, run this where the site's `DATABASE_URL` works (from the repository root):
+
+```bash
+NEW_PASSWORD='a-long-password' pnpm admin:reset-password owner@example.com
+```
+
+It sets the new password, signs the account out everywhere and lifts its sign-in lockouts. The password comes from the environment, not an argument, so it stays out of the process list.
+
+## Password reset links
+
+A reset link is a one-time link to `/admin/reset-password` that lets someone who can't sign in choose a new password.
+
+- **From an admin:** on the Users screen, **Reset link** makes one to share however you like, with a **Copy** button.
+- **By email:** when the site can send email, people ask for one on the reset page (linked from the sign-in page). Without email, the page says to ask an admin.
+
+**How links work:**
+
+- **Valid** for one hour, once. A new link for someone cancels their older ones.
+- **Stored** only as a hash, so a copy of the database holds no working links.
+- **Built** from `NEXT_PUBLIC_SERVER_URL`, never from the address the request came in on.
+- **Using one** sets the password and signs the person out everywhere, then lifts their sign-in lockouts. It also cancels a waiting invite and a pending email change.
+- **Archived accounts** get no links, and archiving cancels the ones already made.
+- **Two-factor stays on.** A reset doesn't turn it off, or anyone who can read the mailbox would get past the second step.
+
+**Asking by email** always gets the same answer, whether or not the address has an account, and finding the account and sending happen after the answer, so the timing doesn't tell either. It is limited too:
+
+- 10 requests per 15 minutes from one client address, then an error;
+- 3 per email address per hour. Past that the answer looks the same, but nothing is sent and no link is made, so a stranger typing an owner's address can't flood their inbox or cancel the link already in it.
+
+The email is the system email **Password reset**, which you can edit in **Email → Templates** (see [Email](./email.mdx#system-emails)).
+
+## Two-factor sign-in
+
+Two-factor sign-in asks for a second proof after the password: a 6-digit code from an **authenticator app** (an app on your phone, such as Google Authenticator, 1Password or Aegis, that shows a new code every 30 seconds), or one of ten one-time **backup codes**. There are no email or SMS codes.
+
+It's optional for everyone, and admins can require it for chosen roles.
+
+### Setting it up
+
+On the **Account** page:
+
+1. Confirm your password.
+2. **Save the backup codes.** They are shown once. Each works once, for when you don't have your phone.
+3. **Scan the QR code** with your authenticator app, or type the key shown beside it.
+4. **Enter a code** from the app. That turns two-factor on.
+
+**Make new codes** (new backup codes) and **Turn off** both need your password. Someone whose role requires two-factor can't turn it off.
+
+### Signing in with it
+
+After the password, the sign-in page asks for a code. Type the app's 6-digit code or a backup code into the same box.
+
+- **Time:** you have 10 minutes to enter it.
+- **Wrong codes:** 5 wrong codes end that sign-in; start again. 10 wrong codes in a row lock the code step for that account for 15 minutes. Wrong codes are recorded in the activity log.
+- **Trust this browser for 30 days:** tick it to skip the code on that browser for 30 days. Turning two-factor on or off, or an admin turning it off, forgets every trusted browser.
+
+The secret and the backup codes are stored encrypted with `BETTER_AUTH_SECRET`.
+
+### Required roles
+
+On **Authentication** (under Settings), an admin ticks the roles that must use two-factor. Audit can view the setting.
+
+- **Someone in a ticked role** who hasn't set it up sees a setup screen instead of the admin, and every action that needs a permission is refused until they do. Their own Account page still works, so they can set it up.
+- **They can't turn it off** while their role requires it.
+- **A sign-in provider counts as two-factor:** someone who signs in with a provider is let through, because the provider does its own checks.
+
+### Lost phone and backup codes
+
+- **An admin** turns it off for that account on the Users screen (**Turn off 2FA**). Nobody can do this for themselves.
+- **The last admin,** or anyone no other admin can help, can be recovered from the server. Run this where the site's `DATABASE_URL` works:
+
+  ```bash
+  pnpm --filter @pet-adopt/web admin:reset-2fa owner@example.com
+  ```
+
+  It removes the account's authenticator secret, backup codes and trusted browsers. The password stays the same. If their role requires two-factor, they set it up again at once.
+
+A password reset never turns two-factor off.
+
+## Sign-in providers
+
+A sign-in provider lets the team sign in with an account they already have elsewhere, such as their organisation's Google Workspace, Microsoft or Keycloak account. Pet Adopt works with any provider that speaks **OpenID Connect** (OIDC, the common standard for this) or plain **OAuth 2**. You bring your own: there is no shared app.
+
+Providers are set up on **Authentication → Sign-in providers**. Admins add and change them; audit can view them.
+
+### Adding a provider
+
+1. **At the provider,** create an app (often called a client or an integration) for your site.
+2. **In Pet Adopt,** choose the kind and fill in the form:
+
+   | Field | What to enter |
+   | --- | --- |
+   | Name | What the sign-in button says, such as "Google" |
+   | Kind | **OpenID Connect** (most providers: one discovery URL) or **OAuth 2** (enter the endpoints by hand) |
+   | Discovery URL | OpenID Connect only. It usually ends in `/.well-known/openid-configuration` |
+   | Authorization, token and user info URLs | OAuth 2 only. The user info URL must return an email |
+   | Client ID | From the provider's app |
+   | Client secret | From the provider's app. Stored only encrypted and never shown again; leave it blank to keep the saved one, or tick **Remove the saved secret**. Without a secret the site signs in as a public client |
+   | Scopes | Defaults to `openid email profile` (OpenID Connect) or `email profile` (OAuth 2) |
+   | On | Whether the provider can be used |
+
+3. **Copy the redirect address** the screen shows (it has a **Copy** button) into the provider's app, as an allowed redirect or callback address. It looks like `https://adopt.example.com/api/auth/callback/google`: your `NEXT_PUBLIC_SERVER_URL`, then a short name made from the provider's name when it is first saved (`google`, then `google-2`...). That name never changes, so the address stays valid if you rename the provider.
+
+You can add any number of providers. Every sign-in uses PKCE (a check that stops a stolen sign-in code from being used elsewhere). Changes reach every server running the site within 30 seconds.
+
+### Addresses the site accepts
+
+- **https only.** Plain http is accepted only for a provider on the same machine (`localhost`), and only outside production, for testing. An address may not contain a user name, a password or a `#` part.
+- **On the public internet.** The addresses the server itself calls (the discovery document, the token, user info and signing-key addresses) must not point at a private network. A discovery document that redirects, or that names a private address, is refused too. These are checked when you save, and again at every connection, so an address that changes where it points later is still refused.
+- **A provider on your own network:** whoever runs the server sets `AUTH_PROVIDER_PRIVATE_ADDRESSES=1`. This rule exists because a site's admin may not be the person who runs the server; see [Hosting a site for someone else](../developers/deployment/hosting-for-others.mdx).
+
+### Linked first
+
+A provider **never creates an account** and **never links one by matching email**. So a provider that lets its users pick any email can't take an account over.
+
+1. **Connect it:** each person signs in with their password first, then presses **Connect** beside the provider on their **Account** page.
+2. **Sign in with it:** from then on, the sign-in page's **Sign in with** button for that provider signs them in.
+
+- **One account each:** a provider account can be connected to only one account on the site.
+- **Disconnect** on the Account page removes the connection. The password always stays.
+- **Deleting a provider** disconnects everyone from it.
+- **Errors** from the provider come back to the sign-in page or the Account page, with an explanation.
+- **Your email here isn't touched:** connecting never changes your sign-in email, and changing your email never affects a connection.
+- **A profile picture:** someone with no picture who connects an OpenID Connect provider gets the provider's picture.
+
+Provider sign-ins and connections are recorded in the [activity log](./activity-log.mdx).
+
+## Changing your sign-in email
+
+Your email matters for password sign-in, reset links and invites: whoever controls it can reset your password. So changing it takes a confirmation.
+
+### Yourself
+
+On the **Account** page, enter the new address and your current password.
+
+1. A one-time link goes to the **new** address (system email **Confirm new email**). It works for 24 hours.
+2. The **old** address gets an **Email change notice** at once, so you would notice a change you didn't ask for.
+3. The change happens only when you press **Confirm** on the page the link opens (a button, so a mail scanner opening the link changes nothing). It works whether or not you are signed in.
+
+- **Limits:** 5 requests an hour. A new request cancels the older link.
+- **Without email on the site,** you can't change it yourself; ask an admin.
+- **Changing your password** cancels a pending change, in case someone else asked for it with your old password.
+
+### As an admin
+
+On the Users screen, **Edit** someone and type a new address.
+
+- **It changes at once.** The address must not be used by another account, archived ones included.
+- **Both addresses** get the **Email change notice**.
+- **The new address is unconfirmed** until the person confirms it (see [Confirmed emails](./users-and-roles.mdx#confirmed-emails)).
+- **Cancelled:** a pending change the person asked for themselves, and reset links sent to the old address. A waiting invite is sent again to the new address.
+
+The activity log records that an email changed, never the addresses.

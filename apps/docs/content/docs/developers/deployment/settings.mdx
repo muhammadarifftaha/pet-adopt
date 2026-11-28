@@ -1,0 +1,125 @@
+---
+title: Settings reference
+description: Every environment variable a site reads, with its default and what it does.
+---
+
+The site is configured with environment variables. Put them in `apps/web/.env`, or in your host's environment settings. [`apps/web/.env.example`](https://github.com/muhammadarifftaha/pet-adopt/blob/main/apps/web/.env.example) holds the same list with comments, and `pnpm setup:env` copies it for you (see [step 1](./index.mdx#1-get-the-code-and-install)).
+
+Most settings are read while the site runs, so a restart picks up a change. A few are read **when you build** and are compiled into the site: changing one of those means building again. The tables mark them.
+
+<Callout type="warn" title="Never commit .env">
+`apps/web/.env` holds the site's secret and storage keys. Keep it out of version control, and keep a copy with your other secrets.
+</Callout>
+
+## Required
+
+| Variable | Default | What it does |
+|---|---|---|
+| `BETTER_AUTH_SECRET` | none | Signs sessions and encrypts stored secrets (the SMTP password, sign-in provider secrets, captcha keys, two-factor secrets). At least 32 random characters; generate one with `openssl rand -hex 32`. In production the server refuses to start without a strong one. Changing it signs everyone out, stops two-factor for accounts that had it, and means typing every stored secret in again. |
+| `NEXT_PUBLIC_SERVER_URL` | none (the example file has `http://localhost:3000`) | **Read when you build.** The site's exact public address, with the scheme and no trailing slash, such as `https://adopt.example.com`. Links in emails and share cards are built from it, it is the only origin allowed to make signed-in requests, and an `https://` address switches on HSTS. Required in production. |
+
+## First account
+
+Usually leave these unset: on a new site the server prints a one-time setup link to its log, and whoever can read the log creates the first admin there (see [step 8](./index.mdx#8-create-the-first-account)).
+
+| Variable | Default | What it does |
+|---|---|---|
+| `SEED_ADMIN_EMAIL` | none | For unattended installs: with `SEED_ADMIN_PASSWORD`, the server creates this admin when it starts, but only while the site has no accounts at all. |
+| `SEED_ADMIN_PASSWORD` | none | That admin's password: 12 characters or more in production (8 elsewhere). Remove both values once the account exists. |
+
+## Database
+
+| Variable | Default | What it does |
+|---|---|---|
+| `DATABASE_URL` | `file:../../data/pet-adopt.db` (a SQLite file in `data/` at the repository root, relative to `apps/web`) | Which database to use. `postgres://` or `postgresql://` for PostgreSQL; `file:` for a SQLite file; `libsql://` (or `https://`) for hosted libSQL. `pnpm build` migrates PostgreSQL and hosted libSQL; a SQLite file migrates itself when the site opens it. |
+| `DATABASE_AUTH_TOKEN` | none | Hosted libSQL only: its access token. |
+| `DB_POOL_MAX` | `10` | PostgreSQL only: connections per server. Set it low (1 to 3) on serverless hosts, and use the pooler's address on a pooled connection. |
+| `DB_STATEMENT_TIMEOUT_MS` | `15000` | PostgreSQL only: cancel any query that runs longer than this many milliseconds. `0` turns it off. `pnpm migrate` turns it off by itself. |
+
+## Migrations on build
+
+`pnpm build` migrates PostgreSQL and hosted libSQL before building. These change when it does.
+
+| Variable | Default | What it does |
+|---|---|---|
+| `SKIP_BUILD_MIGRATE` | unset | `1` skips the migration, for builds that cannot reach the database. Run `pnpm migrate` before starting the server then. |
+| `MIGRATE_ON_PREVIEW` | unset | Vercel preview builds (`VERCEL_ENV` other than `production`) skip the migration, because a preview usually shares the production database. `1` runs it anyway, for previews with a database of their own. |
+
+## Upload storage
+
+Required. Uploads live only in S3-compatible object storage, never on the server's disk, and production refuses to start without valid settings. Check them with `pnpm --filter @pet-adopt/web storage:check`.
+
+| Variable | Default | What it does |
+|---|---|---|
+| `S3_BUCKET` | none | The bucket's name. The bucket can stay private: visitors load images through the site's `/media` route. |
+| `S3_ENDPOINT` | unset (AWS S3) | The provider's S3 API address, scheme and host only, such as `https://s3.example.com`. The bucket name goes in `S3_BUCKET`, not here. |
+| `S3_ACCESS_KEY_ID` | none | The access key. Required in production. Give it read, write and delete access to this bucket only. The placeholder in the example file and the development keys in `docker-compose.yml` are refused (the development keys are allowed only for a storage server on the same machine). |
+| `S3_SECRET_ACCESS_KEY` | none | The secret for that key. Set both keys or neither. |
+| `S3_REGION` | `us-east-1` | Your bucket's region on AWS. Other providers document theirs, or ignore it. |
+| `S3_FORCE_PATH_STYLE` | `true` when `S3_ENDPOINT` is set, otherwise `false` | Path-style addresses (`endpoint/bucket/key`) work with every S3-compatible server. Set `false` if your provider wants `bucket.endpoint/key`. |
+| `S3_PREFIX` | none | A folder inside the bucket, so several sites or environments can share one, such as `site/uploads`. Letters, digits, `.`, `_` and `-`, with `/` between folder names. |
+
+## Visitor addresses
+
+How the site reads each visitor's address, which every sign-in, reset and form limit counts by. See [The reverse proxy](./reverse-proxy.mdx) before changing these.
+
+| Variable | Default | What it does |
+|---|---|---|
+| `CLIENT_IP_HEADER` | `x-forwarded-for` | The header your reverse proxy or CDN sets to the visitor's address (Cloudflare uses `cf-connecting-ip`). Only trust a header your proxy overwrites. |
+| `TRUSTED_PROXY_HOPS` | `1` | How many of your own proxies add to that header. With a CDN in front of your own proxy, `2`. The lowest value is `1`. |
+
+## Email
+
+Optional. The site sends email (invites, password reset links, form notifications) over SMTP, set up in the admin under **Email → Sending**. Each variable here overrides that one field, which then shows read-only in the admin. Without email, an admin makes reset links on the **Users** screen and shares them by hand. Email works once there is a host and a sender address.
+
+| Variable | Default | What it does |
+|---|---|---|
+| `SMTP_HOST` | none | The mail server. A server set here is trusted and may be anywhere, including your own network. |
+| `SMTP_PORT` | `587` for `starttls`, `465` for `tls`, `25` for `none` | The port, 1 to 65535. |
+| `SMTP_SECURITY` | `starttls` | `starttls` (usually port 587), `tls` (usually 465) or `none` (local test servers only). |
+| `SMTP_USER` | none | The user name to sign in to the mail server. |
+| `SMTP_PASSWORD` | none | Its password, taken exactly as written. While it is set, the mail server can only be changed with `SMTP_HOST`. |
+| `EMAIL_FROM` | none | The sender: an address, or a name and an address, such as `Pet Adopt <no-reply@adopt.example.com>`. |
+| `EMAIL_REPLY_TO` | none | The reply-to address. |
+| `SMTP_PRIVATE_ADDRESSES` | unset | `1` lets a mail server typed on the Email screen be on a private network, or on this machine in production. Leave it unset when you host for someone else (see [Hosting for someone else](./hosting-for-others.mdx)). |
+
+A value that is not valid is listed as a problem on the Email screen.
+
+## Sign-in providers
+
+| Variable | Default | What it does |
+|---|---|---|
+| `AUTH_PROVIDER_PRIVATE_ADDRESSES` | unset | Sign-in providers (**Authentication → Sign-in providers**) must be on the public internet, because the server calls their addresses itself. `1` allows one on a private network (a company identity server, say). Leave it unset when you host for someone else. |
+
+## Search engines and security headers
+
+| Variable | Default | What it does |
+|---|---|---|
+| `SEARCH_INDEXING` | unset (indexed) | `off` keeps search engines away, for a staging server: `robots.txt` disallows everything, `sitemap.xml` is empty and every page sends `noindex`. A Vercel preview is never indexed, whatever this says. |
+| `CSP_IMG_SRC` | empty | **Read when you build** (a production server sends the headers the build wrote, so a restart alone is not enough; in development, restart `pnpm dev`). Other sites that pictures may load from, for a plugin that shows pictures from another service (its README says what to enter). `https://` hosts separated by spaces, lower case, no path or port, each optionally starting with `*.` for its subdomains. Anything else stops the build and the server. Visitors' browsers then contact those hosts. |
+| `CSP_REPORT_ONLY` | unset | `1` sends the Content-Security-Policy as report-only: violations are logged in the browser console and nothing is blocked. Handy while you try new embeds or scripts; remove it to enforce the policy again. **Read when you build**, like `CSP_IMG_SRC`. |
+
+## Other
+
+| Variable | Default | What it does |
+|---|---|---|
+| `ACTIVITY_LOG_DAYS` | `365` | How many days the activity log keeps its entries (at least 1). Older ones are removed automatically. |
+| `NEXT_PUBLIC_DEFAULT_COUNTRY_CODE` | `60` (Malaysia) | **Read when you build.** The country calling code for phone numbers typed without one: added to WhatsApp numbers that start with `0`, and used when a site's WhatsApp number has no code. |
+
+## For the command-line tools
+
+These are read by the scripts in `apps/web/scripts`, not by the running site.
+
+| Variable | Used by | What it does |
+|---|---|---|
+| `NEW_PASSWORD` | `pnpm admin:reset-password <email>` | The new password. It is read from the environment, not an argument, so it stays out of the process list. |
+| `SEED_FORCE` | `pnpm seed` | The seed script adds sample content and refuses to run on a production site (`NODE_ENV=production`, or a database on another machine) unless this is set. |
+
+## Set by the platform
+
+You do not normally set these yourself.
+
+| Variable | What it does |
+|---|---|
+| `NODE_ENV` | `next start` sets it to `production`. Production is where the required settings are enforced and the development storage keys are refused. The systemd example in [step 6](./index.mdx#6-start) sets it too. |
+| `VERCEL_ENV` | Set by Vercel. Anything other than `production` (a preview) skips migrations on build and keeps search engines away. |

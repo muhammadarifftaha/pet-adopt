@@ -1,0 +1,114 @@
+---
+title: Scripts
+description: Every pnpm command in the repository, and what it does.
+---
+
+Run these from the repository root. Most root commands pass through to the web app (`apps/web`), or run a task across every package with Turborepo. The few the root does not have are run with `pnpm --filter @pet-adopt/web <script>`, which runs a script of that one package.
+
+## Quick reference
+
+| Command | Does |
+| --- | --- |
+| `pnpm dev` | Development server, at http://localhost:3000 |
+| `pnpm build` / `pnpm start` | Production build (migrates PostgreSQL or hosted libSQL first) and server |
+| `pnpm setup:env` | Write `apps/web/.env` with a new secret |
+| `pnpm seed` | Sample content (the same the first-time setup offers). Safe to re-run, leaves a real site alone, refuses to run in production without `SEED_FORCE=1` |
+| `pnpm db:generate` | Generate SQL migrations for both databases after changing the schema |
+| `pnpm migrate` | Apply pending migrations (the site's and the plugins') |
+| `pnpm plugin:generate <folder> <name>` | Generate a plugin's migrations after changing its tables |
+| `pnpm check:schemas` | Fail if the SQLite and PostgreSQL schemas have drifted apart |
+| `pnpm check:backend` | End-to-end backend check against a throwaway database |
+| `pnpm admin:reset-password <email>` | Set a new password (from `NEW_PASSWORD`), sign the account out everywhere and lift its lockout |
+| `pnpm --filter @pet-adopt/web admin:reset-2fa <email>` | Turn off two-factor for an account (for the last admin) |
+| `pnpm --filter @pet-adopt/web storage:check` | Check the upload storage settings with a test file |
+| `pnpm --filter @pet-adopt/web storage:copy-local` | Copy uploads a site once kept on disk into the bucket (`--from <folder>`, `--dry-run`) |
+| `pnpm typecheck` / `pnpm lint` | Static checks, for every package |
+| `pnpm dev:docs` | This documentation site, at http://localhost:3001 |
+
+Scripts that talk to the site's database or storage load `apps/web/.env` themselves. A variable already set in your shell wins over the file, so `DATABASE_URL=... pnpm seed` points the script at another database. `check:schemas`, `check:backend`, `setup:env` and `plugin:generate` do not read the file.
+
+## Develop
+
+- **`pnpm dev`** starts the Next.js development server for the web app.
+- **`pnpm --filter @pet-adopt/web devsafe`** deletes the web app's `.next` build folder first, then starts the development server, for a clean start.
+- **`pnpm setup:env`** writes `apps/web/.env` from `apps/web/.env.example`, with a new random `BETTER_AUTH_SECRET` and the local storage keys. `--production` leaves the storage keys for you to fill in; `--file <path>` writes somewhere else. It never reads or overwrites an existing file.
+- **`pnpm dev:docs`** starts this documentation site.
+
+## Build and run
+
+- **`pnpm build`** builds every app in the workspace (the site and this documentation site). The site's build migrates the database first:
+  - **PostgreSQL and hosted libSQL:** migrated exactly like `pnpm migrate`. A failure fails the build, so code never ships against an older schema.
+  - **A local SQLite file:** skipped. It migrates itself when the server opens it, and a build never creates the database file.
+  - **A Vercel preview build** (`VERCEL_ENV` other than `production`): skipped, because a preview usually shares the production database. `MIGRATE_ON_PREVIEW=1` runs them anyway, for previews with a database of their own.
+  - **`SKIP_BUILD_MIGRATE=1`:** skipped, for builds that cannot reach the database (a Docker image built without it). Run `pnpm migrate` before starting the server then.
+- **`pnpm start`** starts the built site.
+
+## Database
+
+- **`pnpm db:generate`** writes new SQL migrations for both databases (`apps/web/drizzle/sqlite` and `apps/web/drizzle/pg`) after you change the schema. Commit the new files.
+- **`pnpm migrate`** applies pending migrations: the site's, then each plugin's. A local SQLite file also migrates itself the first time the app opens it. PostgreSQL and hosted libSQL never do, because several servers can share them, so run it:
+  - before starting the server;
+  - again after every `pnpm db:generate`;
+  - after adding or updating a plugin that has tables of its own (the server warns at start while one is waiting).
+- **`pnpm seed`** adds sample content so a fresh install has something to look at: six example pets and an About page, the same the first-time setup offers.
+  - Every step checks first, so it is safe to run again and finishes a partial run.
+  - It never touches a real site: if any pet other than the samples exists, no pets are added, and site settings are only filled in while they are still the defaults.
+  - It refuses to run in production (`NODE_ENV=production`, or a database on another machine) unless `SEED_FORCE=1`, so demo data and the placeholder WhatsApp number cannot end up on a live site by accident.
+  - With `SEED_ADMIN_EMAIL` and `SEED_ADMIN_PASSWORD` set, it also creates the first admin.
+  - On PostgreSQL, run `pnpm migrate` first.
+
+## Checks
+
+- **`pnpm typecheck`** and **`pnpm lint`** run TypeScript and ESLint across the workspace.
+- **`pnpm check:schemas`** fails when the SQLite and PostgreSQL schemas disagree about tables or columns. The data layer is written once and runs on both databases, so the two schema files must stay twins: same tables, same column names, same nullability (column types differ on purpose). Plugins' own tables get the same check when the plugin registry loads.
+- **`pnpm check:backend`** is an end-to-end check of the backend (accounts, sign-in, uploads, pets, pages, settings, email, plugins) against a database you can throw away. It creates accounts, pets and pages, so **never point it at a real site**. Run it on SQLite and on PostgreSQL. It needs:
+  - the local storage and mail servers: `docker compose up -d garage mailpit`;
+  - its settings on the command line (it does not read `apps/web/.env`).
+
+  On SQLite:
+
+  ```bash
+  DATABASE_URL=file:/tmp/check.db \
+  SEED_ADMIN_EMAIL=owner@example.test SEED_ADMIN_PASSWORD=owner-password-123 \
+  S3_BUCKET=pet-adopt-media S3_ENDPOINT=http://localhost:9000 S3_PREFIX=check \
+  S3_ACCESS_KEY_ID=GK0123456789abcdef01234567 \
+  S3_SECRET_ACCESS_KEY=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef \
+  pnpm check:backend
+  ```
+
+  On PostgreSQL, run `pnpm migrate` against an empty database first, then the same command with a `postgres://` `DATABASE_URL`. `S3_PREFIX=check` keeps its test uploads in a folder of their own. The header of [`apps/web/scripts/check-backend.ts`](https://github.com/muhammadarifftaha/pet-adopt/blob/main/apps/web/scripts/check-backend.ts) has the details.
+
+## Accounts
+
+For the day an owner is locked out and no other admin can help from the admin. Both scripts talk to the database in `apps/web/.env` directly, so run them where the site's `DATABASE_URL` works.
+
+- **`pnpm admin:reset-password <email>`** sets a new password, signs the account out everywhere and lifts any sign-in lockout on its email. The password comes from the environment, not an argument, so it stays out of the process list:
+
+  ```bash
+  NEW_PASSWORD='a-long-password' pnpm admin:reset-password owner@example.com
+  ```
+
+- **`pnpm --filter @pet-adopt/web admin:reset-2fa <email>`** turns off two-factor sign-in for an account: it removes its authenticator secret, backup codes and trusted browsers. Their password stays the same. If their role must use two-factor, they set it up again at once.
+
+## Storage
+
+- **`pnpm --filter @pet-adopt/web storage:check`** checks that the upload storage works: it writes a small test file, reads it back, confirms it is there, deletes it and confirms it is gone. Each step that fails says which permission or setting to look at. Nothing else in the bucket is touched. Run it after setting the `S3_*` variables, before uploading anything.
+- **`pnpm --filter @pet-adopt/web storage:copy-local`** copies uploads from a local folder into the bucket, for a site that once stored its files on disk (in `data/media` at the repository root by default).
+  - `--from <folder>` copies another folder (relative to `apps/web`).
+  - `--dry-run` only lists what it would copy.
+  - Files already in the bucket are skipped, so it is safe to run again. Local files are never changed or deleted: remove the folder yourself once the site shows every image. Only names the server generates are copied; other files are listed as skipped.
+
+## Plugins
+
+- **`pnpm plugin:generate <folder> <name>`** turns a plugin's schema into the migrations it ships, for example `pnpm plugin:generate plugins/form-builder add_notes`. The folder is relative to where you type the command. It runs drizzle-kit on the plugin's `schema/sqlite.ts` and `schema/pg.ts` into its `drizzle/` folder, then writes `migrations.ts` with every migration's SQL inlined. Commit the `drizzle/` folder too. See [Plugins](../plugins/index.mdx) for the whole workflow.
+
+## Package scripts
+
+These belong to single packages and are rarely run by hand.
+
+| Package | Script | Does |
+| --- | --- | --- |
+| `@pet-adopt/plugin-sdk`, `@pet-adopt/plugin-form-builder`, `@pet-adopt/plugin-instagram-feed` | `build:package` | Compile the package into `dist/` for npm |
+| The same three | `prepack` | Runs `build:package`, so `pnpm pack` always packs a fresh build |
+| `@pet-adopt/docs` | `dev`, `build`, `start` | This documentation site, on port 3001 |
+| Every package | `typecheck`, and `lint` where the package has it | What `pnpm typecheck` and `pnpm lint` run |

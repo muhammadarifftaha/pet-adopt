@@ -1,6 +1,51 @@
 ---
 title: Introduction
-description: Pet Adopt is an open-source storefront for adoptable pets.
+description: Pet Adopt is an open-source storefront for adoptable pets, built for rescuers, shelters and pet businesses.
 ---
 
-Placeholder.
+Pet Adopt is an open-source storefront for adoptable pets, built for rescuers, shelters and pet businesses.
+
+Visitors browse a catalogue and contact the team on **WhatsApp** or social media. There are no visitor accounts and no checkout. The team signs in, adds pets, and designs the site with a drag-and-drop **page builder**.
+
+## Who these docs are for
+
+The docs have two sections. Pick the one that fits, or switch between them at the top of the sidebar.
+
+<Cards>
+  <Card title="For admins" href="/docs/admin" description="For the team that runs a site day to day: pets, pages, forms, users, email, themes and settings." />
+  <Card title="For developers" href="/docs/developers" description="For whoever installs, hosts and extends a site: setup, deployment, plugins and contributing." />
+</Cards>
+
+## What it does
+
+- **Catalogue and pet pages:** filter by species, age, sex, size, status and location. Filters live in the address, so any search can be shared. Every pet's page is drawn from one layout you design in the page builder.
+- **WhatsApp-first:** each pet page has a click-to-chat button with a prefilled message.
+- **Page builder:** the homepage and any other page (About, FAQ, Events...) are built from 20+ blocks with [Puck](https://puckeditor.com). It autosaves, previews phone and tablet widths, keeps version history, and lets you set padding on every block.
+- **Pet timeline:** dated updates on each pet's page (a title, text and photos), posted from the pet's screen in the admin.
+- **Forms:** adoption applications, volunteer sign-ups or questions, with email notifications, an optional confirmation to the visitor, a spam trap and optional captcha. Responses stay in your admin.
+- **Instagram feed (optional):** a plugin that shows your Instagram profile and latest posts as a block, for Business and Creator accounts.
+- **A team admin at `/admin`:** four roles (admin, editor, developer, audit), email invites, optional two-factor sign-in, sign-in with your own OAuth or OpenID Connect provider, and an activity log of who changed what.
+- **Email built in:** any SMTP server, with templates you design in a drag-and-drop email builder.
+- **Themes:** built-in presets and saved custom themes, with light and dark modes and contrast checks.
+- **Search and sharing:** server-rendered, cached pages with canonical addresses, share cards for WhatsApp, Facebook and X, `sitemap.xml`, `robots.txt` and structured data.
+- **Self-contained:** your own database (SQLite or PostgreSQL) and sign-in, uploads in any S3-compatible storage, and no required outside service.
+
+## The stack
+
+| Part | Built with |
+| --- | --- |
+| Web app and backend | [Next.js](https://nextjs.org) (App Router), React and TypeScript |
+| Database | [Drizzle ORM](https://orm.drizzle.team) on SQLite (a local file, or hosted libSQL) or PostgreSQL |
+| Sign-in | [Better Auth](https://better-auth.com), on the same database |
+| Page and email builders | [Puck](https://puckeditor.com) |
+| Admin interface | [shadcn/ui](https://ui.shadcn.com) on Tailwind CSS |
+| Uploads | Any S3-compatible object storage |
+| Plugins | `@pet-adopt/plugin-sdk` |
+
+A site starts as a clone of the repository, so the app is source code you own and can change. Pet Adopt is MIT-licensed.
+
+## Where to go next
+
+- **Setting up a site?** Start with [Get started](./developers/getting-started/index.mdx), then [Deploy](./developers/deployment/index.mdx).
+- **Running a site someone set up for you?** Start with [A tour of the admin](./admin/admin-tour.mdx).
+- **Writing a plugin?** Start with [Plugins](./developers/plugins/index.mdx).

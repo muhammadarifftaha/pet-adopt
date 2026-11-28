@@ -1,0 +1,7 @@
+{
+  "title": "For developers",
+  "description": "Hosting, extending and contributing",
+  "icon": "Code",
+  "root": true,
+  "pages": ["index", "getting-started", "deployment", "plugins", "contributing"]
+}

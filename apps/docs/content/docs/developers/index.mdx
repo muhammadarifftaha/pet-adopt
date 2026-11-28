@@ -1,0 +1,19 @@
+---
+title: Hosting and extending
+description: For developers who install, host, extend or contribute to Pet Adopt.
+---
+
+These pages are for whoever looks after the code and the server: installing Pet Adopt, putting it in production, keeping it updated, and adding features with plugins. Using the admin once a site runs is covered in [For admins](../admin/index.mdx).
+
+<Cards>
+  <Card title="Get started" href="/docs/developers/getting-started" description="Install it, run it on your machine and create the first account." />
+  <Card title="Deploy" href="/docs/developers/deployment" description="Database, upload storage, the reverse proxy, backups, updates and every setting." />
+  <Card title="Plugins" href="/docs/developers/plugins" description="Admin screens, dashboard cards, page builder blocks, storage, email and packaging." />
+  <Card title="Contributing" href="/docs/developers/contributing" description="The checks to run, the rules to keep, and the release runbook." />
+</Cards>
+
+## In short
+
+- **A site is a clone of the repository.** The web app in `apps/web` is source code you own and can change.
+- **It needs three things:** Node.js, a database (a SQLite file or PostgreSQL) and S3-compatible storage for uploads. Email is optional.
+- **Plugins are npm packages** built on `@pet-adopt/plugin-sdk`, listed in `apps/web/pet-adopt.config.ts`.

@@ -1,0 +1,108 @@
+---
+title: Settings and themes
+description: The site's name, contact details, region, menu and privacy policy, and the theme that sets how it looks.
+---
+
+Two screens under **Settings** shape the whole site: **Site settings** (what it says and where it links) and **Theme** (how it looks).
+
+Admins and developers can change both. Audit can look at them read-only. Editors don't see them.
+
+## Site settings
+
+**Settings → Site settings** has four tabs. If a save fails, a summary lists the problems and takes you to the right tab.
+
+### Brand
+
+- **Site name** (required): shown in the site header, the browser tab, search results and the admin sidebar.
+- **Tagline:** a short line about your rescue, used on the homepage and in link previews.
+- **Logo:** shown in the site header and the admin sidebar. Any shape works. Leave it empty to show the site name only.
+- **Site icon:** the small icon in browser tabs, bookmarks and phone home screens (the "favicon"). It must be square and at least 32 × 32 px; 512 × 512 px looks sharp everywhere. A simple mark works better than the full logo. With none set, the site sends no icon.
+- **Let visitors switch between light and dark:** see [Light and dark](#light-and-dark).
+
+The logo and site icon are picked from the [media library](./media.mdx), and can't be deleted from it while they are in use.
+
+### Contact
+
+- **WhatsApp number:** where every WhatsApp button sends messages. Pick the country, then type the number, or paste one starting with `+` and the country is picked for you. The number is checked for that country and stored in international form (`+60123456789`). A number typed without a country code is read with the country code set by `NEXT_PUBLIC_DEFAULT_COUNTRY_CODE` (default `60`, Malaysia; see [Settings](../developers/deployment/settings.mdx#other)).
+- **WhatsApp message:** the message visitors start with. `{pet}` is replaced by the pet's name.
+- **Address:** shown in **Contact & map** blocks, with its line breaks.
+- **Opening hours:** for example "Saturday and Sunday, 10am to 4pm".
+- **Social links:** a platform (Instagram, Facebook, TikTok, YouTube, X / Twitter, Telegram, website or other) and a link for each, up to 20. They are shown in the footer and in **Social links** blocks, in this order; change the order with the **up** and **down** buttons.
+
+### Region
+
+- **Country:** where your pets usually are. A new pet starts with this country, and the pet form suggests its cities and states. A pet somewhere else can be given its own country (see [Location](./pets.mdx#location)). Until you pick one, the country of `NEXT_PUBLIC_DEFAULT_COUNTRY_CODE` is used.
+- **Time zone:** the admin shows every time (the activity log, page versions, form responses and so on) in this time zone, for everyone, and emails that name a date use it too. Leave it empty and each person sees the time of their own device. The list puts the chosen country's time zones first, and a country with only one fills it in for you.
+
+### Navigation
+
+- **Menu links:** the links in the site header, in this order, up to 20. Each has its text and where it goes: a path such as `/pets`, or a full `https://` link.
+- **Footer text:** a short line at the bottom of every page.
+- **Privacy policy page:** see below.
+
+#### The privacy policy page
+
+Forms collect personal data, so visitors must be told how you use it. Write a privacy policy as an ordinary [page](./pages.mdx), then choose it here.
+
+- Any of your own pages can be chosen, except the system pages and archived pages. It can still be a draft.
+- **While the page is live,** the site footer links to it, and every form says "We use your answers as described in our …" under its button, linking to it.
+- **Until it is live,** nothing links to it, and the form builder shows a warning on its screens.
+- Publishing, unpublishing, archiving or renaming that page updates every page that links to it.
+
+[Forms](./forms.mdx) has more on what to mention in it.
+
+## Themes
+
+**Settings → Theme** sets the look of the whole site: colours, fonts, corners, buttons, shadows, spacing and text size, in light and dark mode. The public site and the page builder's canvas both follow it.
+
+### Presets
+
+Five built-in presets each bundle light and dark colours, fonts, corner radius, button shape, shadows, spacing and text size:
+
+| Preset | Feel |
+| --- | --- |
+| Sunrise | Warm orange, friendly and familiar. The original look |
+| Meadow | Fresh green, rounded Nunito type, soft shadows |
+| Ocean | Calm blue, DM Sans, tighter corners |
+| Heritage | Deep red, Lora serif headings, square corners, generous space |
+| Studio | Black and white, Playfair headings, bold hard-edged shadows |
+
+Choose **Use** on a preset to put it on the site as it is, or **Customise** to start a theme of your own from it.
+
+### Your own themes
+
+Save as many themes as you like and switch between them; one is in use at a time.
+
+- **New theme** asks for a name and what to start from: a preset or one of your themes.
+- **Use** puts a theme on the site, **Edit** opens it, **Duplicate** copies it, and **Delete** removes it for good. The theme in use can't be deleted.
+
+The theme editor has:
+
+| Group | Options |
+| --- | --- |
+| **Based on** | The preset that fills in anything you have not changed |
+| **Typography** | Heading font and body font (System default, Inter, Nunito, DM Sans, Lora, Playfair Display), text size (15, 16 or 18 px) |
+| **Shape and spacing** | Corners (square to extra rounded), buttons (pill, rounded corners or square), shadows (none, lift on hover, soft, medium, hard offset), spacing (compact, comfortable, spacious) |
+| **Light colours** and **Dark colours** | Brand colour (buttons, links and highlights), page background, cards and panels, text, tinted sections. Colours you leave alone come from the preset |
+
+A live preview beside the editor shows real blocks as you edit, in light or dark. **Save theme** keeps your changes; **Save and use on the site** also puts the theme live.
+
+Fonts are served from your own domain, not from Google, so pages make no outside requests for them.
+
+### Contrast checks
+
+Text must stay readable, for everyone and in both modes:
+
+- **Your colours are checked when you save.** The text colour must reach a contrast of at least 4.5:1 against the page background and against cards, in light and in dark mode (4.5:1 is the WCAG AA level for normal text). If it doesn't, the theme is refused with a message naming the mode, the background and the contrast it reached.
+- **The rest is worked out for you.** Secondary text and brand-coloured text are adjusted until they reach 4.5:1 on every background they appear on, and text on a brand-colour button is set to whichever of dark or light reads better.
+
+Plugin authors can find the theme's variables and the contrast they can rely on in [Theming for plugin authors](../developers/plugins/theming.mdx).
+
+### Light and dark
+
+Every preset and every theme has light and dark colours.
+
+- **With the switch on** (Site settings → Brand → **Let visitors switch between light and dark**), the site follows each visitor's device setting and shows a light/dark button. A visitor's choice is remembered in their browser.
+- **With it off,** the site always shows its light colours.
+
+In the page builder, the canvas shows the light colours; the **Dark preview** switch shows the dark ones (see [Pages](./pages.mdx#dark-preview)).

@@ -1,0 +1,147 @@
+---
+title: Writing a plugin
+description: What a plugin is, what it can add to a Pet Adopt site, and the smallest one that works.
+---
+
+A plugin adds features to a Pet Adopt site without changing the site's own code. This section is for plugin authors.
+
+A plugin imports one package, `@pet-adopt/plugin-sdk`, plus `@pet-adopt/ui` when it has admin screens. It never imports the site. Everything the site does for a plugin comes through the SDK.
+
+Three plugins in the repository show the whole thing in code:
+
+- [`plugins/adoption-tips`](https://github.com/muhammadarifftaha/pet-adopt/tree/main/plugins/adoption-tips): the smallest useful plugin. It is an example to copy, and is not on npm. See [The example plugin](#the-example-plugin).
+- [`plugins/form-builder`](https://github.com/muhammadarifftaha/pet-adopt/tree/main/plugins/form-builder) (`@pet-adopt/plugin-form-builder`): a full one, with tables, server actions, email, settings and the **Form** page builder block.
+- [`plugins/instagram-feed`](https://github.com/muhammadarifftaha/pet-adopt/tree/main/plugins/instagram-feed) (`@pet-adopt/plugin-instagram-feed`): a plugin built around one page builder block, the **Instagram feed**, which reads another service and keeps what it read in its own tables.
+
+<Cards>
+  <Card title="Screens and cards" href="/docs/developers/plugins/screens-and-cards" description="Admin screens, menu icons, dashboard cards, access levels and checking access in a server action." />
+  <Card title="Storage" href="/docs/developers/plugins/storage" description="A plugin's own tables, the rules the site checks, and migrations." />
+  <Card title="Page builder blocks" href="/docs/developers/plugins/blocks" description="Blocks in the page builder: the block, its options, render, CSS and the loader." />
+  <Card title="Host services" href="/docs/developers/plugins/host-services" description="The site's services through host(), errors, and the activity log." />
+  <Card title="Email" href="/docs/developers/plugins/email" description="Default email templates, sending templated email, and an email sender." />
+  <Card title="Theming" href="/docs/developers/plugins/theming" description="The CSS variables a block can rely on, and the contrast pairs that are guaranteed." />
+  <Card title="Packaging" href="/docs/developers/plugins/packaging" description="Publishing to npm, local development, and the checklist before publishing." />
+</Cards>
+
+## What a plugin can add
+
+| Part | Key on the plugin | What it is |
+|---|---|---|
+| Screens | `screens` | Pages in the admin under `/admin/plugins/<name>/`, with a menu entry |
+| Dashboard cards | `dashboardWidgets` | Cards on the admin dashboard |
+| Its own tables | `storage` | Database tables with migrations, on SQLite and PostgreSQL |
+| Page builder blocks | `blockLoaders`, plus a block module | Blocks in the page builder, under **Plugins**. See [Page builder blocks](./blocks.mdx) |
+| Default email templates | `emailTemplates` | Templates the site creates in **Email → Templates** and the plugin sends with |
+| An email sender | `email` | Sends all of the site's email, in place of the built-in SMTP sender |
+
+A plugin can also set `title` and `description`, which the admin shows in its list of plugins, and `plugins`, a list of other plugins it is built from. Those are loaded before it.
+
+## The smallest plugin
+
+```tsx
+import { definePlugin } from '@pet-adopt/plugin-sdk'
+
+export const hello = definePlugin({
+  name: 'hello',
+  title: 'Hello',
+  description: 'Adds one screen to the admin.',
+  screens: [
+    {
+      path: '',
+      title: 'Hello',
+      component: ({ user }) => <p>Hello {user.name}.</p>,
+    },
+  ],
+})
+```
+
+The site lists it in `apps/web/pet-adopt.config.ts`:
+
+```ts
+import { defineConfig } from '@pet-adopt/plugin-sdk'
+import { hello } from 'pet-adopt-plugin-hello'
+
+export default defineConfig({ plugins: [hello()] })
+```
+
+- **`name`** is lowercase letters, digits and dashes. It is part of the plugin's addresses, and the start of its table names and activity log entries. Two plugins cannot share a name.
+- **`definePlugin`** returns a function. The site calls it in the config. You can pass `definePlugin` the plugin itself, as above, or a function that returns it.
+- **Options:** pass a function to `definePlugin` to take options, as the form builder does with `formBuilder({ title: 'Applications' })`:
+
+  ```tsx
+  export const hello = definePlugin<{ greeting?: string } | void>((options) => ({
+    name: 'hello',
+    screens: [{ path: '', title: options?.greeting ?? 'Hello', component: () => null }],
+  }))
+  // in the config: hello({ greeting: 'Welcome' })
+  ```
+
+A mistake in a plugin (a bad name, path, icon, template, table or block) stops the site when the config loads, with a message that names the plugin.
+
+## Installing the SDK
+
+<Callout type="info" title="Not on npm yet">
+  `@pet-adopt/plugin-sdk` is published with the first release of Pet Adopt. Until then, build plugins inside the repository or a site (see [Local development](./packaging.mdx#local-development)).
+</Callout>
+
+List the SDK as a **peer dependency**, so your plugin uses the same copy as the site it is added to, and as a dev dependency to build against:
+
+```json
+{
+  "peerDependencies": {
+    "@pet-adopt/plugin-sdk": "^0.1.0"
+  },
+  "devDependencies": {
+    "@pet-adopt/plugin-sdk": "^0.1.0"
+  }
+}
+```
+
+A plugin that bundles its own copy would have its errors go unrecognised by the site, because errors are matched by class (see [Errors](./host-services.mdx#errors)).
+
+`react` and `react-icons` are peer dependencies too. `drizzle-orm` is one as well, and is only needed by a plugin with its own tables.
+
+**Versions:** the SDK is below 1.0, so a minor version may change the API. Pin the minor version you built against.
+
+### What is in the SDK
+
+- **`definePlugin`, `defineConfig`:** declare a plugin and a site's list of plugins.
+- **`definePluginBlock`, `defineBlocks`:** page builder blocks and a site's list of them.
+- **`definePluginStorage`:** a plugin's own tables and migrations, for SQLite and PostgreSQL. Table names start with the plugin's prefix (`pluginTablePrefix`).
+- **`host()`:** the site's services: permission checks, rate limits, templated email, the activity log, encrypted secrets, the privacy policy, the site's address and time zone.
+- **Roles and permissions:** `ROLES`, `can`, `accessPermission`.
+- **Errors and results:** `UserError`, `ValidationError`, `ActionResult`.
+- **Helpers:** `formatWhen` and the time zone functions, `foldText` for search, `csvCell` for safe CSV.
+
+The SDK contains no part of the site itself.
+
+## The example plugin
+
+[`plugins/adoption-tips`](https://github.com/muhammadarifftaha/pet-adopt/tree/main/plugins/adoption-tips) (`@pet-adopt/plugin-adoption-tips`) is a small plugin kept in the repository as a starting point. It is not published to npm. Everything is in one file, [`src/index.tsx`](https://github.com/muhammadarifftaha/pet-adopt/blob/main/plugins/adoption-tips/src/index.tsx).
+
+It adds:
+
+- **A Tips screen** at `/admin/plugins/adoption-tips`, with a **Tips** entry in the admin's Plugins menu (a react-icons icon).
+- **A second screen** at `/admin/plugins/adoption-tips/tips/<id>`, showing how a screen takes a parameter from its address (`params.id`).
+- **A dashboard card** (id `tip-of-the-day`), titled by the `heading` option below.
+
+It takes one option, `heading`, the title of the screen and the card (default "Adoption tips"):
+
+```ts
+import { adoptionTips } from '@pet-adopt/plugin-adoption-tips'
+
+export default defineConfig({
+  plugins: [adoptionTips({ heading: 'Tips for new owners' })],
+})
+```
+
+To remove it from a site, delete it from `plugins` in `apps/web/pet-adopt.config.ts`. To start your own plugin, copy its folder (see [Local development](./packaging.mdx#local-development)). For a plugin with tables, server actions and email, read the form builder.
+
+## Rules for plugins
+
+- **Depend only on the SDK** (and the site's UI package, `@pet-adopt/ui`, for admin screens). Never import the site, so the plugin works from npm as well as from a folder.
+- **Check permissions in every server action** with `host().requirePermission(...)`, wrapped in `host().run(...)`. See [Checking in a server action](./screens-and-cards.mdx#checking-in-a-server-action).
+- **Log errors with `host().logError`,** never the error object: a database error can carry the values it was given.
+- **Ship compiled JavaScript** when you publish a plugin to npm, and keep `'use client'` and `'use server'` as the first line of the files that have them. Plain `tsc`, file by file, does. Plugins kept as a folder in a site ship TypeScript, and the site compiles them. See [Packaging](./packaging.mdx).
+
+The [checklist before publishing](./packaging.mdx#checklist-before-publishing-a-plugin) collects every rule in one list.

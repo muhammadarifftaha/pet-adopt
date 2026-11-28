@@ -1,0 +1,90 @@
+---
+title: Quick start
+description: Install Pet Adopt, start its local services and run it on your machine.
+---
+
+A site starts as a clone of the repository. This page gets one running on your own machine, with a local database, upload storage and a test inbox.
+
+## Requirements
+
+- **Node.js** 22.23.4 or newer, or 24.22.1 or newer.
+- **[pnpm](https://pnpm.io).** Install and run the project with pnpm only; there is no npm lockfile.
+- **Docker,** for the local services (upload storage and a test mail server).
+
+## Install and run
+
+Clone the repository (or your fork of it, if you want your own copy on GitHub), then:
+
+```bash
+git clone <your-fork-url> pet-adopt
+cd pet-adopt
+pnpm install
+pnpm setup:env                        # writes apps/web/.env with a new secret
+docker compose up -d garage mailpit   # upload storage and a test inbox
+pnpm dev
+```
+
+Open http://localhost:3000, then follow the setup link in the server's log to create the first account. [The first account](./first-account.mdx) explains it.
+
+## Settings
+
+`pnpm setup:env` writes `apps/web/.env`, the file that holds the app's settings:
+
+- it copies `apps/web/.env.example`;
+- it fills `BETTER_AUTH_SECRET` with a new random value;
+- for local development, it fills in the keys of the storage server in `docker-compose.yml`.
+
+It never reads or overwrites an existing file: delete yours first if you really want a new one. The file is readable by its owner only, because it holds the secret.
+
+- `pnpm setup:env --production` leaves the storage keys for you to fill in, for a server.
+- `pnpm setup:env --file <path>` writes somewhere else.
+- **By hand:** copy `apps/web/.env.example` to `apps/web/.env` and follow its comments.
+
+**The secret.** `BETTER_AUTH_SECRET` is required in production. Keep the one `pnpm setup:env` made, or set your own long random string:
+
+```bash
+openssl rand -hex 32
+```
+
+## Local services
+
+`docker-compose.yml` defines three services for development. Each listens on your own machine only (`127.0.0.1`), so nothing is exposed to the network.
+
+| Service | What it is | Address |
+| --- | --- | --- |
+| `garage` | A small single-node S3-compatible server, for uploads. It creates its key and the bucket `pet-adopt-media` on first start | S3 API on port 9000 |
+| `mailpit` | A mail server that delivers nothing: every email the site sends lands in its inbox | SMTP on port 1025, inbox at http://localhost:8025 |
+| `postgres` | PostgreSQL 17, to try the production database. Optional | Port 5432 |
+
+Start one by name (`docker compose up -d garage`), or all of them with `docker compose up -d`. Data survives restarts and `docker compose down`; `docker compose down -v` wipes it.
+
+<Callout type="warn" title="Development keys only">
+The storage keys in `docker-compose.yml` only work for that local server. Never use them anywhere else: a production server refuses them.
+</Callout>
+
+## Where things go in development
+
+- **Database:** a SQLite file, `data/pet-adopt.db` at the repository root (git-ignored). It creates and migrates its own schema on first start. To try PostgreSQL instead, start the `postgres` service and set `DATABASE_URL=postgres://postgres:postgres@localhost:5432/pet_adopt`, then run `pnpm migrate`.
+- **Uploads:** they always go to S3-compatible storage, never to the server's disk. In development that is the Garage server. To confirm it works:
+
+  ```bash
+  pnpm --filter @pet-adopt/web storage:check
+  ```
+
+- **Email:** in development, mail goes to Mailpit. It accepts any mail (and any user name and password) on port 1025 and shows it at http://localhost:8025. Point **Admin → Email → Sending** at it: server `localhost`, port `1025`, encryption **None**. Or set it in `apps/web/.env`:
+
+  ```dotenv
+  SMTP_HOST=localhost
+  SMTP_PORT=1025
+  SMTP_SECURITY=none
+  EMAIL_FROM=Pet Adopt <no-reply@pet-adopt.test>
+  ```
+
+## Next steps
+
+<Cards>
+  <Card title="The first account" href="/docs/developers/getting-started/first-account" description="The setup link, the guided setup and unattended installs." />
+  <Card title="A tour of the admin" href="/docs/admin/admin-tour" description="What each screen holds, and the site's routes." />
+  <Card title="Project structure" href="/docs/developers/getting-started/project-structure" description="Where the code lives and how the pieces fit." />
+  <Card title="Scripts" href="/docs/developers/getting-started/scripts" description="Every pnpm command and what it does." />
+</Cards>

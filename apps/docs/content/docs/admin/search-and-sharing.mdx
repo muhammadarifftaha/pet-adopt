@@ -1,0 +1,70 @@
+---
+title: Search and sharing
+description: How pages and pets appear in search results and link previews, the sitemap, robots.txt, structured data, and keeping test copies out of search.
+---
+
+Every public page is drawn on the server and sent as plain HTML, so search engines can read it, and carries the details search engines and chat apps look for. Most of it needs nothing from you; this page says what you can set and what the site does on its own.
+
+## Titles, descriptions and share images
+
+When someone shares a link on WhatsApp, Facebook or X, the app shows a **share card**: a title, a short description and, if there is one, an image. Search results use the title and description too.
+
+| Page | Title | Description | Share image |
+| --- | --- | --- | --- |
+| **Homepage** | The site name, as it is | The homepage's search description, else the site's tagline | The homepage's share image |
+| **Your pages** | The page title | The page's search description | The page's share image |
+| **Pets page** (`/pets`) | Its title, else "Adoptable pets" | Its search description, else "Browse the pets currently looking for a home." | Its share image |
+| **A pet's page** | The pet's search title, else "Mochi is looking for a home" (or "Mochi (adopted)") | The pet's search description, else a summary of species, breed, age and location | The pet's share image, else its cover photo |
+
+Except on the homepage, the browser tab and search results add the site name after the title, as in "About us | Happy Paws". Every share card also carries the site name.
+
+Where to set them:
+
+- **Pages:** the **Search and sharing** fields on the page's settings screen: a search description (up to 200 characters) and a share image. On a live page they wait for the next publish, like the layout (see [Page settings](./pages.mdx#page-settings)).
+- **Pets:** the pet form's **Search and sharing** tab: a search title (up to 70 characters), a search description (up to 160) and a share image. A preview there shows what will be used, including the text written for you when a field is empty (see [Pets](./pets.mdx#search-and-sharing)).
+- **Site name and tagline:** in [Site settings → Brand](./settings-and-themes.mdx#brand).
+
+A page with a share image gets a large-image card on X; one without gets a small card. The image's alt text goes with it. Search engines and apps decide for themselves what to show, so treat the preview as a guide.
+
+## Canonical addresses
+
+Each page names its own address as the **canonical** one: the address search engines should list, even when people reach the page another way.
+
+The catalogue is a special case. A filtered or paged catalogue (`/pets?species=cat&page=3`) points at `/pets` as its canonical address and asks search engines not to index it, while still following its links. Every pet is in the sitemap anyway, so nothing is lost.
+
+## Pets that stay out of search
+
+- **Link-only pets** tell search engines not to index their page, and are left out of the sitemap (see [Link-only pets](./pets.mdx#link-only-pets)).
+- **Adopted pets** are left out of the sitemap, so searches favour pets that can be adopted, but their pages can still be indexed.
+
+## The sitemap
+
+`/sitemap.xml` lists the pages search engines should know about:
+
+- the homepage and the Pets page (always, even while they show their built-in layouts);
+- every live page of your own (not archived; never the Pet page template, which has no address of its own);
+- every listed pet that is not adopted, with its cover photo for image search.
+
+Each entry says when it last changed. The sitemap is refreshed at most every 10 minutes.
+
+## robots.txt
+
+`/robots.txt` tells search engines what they may visit. It allows the whole public site, keeps them out of the team's screens (`/admin`, `/edit`, `/api` and `/setup`, which also send "don't index" on their own), and gives the sitemap's address.
+
+## Structured data
+
+The site also describes itself in a form search engines read directly (schema.org data, written into the page but not shown):
+
+- **The homepage** says who you are: the organisation's name, logo, tagline, WhatsApp number as a contact point, address and social profiles, all from [Site settings](./settings-and-themes.mdx#site-settings), and the site's name.
+- **Pet pages** show their place in the site as a breadcrumb trail: Home › Pets › the pet (using the Pets page's title).
+
+Fill in the logo, address and social links in Site settings and they appear here with no extra work.
+
+## Previews and staging are never indexed
+
+A copy of the site that isn't the real one should stay out of search results, or search engines may list the test copy instead of yours.
+
+- **Vercel previews** (any `VERCEL_ENV` other than `production`) are never indexed.
+- **A staging server:** set `SEARCH_INDEXING=off` (see [Settings](../developers/deployment/settings.mdx#search-engines-and-security-headers)).
+
+On such a copy, `robots.txt` asks every search engine to stay away from the whole site, the sitemap is empty, and every page says "don't index". Because `robots.txt` is worked out on every request, changing the setting on a running server applies at once; pages pick it up as they refresh.

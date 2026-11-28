@@ -16,9 +16,10 @@ pnpm dev:docs        # http://localhost:3001
 ## Writing pages
 
 - One `.mdx` file per page, with `title` and `description` in its front matter.
-- Link to another page by its file path (`[blocks](../plugins/blocks.mdx)`): the link is checked against the content and turned into the page's address.
-- Keep to plain Markdown where you can, so the file still reads well on GitHub. Fumadocs' `<Callout>`, `<Steps>` and `<Tabs>` are available when they help.
-- `plugins/theming.mdx`'s variable names are checked by `pnpm check:backend`: a variable described there must exist in the site's theme.
+- Link to another page by its file path (`[blocks](../plugins/blocks.mdx)`): it is turned into the page's address. `<Card>` links are not, so give them the address (`/docs/developers/plugins/blocks`).
+- The two sections, `admin/` and `developers/`, are root folders (`"root": true` in their `meta.json`): the sidebar shows one at a time, with a switcher at the top.
+- Keep to plain Markdown where you can, so the file still reads well on GitHub. Fumadocs' `<Callout>` and `<Cards>` work without an import; other components would need one in `src/components/mdx.tsx`.
+- `developers/plugins/theming.mdx`'s variable names are checked by `pnpm check:backend`: a variable described there must exist in the site's theme.
 
 Every page is also served as Markdown for AI tools: `/docs/<page>.md`, plus `/llms.txt` (an index) and `/llms-full.txt` (everything).
 

@@ -1,12 +1,33 @@
-# Theming for plugin authors
+---
+title: Theming
+description: How to style a plugin so that it follows each site's theme, with the CSS variables a block can rely on.
+---
 
 How to style a plugin's page builder block so that it follows each site's theme: its colours, corners, fonts, spacing, and light and dark mode.
 
-A site's owners pick and adjust a theme on the **Theme** screen. The site writes the result into every page as CSS variables on `<html>`. The public site and the page builder's canvas load no Tailwind, so a block brings its own plain CSS (the `css` of `definePluginBlock`, see [Plugins](plugins.md)), and that CSS reads these variables.
+## Where a plugin draws
 
-The variables below are the contract. Their names stay as they are, and the site's `check:backend` fails if one of them goes missing from any built-in preset, in light or dark mode. The list lives in code as `THEME_VARIABLES` in `apps/web/src/lib/theme.ts`, which this page follows.
+A plugin draws in two places, styled two ways:
+
+| Where | How to style it |
+|---|---|
+| **Admin screens and dashboard cards** | `@pet-adopt/ui` components and Tailwind classes, like the admin itself |
+| **Page builder blocks** | Plain CSS in the block's `css`, on the site's theme variables. No Tailwind. See [css](./blocks.mdx#css) |
+
+**Tailwind only writes the classes it finds.** Tailwind is the CSS framework the admin is styled with; it builds a stylesheet holding only the classes it sees in the files it reads. A site lists where it looks in `packages/ui/src/styles/globals.css`, as `@source` lines:
+
+- `plugins/` in the repository, for workspace plugins;
+- `apps/web/node_modules/@pet-adopt/plugin-*/dist`, for npm plugins with that kind of name.
+
+A plugin with any other name needs a line of its own. See [What the site adds](./packaging.mdx#what-the-site-adds).
+
+The rest of this page is about blocks.
 
 ## How it works
+
+A site's owners pick and adjust a theme on the **Theme** screen. The site writes the result into every page as CSS variables on `<html>`. The public site and the page builder's canvas load no Tailwind, so a block brings its own plain CSS (the `css` of `definePluginBlock`, see [Page builder blocks](./blocks.mdx)), and that CSS reads these variables.
+
+The variables below are the contract. Their names stay as they are, and the site's `check:backend` fails if one of them goes missing from any built-in preset, in light or dark mode. The list lives in code as `THEME_VARIABLES` in [`apps/web/src/lib/theme.ts`](https://github.com/muhammadarifftaha/pet-adopt/blob/main/apps/web/src/lib/theme.ts), which this page follows.
 
 - **Every value is a variable.** Write every colour, radius, shadow, font and spacing value in your block's CSS with one of the variables below. A colour typed into the CSS will be wrong on some site, and unreadable in one of the two modes.
 - **Dark mode is handled for you.** When a page is dark (the visitor's system setting, or the light/dark switch on the site), the site gives every colour and shadow variable its dark value. Do not write `@media (prefers-color-scheme: dark)` or `[data-mode]` rules: the same CSS works in both modes. The page builder's **Dark preview** switch shows the dark values on the canvas.
@@ -197,4 +218,6 @@ Before you publish a plugin, look at the block:
 - At the Phone width in the page builder.
 - With a keyboard: every link and control shows a focus ring.
 
-For the site's own code: when you rename or remove one of the variables above, update `THEME_VARIABLES` and this page, and treat it as a breaking change for plugins. `check:backend` fails until the theme output, the stylesheet's fallback, the list and this page agree.
+## Changing the variables
+
+This part is for people working on the site's own code. When you rename or remove one of the variables above, update `THEME_VARIABLES` and this page (`apps/docs/content/docs/developers/plugins/theming.mdx`), and treat it as a breaking change for plugins. `check:backend` fails until the theme output, the stylesheet's fallback, the list and this page agree.

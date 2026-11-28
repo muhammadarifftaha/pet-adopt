@@ -1,0 +1,250 @@
+---
+title: Page builder blocks
+description: Blocks a plugin adds to the page builder, from the block's options and render to the server loader that feeds it.
+---
+
+A plugin can add blocks to the page builder, the drag-and-drop editor the team builds pages with. They appear under **Plugins** in the list of blocks. Two plugins in the repository have one:
+
+- **Form** ([`plugins/form-builder/src/block.tsx`](https://github.com/muhammadarifftaha/pet-adopt/blob/main/plugins/form-builder/src/block.tsx)): picks one of the plugin's forms with a `choice` option, and draws the visitor's form, an interactive client component.
+- **Instagram feed** ([`plugins/instagram-feed/src/block.tsx`](https://github.com/muhammadarifftaha/pet-adopt/blob/main/plugins/instagram-feed/src/block.tsx)): many show and hide options, and a feed the plugin keeps in its own tables.
+
+## The two halves
+
+A block has two halves, because the page builder runs in the browser and a plugin's rules run on the server.
+
+1. **The block** (`definePluginBlock` from the SDK): its name, label, options, defaults, `render` and optional `css`.
+   - The browser loads it, so its module imports nothing that only works on a server: no storage, no `host()`, no secrets, no Node modules.
+   - It may import a `'use client'` component (an interactive part `render` returns) and a `'use server'` actions file (for a `choice` option's `load`). Next.js sends the browser a reference to those, not their code.
+   - The plugin exports it from an entry point of its own, such as `<package>/block`, and **never** from its main entry, which pulls in the server half.
+2. **Its loader** (`blockLoaders: { [blockName]: loader }` on the plugin): a server function that returns what the block shows.
+   - It runs for every visitor, and for the editor's preview, so it returns only what any visitor may see.
+   - `render` receives the result as `data`. It is never saved with the page.
+
+A site lists each half in its own file, in `apps/web`:
+
+| File | Holds | Loaded by |
+|---|---|---|
+| `pet-adopt.config.ts` | The plugin (`defineConfig({ plugins: [...] })`): screens, storage, and the block's loader | The server |
+| `pet-adopt.blocks.ts` | The blocks (`defineBlocks([...])`), imported from each plugin's block entry point | The browser and the server |
+
+Both are needed. A block whose plugin is not in `pet-adopt.config.ts` stops the site at start, and a plugin with a loader for a block that `pet-adopt.blocks.ts` does not list gets a warning at start (pages that use that block do not show it).
+
+## An example
+
+A plugin `shelter-hours` with a block that shows opening hours kept in its own table.
+
+`src/names.ts`, plain constants that both halves import:
+
+```ts
+export const PLUGIN = 'shelter-hours'
+export const HOURS_BLOCK = 'ShelterHours'
+```
+
+`src/block.tsx`, the browser half:
+
+```tsx
+import { definePluginBlock } from '@pet-adopt/plugin-sdk'
+
+import { HOURS_BLOCK, PLUGIN } from './names'
+
+type Props = { heading: string; layout: 'list' | 'table' }
+type Data = { days: Array<{ day: string; hours: string }> }
+
+export const hoursBlock = definePluginBlock<Props, Data>({
+  name: HOURS_BLOCK,
+  label: 'Opening hours',
+  plugin: PLUGIN,
+  needsData: true,      // nothing to draw without hours
+  dataOptions: [],      // the loader reads no option, so editing the heading never reloads it
+  fields: {
+    heading: { type: 'text', label: 'Heading' },
+    layout: {
+      type: 'radio',
+      label: 'Layout',
+      options: [
+        { label: 'List', value: 'list' },
+        { label: 'Table', value: 'table' },
+      ],
+    },
+  },
+  defaultProps: { heading: 'Opening hours', layout: 'list' },
+  css: `
+    .shelter-hours { padding: calc(48px * var(--density, 1)) 0; color: var(--ink); }
+    .shelter-hours-day { color: var(--muted); font-weight: 700; }
+  `,
+  render: ({ heading, data, editing, headingLevel }) => {
+    if (!data?.days?.length) {
+      return editing ? <p className="shelter-hours">Add opening hours under Plugins, Shelter hours.</p> : null
+    }
+    const Heading = headingLevel === 1 ? 'h1' : 'h2'
+    return (
+      <section className="shelter-hours">
+        {heading.trim() ? <Heading>{heading}</Heading> : null}
+        <ul>
+          {data.days.map((day) => (
+            <li key={day.day}>
+              <span className="shelter-hours-day">{day.day}</span> {day.hours}
+            </li>
+          ))}
+        </ul>
+      </section>
+    )
+  },
+})
+```
+
+The CSS above is only a sketch; the variables a block can rely on are listed in [Theming](./theming.mdx).
+
+`src/server.ts`, the loader:
+
+```ts
+import { storage } from './storage'
+
+export async function loadHours(): Promise<{ days: Array<{ day: string; hours: string }> } | null> {
+  const { db, t } = await storage.open()
+  const rows = await db.select().from(t.hours)
+  return { days: rows.map((row) => ({ day: row.day, hours: row.hours })) }
+}
+```
+
+`src/index.tsx`, the plugin, with the loader under the block's name:
+
+```tsx
+import { definePlugin } from '@pet-adopt/plugin-sdk'
+
+import { HOURS_BLOCK, PLUGIN } from './names'
+import { loadHours } from './server'
+import { storage } from './storage'
+
+export const shelterHours = definePlugin({
+  name: PLUGIN,
+  storage,
+  blockLoaders: { [HOURS_BLOCK]: loadHours },
+  screens: [/* where the team types the hours */],
+})
+```
+
+`package.json` exports the block on its own (`"./block": "./src/block.tsx"`), and the site lists both halves:
+
+```ts
+// apps/web/pet-adopt.config.ts
+import { shelterHours } from 'pet-adopt-plugin-shelter-hours'
+export default defineConfig({ plugins: [shelterHours()] })
+
+// apps/web/pet-adopt.blocks.ts
+import { hoursBlock } from 'pet-adopt-plugin-shelter-hours/block'
+export default defineBlocks([hoursBlock])
+```
+
+## The block's keys
+
+| Key | Meaning |
+|---|---|
+| `name` | The block's type in saved pages: letters and digits, starting with a capital, at most 60 characters. Never change it, or saved pages lose the block |
+| `label` | The name in the page builder's list of blocks |
+| `plugin` | The plugin it belongs to (`Plugin.name`), which holds its loader |
+| `fields` | Its options, shown in the page builder's sidebar. See [Options](#options) |
+| `defaultProps` | A default for every option: text, a number, `true`, `false` or `null` |
+| `needsData` | The block draws nothing without data. See [Flags](#flags) |
+| `headingFromData` | The block draws a heading whenever it has data |
+| `dataOptions` | The options the loader reads |
+| `petPage` | Also offer the block in the Pet page template |
+| `css` | Plain CSS for the block. See [css](#css) |
+| `render` | How it is drawn. See [render](#render) |
+
+**Names are shared.** A block's `name` shares one list with the site's built-in blocks and every other plugin's blocks. Give it a prefix of your own (`AcmeGallery`, not `Gallery`). The site refuses to start when two blocks have one name.
+
+## Options
+
+| `type` | Extra keys | Saved value |
+|---|---|---|
+| `text`, `textarea` | | Text |
+| `number` | `min`, `max`, `step` | A number, kept inside `min` and `max` |
+| `select`, `radio` | `options: [{ label, value }]` | One of the `value`s (text, a number, `true` or `false`) |
+| `choice` | `load`, `empty` | An id from the plugin's own list: text of at most 200 characters, or a number, or `null` |
+
+- **A text option named `heading`** is the block's heading. Draw it whenever it is not blank: the page counts it when it decides which block holds the page's one `<h1>`.
+- **Reserved names:** an option cannot be called `id`, `puck`, `editMode`, `padding`, `spacing`, `headingLevel`, `data`, `editing` or `pluginData`. The page builder and the site use those on every block.
+- **Padding is added for you.** Every plugin block gets the same **Padding** option (top and bottom) as the built-in blocks.
+
+### A choice option
+
+A `choice` option is a dropdown filled by a server action of the plugin, such as the Form block's list of forms:
+
+```ts
+// src/actions.ts, a 'use server' file
+export async function listFormChoicesAction(): Promise<ActionResult<PluginBlockChoice[]>> {
+  return host().run(async () => {
+    await host().requirePermission('pages:view')
+    const forms = await listForms()
+    return forms.map((form) => ({ label: form.name, value: form.id, ...(form.isOpen ? {} : { note: 'closed' }) }))
+  })
+}
+
+// src/block.tsx
+formId: { type: 'choice', label: 'Form', load: listFormChoicesAction, empty: 'Choose a form' },
+```
+
+- **The browser calls `load`,** so it checks a permission first. `pages:view` lets everyone who can open the page builder see the list.
+- **It only reads.** It records no activity.
+- **`note`** is shown in brackets after the label ("closed"). **`empty`** is the first entry's text while nothing is picked.
+- **The list is read when the page builder opens.** A record changed elsewhere shows on the next reload.
+
+### A number that cannot be typed
+
+The page builder's number box refuses every keystroke that lands outside `min` and `max`. With `min: 5, max: 10` nobody can type `10`, because its first digit is under the minimum, so a range of two-digit values only works with the arrows. Use a `select` with numeric values instead. The Instagram feed block does this for its number of posts (5 to 10):
+
+```ts
+options: [5, 6, 7, 8, 9, 10].map((n) => ({ label: String(n), value: n }))
+```
+
+## Flags
+
+Four keys change how the page builder and the site treat a block: `needsData`, `headingFromData`, `dataOptions` and `petPage`.
+
+- **`needsData: true`:** the block draws nothing on the site without data from its loader. While it has none, its `heading` does not count as a heading of the page, so a page whose only heading would sit in an empty block still gets an `<h1>`. The Form block (a deleted form) and the Instagram feed block (no account connected) set it.
+- **`headingFromData: true`:** the block draws a heading whenever it has data, even with a blank `heading` option. The Form block falls back to the form's name. The page then counts it as a heading while there is data, so the first such block can be the page's `<h1>`.
+- **`dataOptions`:** the options the loader reads. The page builder then runs the loader again only when one of them changes (and when the block is first shown), and redraws with what it has for any other change. Without it, the loader runs after every change to the block, including each keystroke in a text option. An empty list says the loader reads no option. The public site always runs the loader. The Form block lists `['formId']`.
+- **`petPage: true`:** the block is also offered in the Pet page template, the one layout that draws every pet's page. The loader is not told which pet is shown, so set it only for blocks that make sense on every pet's page. The Form block sets it, for an adoption application under every pet.
+
+## render
+
+`render` receives the block's options, checked, plus:
+
+| Prop | Meaning |
+|---|---|
+| `data` | What the loader returned, or `null` (no loader, nothing returned, or it failed) |
+| `editing` | `true` inside the page builder |
+| `headingLevel` | `1` or `2`: the tag for the block's main heading on this page. Unset in the page builder; use `h2` then |
+
+Rules:
+
+- **A plain function of its props.** No hooks and no browser-only code: the same function draws the block on the server for visitors. For anything interactive, return a `'use client'` component (the component may use hooks; `render` itself may not). The Form block returns the visitor's form this way ([`plugins/form-builder/src/public-form.tsx`](https://github.com/muhammadarifftaha/pet-adopt/blob/main/plugins/form-builder/src/public-form.tsx)).
+- **Say why in the editor.** In the page builder (`editing`), a block with nothing to show draws a short note instead of vanishing. On the site it returns `null`.
+- **Draw the heading with the tag `headingLevel` asks for**, so each page keeps exactly one `<h1>`.
+- **A mistake stays in its block.** When `render` throws, the site leaves the block out and the page builder shows a note. That covers `render` itself, not a client component it returns.
+- **Saved options are untrusted.** The site checks them against the block's fields before `render` sees them: a missing value or one of the wrong kind becomes the default, a number is kept inside its limits, and a `select` or `radio` value must be one of its choices. A `choice` may still name a record that no longer exists. Never put an option straight into a class name or a style; compare it against your own list first, as the Form block does with its background.
+- **`data` is checked loosely.** Only an object or a list reaches `render` as `data`. Check its shape before you use it.
+
+## css
+
+- **Plain CSS, no Tailwind.** The page builder's canvas does not load Tailwind, so a block that used its classes would look different there than on the site. A block styles itself in `css`.
+- **Use the site's theme variables** (`var(--primary)`, `var(--surface)`, `var(--radius)` and so on), so the block follows the site's theme and dark mode. [Theming](./theming.mdx) lists them, with the colour pairs that are guaranteed to be readable together.
+- **Not scoped.** The CSS is added to the page as written. Start every selector with a class of your own (`.fb-` for the form builder, `.shelter-hours` above).
+- **Only when drawn.** It is added with each instance of the block that draws something; a block hidden on the site adds no CSS.
+
+## The loader
+
+```ts
+export type PluginBlockLoader = (props: Record<string, unknown>) => Promise<unknown>
+```
+
+- **It gets the block's options,** checked the same way as `render`'s. Treat them as untrusted all the same: in the page builder the browser sends them.
+- **Return plain JSON,** or `null` for nothing. The result crosses to the browser in the page builder. A result over about 1 MB is dropped.
+- **It never breaks a page.** A loader that throws gives `null`, and the error is logged without its values. A plugin whose tables are not migrated gives `null` quietly.
+- **Only public data.** Anyone who can see a page with the block sees what the loader returns.
+- **Keep it fast.** It runs whenever a page with the block is drawn (pages are cached for about a minute). When it needs another service, keep a copy in your tables and refresh it now and then: the Instagram feed reads Instagram about once an hour and never while the site is being built.
+- **The site may be building.** A loader can run during `pnpm build`, often with no database. Return `null` then, and do not log: the Form block checks `process.env.NEXT_PHASE === 'phase-production-build'`.
+- **Declare one parameter.** A later SDK may pass a second argument, what the site knows about the page being drawn.
+
+**After a change visitors should see** (a new feed, new opening hours), call `host().revalidateSite()` in the server action that made it. Without it, a page can show the old state for up to a minute. See [Host services](./host-services.mdx).
