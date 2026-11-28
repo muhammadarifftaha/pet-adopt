@@ -8,7 +8,7 @@
     "url": "git+https://github.com/muhammadarifftaha/pet-adopt.git",
     "directory": "plugins/form-builder"
   },
-  "homepage": "https://github.com/muhammadarifftaha/pet-adopt/tree/main/plugins/form-builder#readme",
+  "homepage": "https://pet-adopt.dev/docs/admin/forms",
   "bugs": "https://github.com/muhammadarifftaha/pet-adopt/issues",
   "keywords": [
     "pet-adopt",
