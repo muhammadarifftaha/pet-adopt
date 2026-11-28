@@ -32,6 +32,8 @@ Create a Vercel project from this repository with:
 | Root Directory | `apps/docs` |
 | Framework Preset | Next.js |
 | Build and install commands | Leave the defaults: Vercel finds pnpm and the workspace from the repository root. |
-| Ignored Build Step | `npx turbo-ignore` (skips a deployment when nothing the docs use has changed) |
+| Ignored Build Step | Automatic |
+| Skip deployments | On: "Skip deployments when there are no changes to the root directory or its dependencies", next to Root Directory |
+| Domain | `pet-adopt.dev`, with `www.pet-adopt.dev` redirecting to it |
 
-The site needs no environment variables, no database and no outside service: search runs in the site itself.
+The site needs no environment variables, no database and no outside service: search runs in the site itself. Its address is the `siteUrl` constant in `src/lib/shared.ts`, used for canonical links, share cards, `sitemap.xml` and `robots.txt`.
