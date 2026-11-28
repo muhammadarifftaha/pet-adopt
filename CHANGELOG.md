@@ -4,7 +4,7 @@ What changed in each release, newest first. The format follows [Keep a Changelog
 
 **Versions:** the project is below 1.0, so a minor version (0.2.0) may need action from you when you update, and a patch version (0.1.1) never does. Anything that needs action is listed under **Upgrading** in that release. Each release is a git tag (`v0.1.0`), and the npm packages carry the same version number. To update a site, see [Updating](apps/docs/content/docs/developers/deployment/backups-and-updates.mdx#updating) in the deployment guide.
 
-## 0.1.0 (not released yet)
+## 0.1.0 (28 Nov 2026)
 
 The first tagged release. A site starts as a clone of this repository.
 
