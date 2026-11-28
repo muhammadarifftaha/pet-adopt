@@ -862,6 +862,8 @@ await check('pages: archive first, then restore or delete; archived pages are of
 
   await restorePage(page.id)
   ok((await getPublishedPage('old-news')) !== null, 'restoring brings a published page back as it was')
+  const restoredVersion = (await getPageById(page.id))!.updatedAt.getTime()
+  ok(/not archived/.test(await userError(restorePage(page.id))) && (await getPageById(page.id))!.updatedAt.getTime() === restoredVersion, 'restoring a page that is not archived is refused and changes nothing')
   await archivePage(page.id)
   await deletePage(page.id)
   ok((await getPageById(page.id)) === null, 'deleted once archived')
@@ -3763,7 +3765,7 @@ await check('Form block (form builder plugin): pages saved with the built-in blo
     // Gone or not chosen: nothing on the site; a note in the page builder. No heading then.
     const gone = await pageForm.resolveData({ props: { ...old.content[0].props, formId: 2_000_000 } }, { metadata })
     ok(gone.props.pluginData === null && renderToStaticMarkup(pageForm.render({ ...gone.props, puck: { isEditing: false } })) === '', 'a deleted form hides the block on the site')
-    ok(renderToStaticMarkup(pageForm.render({ ...gone.props, puck: { isEditing: true } })).includes('This form was deleted') && renderToStaticMarkup(pageForm.render({ id: 'x', formId: null, puck: { isEditing: true } })).includes('Choose a form'), 'and says why in the page builder')
+    ok(renderToStaticMarkup(pageForm.render({ ...gone.props, puck: { isEditing: true } })).includes('This form could not be found') && renderToStaticMarkup(pageForm.render({ id: 'x', formId: null, puck: { isEditing: true } })).includes('Choose a form'), 'and says why in the page builder')
     const noHeading = assignHeadingLevels({ ...old, content: [{ type: 'FormBlock', props: gone.props }, { type: 'TextSection', props: { id: 't', heading: 'About us' } }] } as unknown as Parameters<typeof assignHeadingLevels>[0])
     ok(isEqual(noHeading.data.content.map((item) => (item.props as { headingLevel?: number }).headingLevel), [2, 1]), 'without its form the block has no heading, so the next block is the page heading')
     const hostile = sanitizeLayout({ ...old, content: [{ type: 'FormBlock', props: { id: 'f', formId: { id: form.id }, heading: { evil: 1 }, background: 'dark fixed', showDescription: 'yes' } }] } as unknown as Parameters<typeof sanitizeLayout>[0], blocks)
