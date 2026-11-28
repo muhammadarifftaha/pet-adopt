@@ -610,6 +610,12 @@ export type PluginHost = {
   /** The site's public address, without a trailing slash (`https://adopt.example.com`). */
   siteUrl(): string
   /**
+   * Asks the site to redraw its public pages, after a change that affects what visitors see (what
+   * a block's loader returns, for one). Without it a page may show the old state for up to a
+   * minute. Safe to call anywhere and never throws; outside a request it does nothing.
+   */
+  revalidateSite(): void
+  /**
    * Encrypts a secret (an API key) for storage, with a key derived from the site's secret, the same
    * way the SMTP password is kept. `purpose` names what it is (`form-builder:captcha`): a value only
    * opens with the purpose it was sealed for. `open` returns null when it cannot be opened (another
