@@ -5,6 +5,7 @@ import { notFound, redirect } from 'next/navigation'
 import React from 'react'
 
 import { BuilderContent } from '@/components/site/BuilderContent'
+import { unwrap } from '@/lib/admin/unwrap'
 import { getPetPagePreview, getSettings } from '@/lib/queries'
 import { forcedModeCss, resolveTheme } from '@/lib/theme'
 import { listPetChoicesAction } from '@/puck/actions'
@@ -63,7 +64,7 @@ export default async function PreviewPage({ params, searchParams }: Args) {
   let pet = undefined
   if (page.slug === PET_PAGE_SLUG) {
     const asked = typeof petParam === 'string' && /^\d{1,9}$/.test(petParam) ? Number(petParam) : null
-    const choices = asked === null ? await listPetChoicesAction() : []
+    const choices = asked === null ? unwrap(await listPetChoicesAction()) : []
     const petId = asked ?? (choices.find((choice) => !choice.note) ?? choices[0])?.id
     pet = petId ? ((await getPetPagePreview(petId)) ?? undefined) : undefined
   }

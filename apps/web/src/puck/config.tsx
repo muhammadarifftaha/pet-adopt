@@ -1613,8 +1613,9 @@ const blocks: Config<PuckComponents> = {
             </div>
             <div>
               {/* A data table: column headers, a header cell per row, and a caption for screen
-                  readers. It scrolls sideways on a narrow screen instead of squashing (WCAG 1.4.10). */}
-              <div className="table-scroll">
+                  readers. It scrolls sideways on a narrow screen instead of squashing (WCAG 1.4.10), and
+                  the scroller is focusable and named so a keyboard can scroll it in every browser (2.1.1). */}
+              <div className="table-scroll" tabIndex={0} role="region" aria-label={heading || 'Costs'}>
                 <table className="price-table">
                   {heading && <caption className="sr-only">{heading}</caption>}
                   <thead>

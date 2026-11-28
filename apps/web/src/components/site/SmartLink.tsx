@@ -13,10 +13,19 @@ export function SmartLink({
   children: React.ReactNode
 }) {
   const safe = safeHref(href)
-  if (isExternal(safe) || safe.startsWith('mailto:') || safe.startsWith('tel:')) {
+  // Mail and phone links hand off to an app: a new tab would only leave a blank one behind.
+  if (safe.startsWith('mailto:') || safe.startsWith('tel:')) {
+    return (
+      <a className={className} href={safe}>
+        {children}
+      </a>
+    )
+  }
+  if (isExternal(safe)) {
     return (
       <a className={className} href={safe} target="_blank" rel="noopener noreferrer">
         {children}
+        <span className="sr-only"> (opens in a new tab)</span>
       </a>
     )
   }

@@ -95,7 +95,7 @@ export function PetCatalog({
       {totalPages > 1 && (
         <nav className="pagination" aria-label="Pagination">
           {hasPrevPage ? <Link href={linkFor(page - 1)}>Previous</Link> : <span />}
-          <span>
+          <span aria-current="page">
             Page {page} of {totalPages}
           </span>
           {hasNextPage ? <Link href={linkFor(page + 1)}>Next</Link> : <span />}

@@ -21,6 +21,7 @@ export function WhatsAppButton({ phone, message, label = 'Chat on WhatsApp', var
       rel="noopener noreferrer"
     >
       {label}
+      <span className="sr-only"> (opens in a new tab)</span>
     </a>
   )
 }
