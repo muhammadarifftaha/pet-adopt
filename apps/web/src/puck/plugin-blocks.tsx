@@ -27,7 +27,8 @@ const RESERVED_OPTIONS = new Set(['id', 'puck', 'editMode', 'padding', 'spacing'
 const FIELD_TYPES = new Set(['text', 'textarea', 'number', 'select', 'radio', 'choice'])
 
 /** A saved `choice` value (an id): text up to this length, or a finite number. */
-const MAX_CHOICE_LENGTH = 200
+/** The longest text a `choice` option may save (the SDK documents it). */
+export const MAX_CHOICE_LENGTH = 200
 
 /** What a `choice` option may hold: an id as text or a number. Anything else (an object) is refused. */
 export const isChoiceValue = (value: unknown): value is string | number =>

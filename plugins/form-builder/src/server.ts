@@ -190,8 +190,15 @@ export async function loadFormBlock(props: Record<string, unknown>): Promise<For
   try {
     const form = await getPublicForm(id)
     if (!form) return null
-    const { policy } = await host().privacyPolicy()
-    return { form, privacy: policy ? { title: policy.title, href: policy.href } : null }
+    // The privacy line is extra: if it cannot be read, the form is still shown, without it.
+    let privacy: FormBlockData['privacy'] = null
+    try {
+      const { policy } = await host().privacyPolicy()
+      privacy = policy ? { title: policy.title, href: policy.href } : null
+    } catch (error) {
+      if (process.env.NEXT_PHASE !== 'phase-production-build') host().logError(error, 'form-builder: reading the privacy policy for a form')
+    }
+    return { form, privacy }
   } catch (error) {
     // A UserError here is "the plugin's tables are not set up": the admin screens say so already.
     // While the site is being built there is often no database: nothing worth logging.

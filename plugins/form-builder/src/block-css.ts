@@ -1,6 +1,6 @@
 // The Form block's CSS, as text: the public site and the page builder's canvas load no Tailwind, so
 // the block brings its own rules (they were in the site's styles.css while the block was built in).
-// Every colour, radius and spacing value is one of the site's theme variables
+// Every colour and radius, and most spacing, is one of the site's theme variables
 // (apps/web/src/lib/theme.ts), so the form follows the theme and light or dark mode. The section,
 // container, heading and button looks are the site's own classes (`section`, `container`,
 // `block-heading`, `btn`); only the form's own parts are styled here, all under `.fb-form`.

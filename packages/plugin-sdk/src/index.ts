@@ -391,7 +391,9 @@ export type PluginBlockField =
       /**
        * A dropdown whose choices come from the database when the page builder shows it (one of the
        * plugin's own records, such as a form). The saved value is the picked entry's `value` (text
-       * or a number), or null for none; the site refuses anything else. Choose it with care: a
+       * of at most 200 characters, or a number), or null for none; the site refuses anything else.
+       * The page builder lists the choices when it opens and keeps what a block loaded until one of
+       * its `dataOptions` changes, so a record edited elsewhere shows on the next reload. Choose it with care: a
        * value that no longer exists (a deleted record) still reaches `render` and the loader, which
        * must cope with it.
        */

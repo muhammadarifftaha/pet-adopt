@@ -100,6 +100,13 @@ export function collectBlockLoaders(plugins: Plugin[], blocks: readonly AnyPlugi
       loaders.set(name, { plugin: plugin.name, load })
     }
   }
+  // A plugin's block that the site does not list never appears in the page builder, and pages that
+  // hold it lose it silently: say so once, at start.
+  for (const [name, loader] of loaders) {
+    if (!blocks.some((block) => block.name === name)) {
+      console.warn(`Plugin "${loader.plugin}" has a page builder block "${name}" that apps/web/pet-adopt.blocks.ts does not list. Pages that use it will not show it until it is added there (see the plugin's README).`)
+    }
+  }
   for (const block of blocks) {
     const who = `pet-adopt.blocks.ts: the block "${block.name}"`
     if (!plugins.some((plugin) => plugin.name === block.plugin)) {
