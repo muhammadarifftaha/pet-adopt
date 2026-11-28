@@ -80,6 +80,9 @@ import { formBuilderStorage, openFormsDatabase } from '@pet-adopt/plugin-form-bu
 import * as forms from '@pet-adopt/plugin-form-builder/server'
 import * as formFields from '@pet-adopt/plugin-form-builder/fields'
 import * as formActions from '@pet-adopt/plugin-form-builder/actions'
+import * as instagram from '@pet-adopt/plugin-instagram-feed/server'
+import * as instagramActions from '@pet-adopt/plugin-instagram-feed/actions'
+import { DEFAULT_POSTS, MAX_POSTS, MIN_POSTS, type FeedPost, type InstagramFeedData } from '@pet-adopt/plugin-instagram-feed/types'
 import { classToken, sanitizeLayout } from '../src/puck/sanitize'
 import { definePluginBlock, type ActionResult, type Plugin as SdkPlugin, type PluginUser } from '@pet-adopt/plugin-sdk'
 import * as ReactForChecks from 'react'
@@ -122,7 +125,7 @@ import { cancelEmailChange, confirmEmailChange, emailChangeFor, needsEmailConfir
 import { adoptProviderPicture, AVATAR_SIZE, isPrivateAddress, pictureFromIdToken, removeAvatar, saveAvatar } from '../src/server/avatars'
 import { backupCodesLeft, forgetTrustedDevices, needsTwoFactorSetup, resetTwoFactor, saveTwoFactorRoles } from '../src/server/two-factor'
 import { BACKUP_CODE_ALPHABET, normalizeBackupCode, normalizeTotpCode } from '../src/server/two-factor-codes'
-import { createHmac, generateKeyPairSync, randomBytes, sign as signData } from 'node:crypto'
+import { createHash, createHmac, generateKeyPairSync, randomBytes, sign as signData } from 'node:crypto'
 import { createServer } from 'node:http'
 import { DEFAULT_TEMPLATES, EMAIL_PURPOSES, emailImageSrc, LOGO_DEFAULTS, renderEmail, validateTemplate, type EmailPurpose, type RenderContext, type TemplateData } from '../src/lib/email-template'
 import {
@@ -2287,6 +2290,7 @@ await check('roles: the permission table is as agreed, every action checks a per
     'src/puck/actions.ts',
     'src/app/(editor)/edit/[id]/actions.ts',
     '../../plugins/form-builder/src/actions.ts',
+    '../../plugins/instagram-feed/src/actions.ts',
   ]
   const unchecked: string[] = []
   for (const file of files) {
@@ -3652,7 +3656,7 @@ await check('plugin blocks: a plugin\'s block becomes a page builder block under
   const pickSaved = (pick: unknown) => sanitizeLayout({ root: { props: {} }, zones: {}, content: [{ type: 'CheckPick', props: { id: 'p1', pick } }] } as unknown as Parameters<typeof sanitizeLayout>[0], pickConfig).content[0].props as Record<string, unknown>
   ok(pickSaved(3).pick === 3 && pickSaved('3').pick === '3' && !('pick' in pickSaved({ id: 3, url: 'x' })) && !('pick' in pickSaved([3])) && !('pick' in pickSaved(false)), 'a saved choice keeps an id and loses an object, on save and when drawn')
 
-  // A real plugin block (the form builder's Form block) is checked end to end in its own check.
+  // Real plugin blocks (the form builder's Form block, the Instagram feed) are checked end to end in their own checks.
 })
 
 await check('Form block (form builder plugin): pages saved with the built-in block draw the form through the plugin block, the loader gives public data or null, the heading falls back to the form, the picker lists forms for the page builder, and the Pet page template offers it', async () => {
@@ -3669,7 +3673,7 @@ await check('Form block (form builder plugin): pages saved with the built-in blo
   const petForm = (petPageBlocks.components as unknown as Record<string, Loose>).FormBlock
   ok(Boolean(pageForm) && Boolean(petForm) && 'padding' in pageForm.fields && 'padding' in petForm.fields, 'in the page builder and in the Pet page template, with the Padding option')
   const petCategories = (petPageBlocks as unknown as { categories: Record<string, { title: string; components: string[] }> }).categories
-  ok(isEqual(petCategories.plugins?.components, ['FormBlock']) && petCategories.plugins?.title === 'Plugins' && !petCategories.sections.components.includes('FormBlock'), 'the Pet page template offers it under Plugins, and only the blocks that ask')
+  ok(isEqual(petCategories.plugins?.components, ['FormBlock']) && petCategories.plugins?.title === 'Plugins' && !petCategories.sections.components.includes('FormBlock'), 'the Pet page template offers it under Plugins, and only the blocks that ask (not the Instagram feed)')
 
   const realHost = host()
   const globals = globalThis as { React?: unknown }
@@ -3777,6 +3781,503 @@ await check('Form block (form builder plugin): pages saved with the built-in blo
   }
 })
 
+await check('Instagram feed plugin: keys and tokens are sealed and never shown or logged, a sign-in state works once for one person, only professional accounts connect, unsafe addresses are dropped, pins lead and count, the cache outlives failures, tokens are renewed, changes are logged, and the block gets public data only', async () => {
+  // Instagram is a fake here (setInstagramFetchForChecks): no real account is ever called. The fake
+  // puts tokens and the app secret into its error texts and thrown errors, to prove none get out.
+  const APP_ID = '1234567890'
+  const APP_SECRET = 'Zq7APPKEYcheck0123456789abcdefXY'
+  const TOKEN_SHORT = 'IGshortTOKEN_aaaaaaaaaaaaaaaaaaaaaaaa'
+  const TOKEN_LONG = 'IGlongTOKEN_bbbbbbbbbbbbbbbbbbbbbbbbbb'
+  const TOKEN_FRESH = 'IGfreshTOKEN_cccccccccccccccccccccccc'
+  const TOKEN_PASTED = 'IGpastedTOKEN_dddddddddddddddddddddddd'
+  const TOKEN_WRONG = 'IGwrongTOKEN_eeeeeeeeeeeeeeeeeeeeeeee'
+  const TOKEN_OTHER = 'IGotherTOKEN_ffffffffffffffffffffffff'
+  const OTHER_SECRET = 'Zq7OTHERKEYcheck9876543210fedcbaXY'
+  const ACCOUNT_ID = '17841400000000001'
+  const OTHER_ID = '17841400000000002'
+  const NEVER_SHOWN = [APP_SECRET, OTHER_SECRET, TOKEN_SHORT, TOKEN_LONG, TOKEN_FRESH, TOKEN_PASTED, TOKEN_WRONG, TOKEN_OTHER, 'access_token', 'client_secret', 'graph.instagram.com', 'api.instagram.com']
+  const SECRET_PURPOSE = 'plugin:instagram-feed:app-secret'
+  const TOKEN_PURPOSE = 'plugin:instagram-feed:access-token'
+
+  // `delayMs` makes every answer slow; `hook` runs once a call has arrived and before it is answered
+  // (it clears itself), to change something while a read from Instagram is under way.
+  const fake = { accountType: 'BUSINESS', down: false, refuses: false, refreshFails: false, wrapProfile: true, nameless: false, delayMs: 0, hook: null as null | ((call: string) => Promise<void>), calls: [] as string[], redirectSeen: '' }
+  const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+  const during = (path: string, change: () => Promise<unknown>) => {
+    fake.hook = async (call) => {
+      if (!call.endsWith(path)) return
+      fake.hook = null
+      await change()
+    }
+  }
+  const post = (n: number, extra: Record<string, unknown> = {}) => ({
+    id: String(1000 + n),
+    caption: `Post ${n} first line\nsecond line`,
+    media_type: 'IMAGE',
+    media_url: `https://scontent-abc.cdninstagram.com/v/p${n}.jpg?sig=1`,
+    permalink: `https://www.instagram.com/p/code${n}/`,
+    timestamp: `2026-11-${String(28 - n).padStart(2, '0')}T10:00:00+0000`,
+    ...extra,
+  })
+  const media = [
+    post(1),
+    post(2, { media_type: 'VIDEO', media_url: 'https://video.cdninstagram.com/v.mp4', thumbnail_url: 'https://scontent.xx.fbcdn.net/cover2.jpg' }),
+    post(3, { media_url: 'https://evil.example.com/p3.jpg' }), // a picture on another host
+    post(4, { permalink: 'https://instagram.com.evil.example/p/x/' }), // a look-alike host
+    post(5, { media_type: 'VIDEO', media_url: 'https://video.cdninstagram.com/v.mp4', thumbnail_url: undefined }), // a video with no still picture
+    post(6, { caption: `${'word '.repeat(60)}\u0007` }),
+    post(7, { media_type: 'CAROUSEL_ALBUM' }),
+    post(8, { media_url: 'http://scontent.cdninstagram.com/p8.jpg' }), // not https
+    ...Array.from({ length: 10 }, (_, i) => post(9 + i)),
+  ]
+  const older = post(40, { username: 'happy.paws', timestamp: '2025-01-05T10:00:00+0000' })
+  const answer = (status: number, body: unknown) => ({ ok: status >= 200 && status < 300, status, json: async () => body })
+  const fakeInstagram: instagram.InstagramFetch = async (address, init) => {
+    const url = new URL(address)
+    const call = `${init.method} ${url.host}${url.pathname}`
+    fake.calls.push(call)
+    if (init.redirect !== 'manual') throw new Error('redirects must not be followed')
+    if (!['api.instagram.com', 'graph.instagram.com'].includes(url.host)) throw new Error(`unexpected host ${url.host}`)
+    if (fake.down) throw new TypeError(`fetch failed for ${address}`)
+    if (fake.delayMs) await pause(fake.delayMs)
+    if (fake.hook) await fake.hook(call)
+    const token = url.searchParams.get('access_token')
+    if (url.host === 'api.instagram.com') {
+      fake.redirectSeen = init.body?.get('redirect_uri') ?? ''
+      if (init.body?.get('client_secret') !== APP_SECRET) return answer(400, { error_type: 'OAuthException', code: 400, error_message: 'Invalid client_secret' })
+      if (init.body?.get('code') !== 'good-code') return answer(400, { error_type: 'OAuthException', code: 400, error_message: `Matching code was not found or was already used (${APP_SECRET})` })
+      return answer(200, { data: [{ access_token: TOKEN_SHORT, user_id: ACCOUNT_ID, permissions: 'instagram_business_basic' }] })
+    }
+    if (url.pathname === '/access_token') return answer(200, { access_token: TOKEN_LONG, token_type: 'bearer', expires_in: 5183944 })
+    if (url.pathname === '/refresh_access_token') {
+      if (fake.refreshFails) return answer(400, { error: { message: `Cannot refresh ${token}`, type: 'OAuthException', code: 190 } })
+      return answer(200, { access_token: TOKEN_FRESH, token_type: 'bearer', expires_in: 5183944 })
+    }
+    if (![TOKEN_LONG, TOKEN_FRESH, TOKEN_PASTED, TOKEN_OTHER].includes(token ?? '')) return answer(400, { error: { message: `Invalid OAuth access token ${token}`, type: 'OAuthException', code: 190 } })
+    if (url.pathname.endsWith('/me/media')) {
+      if (fake.refuses) return answer(400, { error: { message: `Error validating access token ${token} at ${address}`, type: 'OAuthException', code: 190 } })
+      return answer(200, { data: media, paging: {} })
+    }
+    if (url.pathname.endsWith('/me')) {
+      if (url.searchParams.get('fields') === 'biography') return answer(200, { biography: 'We rehome cats.\nOpen daily.', id: '1' })
+      if (token === TOKEN_OTHER) return answer(200, { user_id: OTHER_ID, username: 'other.paws', name: 'Other Paws', account_type: 'MEDIA_CREATOR', followers_count: 7, media_count: 3 })
+      const profile = { user_id: ACCOUNT_ID, username: 'happy.paws', name: 'Happy Paws', account_type: fake.accountType, profile_picture_url: 'https://scontent.cdninstagram.com/pic.jpg', followers_count: 1234, media_count: 56 }
+      return answer(200, fake.wrapProfile ? { data: [profile] } : profile)
+    }
+    if (url.pathname.endsWith('/1040')) return answer(200, fake.nameless ? { ...older, username: undefined } : older)
+    if (url.pathname.endsWith('/9999')) return answer(200, { ...post(99), id: '9999', username: 'someone.else' })
+    return answer(400, { error: { message: 'Unsupported get request', type: 'IGApiException', code: 100, error_subcode: 33 } })
+  }
+
+  // The team. Server actions find the signed-in person through the request's cookies, which a script
+  // does not have, so the host's sign-in and activity services are stood in for here: the same
+  // permission table (`can`) and the site's real activity log, with `actor` as the person signed in.
+  const person = (id: string, role: Role): PluginUser => ({ id: `ig-check-${id}`, email: `ig-${id}@example.test`, name: `Ig ${id}`, role })
+  const admin = person('admin', 'admin'), otherAdmin = person('other', 'admin'), editor = person('editor', 'editor'), audit = person('audit', 'audit')
+  let actor: PluginUser | null = null
+  const as = async <T>(user: PluginUser | null, action: () => Promise<T>): Promise<T> => {
+    actor = user
+    try {
+      return await action()
+    } finally {
+      actor = null
+    }
+  }
+  // Everything a browser, a page or a log could be given, collected to be searched at the end.
+  const seen: string[] = []
+  const note = <T>(value: T): T => (seen.push(JSON.stringify(value) ?? ''), value)
+  const done = <T>(result: ActionResult<T>): T => {
+    note(result)
+    if (!result.ok) throw new Error(`an action that should work was refused: ${result.error}`)
+    return result.data
+  }
+  const refused = <T>(result: ActionResult<T>) => {
+    note(result)
+    if (result.ok) throw new Error('an action that should be refused worked')
+    return result
+  }
+  const saidTo = async (promise: Promise<unknown>) => note(await userError(promise))
+  const fieldsOf = async (promise: Promise<unknown>) => note(await fieldErrors(promise))
+  const stateOf = (address: string) => new URL(address).searchParams.get('state') ?? ''
+  const idsOf = (posts: FeedPost[] | undefined) => (posts ?? []).map((item) => item.id).join()
+  const blockData = async (props: Record<string, unknown>) => note((await fetchPluginBlockData('InstagramFeed', props)) as InstagramFeedData | null)
+
+  forgetPluginStorageStatus()
+  const status = (await getPluginStorageStatus()).find((entry) => entry.plugin === 'instagram-feed')
+  ok(status?.ready, `the plugin's tables are set up by migrate: ${status?.problem}`)
+  const store = await instagram.instagramFeedStorage.open()
+  const settingsRow = async () => (await store.db.select().from(store.t.settings))[0]
+  const cacheRows = () => store.db.select().from(store.t.cache)
+  const activity = async () => (await db.select().from(t.activityLog).where(like(t.activityLog.action, 'instagram-feed.%'))).sort((a, b) => a.id - b.id)
+  const cleanUp = async () => {
+    await store.db.delete(store.t.cache)
+    await store.db.delete(store.t.settings)
+    await db.delete(t.activityLog).where(like(t.activityLog.action, 'instagram-feed.%'))
+    await db.delete(t.rateLimits).where(like(t.rateLimits.key, 'plugin:instagram-feed:%'))
+  }
+  await cleanUp()
+
+  const siteBlock = siteBlocks.find((block) => block.name === 'InstagramFeed')
+  ok(siteBlock?.plugin === 'instagram-feed' && siteBlock.needsData === true && !siteBlock.petPage && isEqual(siteBlock.dataOptions, ['count', 'pinned']), 'pet-adopt.blocks.ts lists the Instagram feed block; only the number of posts and the pins reload its feed in the editor, and it is not offered in the Pet page template')
+  const puck = toPuckComponent(siteBlock!) as unknown as {
+    resolveData: (data: { props: Record<string, unknown> }, params: { metadata?: unknown }) => Promise<{ props: Record<string, unknown> }>
+    render: (props: Record<string, unknown>) => Parameters<typeof renderToStaticMarkup>[0]
+  }
+  const metadata = { fetchPluginBlock: fetchPluginBlockData }
+
+  const realHost = host()
+  let revalidated = 0
+  const realConsoleError = console.error
+  const logged: string[] = []
+  let loggedSomethingElse = false
+  console.error = (...args: unknown[]) => {
+    if (args.some((arg) => typeof arg !== 'string')) loggedSomethingElse = true
+    logged.push(args.map((arg) => (typeof arg === 'string' ? arg : arg instanceof Error ? `${arg.stack ?? arg.message}` : (JSON.stringify(arg) ?? String(arg)))).join(' '))
+  }
+  // tsx compiles a plugin's JSX to React.createElement (the plugin's tsconfig says "preserve", which
+  // Next turns into the automatic runtime), so drawing the block in this script needs a global React.
+  const globals = globalThis as { React?: unknown }
+  const hadReact = 'React' in globals
+  if (!hadReact) globals.React = ReactForChecks
+  provideHost({
+    ...realHost,
+    requirePermission: async (permission) => {
+      if (!actor) throw new UserError('You need to be signed in.')
+      if (!can(actor.role, permission)) throw new UserError(`Your role does not have access to this (${permission}).`)
+      return actor
+    },
+    revalidateSite: () => {
+      revalidated += 1
+      realHost.revalidateSite()
+    },
+    recordActivity: async (entry) => {
+      if (!actor || !entry.action.startsWith('instagram-feed.')) return
+      await recordActivity({ actor, action: entry.action, area: 'plugins', summary: entry.summary, fields: entry.fields ?? null, client: null })
+    },
+  })
+  instagram.setInstagramFetchForChecks(fakeInstagram)
+  try {
+    // --- Before anything is connected ----------------------------------------------------------
+    ok((await blockData({ count: 6, pinned: 'include' })) === null && (await instagram.loadInstagramFeed({})) === null, 'no feed before an account is connected')
+    ok((await puck.resolveData({ props: { id: 'ig1', count: 6 } }, { metadata })).props.pluginData === null, 'the block is given nothing')
+    const emptyOnSite = renderToStaticMarkup(puck.render({ id: 'ig1', heading: 'Follow us', puck: { isEditing: false } }))
+    const emptyInEditor = renderToStaticMarkup(puck.render({ id: 'ig1', heading: 'Follow us', puck: { isEditing: true } }))
+    ok(emptyOnSite === '' && /No Instagram account is connected yet/.test(emptyInEditor) && emptyInEditor.startsWith('<style>') && logged.length === 0, `with no account the block draws nothing on the site, not even its CSS, and a note in the editor: ${emptyOnSite.slice(0, 200)} ${logged[0] ?? ''}`)
+    ok(/Save the app ID/.test(refused(await as(admin, () => instagramActions.startAuthorizationAction())).error), 'starting the sign-in without keys is refused')
+    ok(/signed in/.test(refused(await as(null, () => instagramActions.getConnectionAction())).error), 'nobody signed in sees nothing')
+    ok(done(await as(audit, () => instagramActions.getConnectionAction())).canEdit === false && done(await as(admin, () => instagramActions.getConnectionAction())).canEdit === true, 'audit views the connection; canEdit follows the role')
+    refused(await as(editor, () => instagramActions.getConnectionAction()))
+    refused(await as(audit, () => instagramActions.saveAppKeysAction({ appId: APP_ID, appSecret: APP_SECRET })))
+    refused(await as(editor, () => instagramActions.saveAppKeysAction({ appId: APP_ID, appSecret: APP_SECRET })))
+    refused(await as(editor, () => instagramActions.connectWithTokenAction({ token: TOKEN_PASTED })))
+    ok(!(await settingsRow())?.appId && fake.calls.length === 0, 'an editor or an audit account cannot save keys or connect; Instagram was not called')
+
+    // --- The Meta app's keys -------------------------------------------------------------------
+    ok(refused(await as(admin, () => instagramActions.saveAppKeysAction({ appId: 'abc', appSecret: APP_SECRET }))).fieldErrors?.appId, 'an app ID that is not a number is a field error')
+    ok(refused(await as(admin, () => instagramActions.saveAppKeysAction({ appId: APP_ID, appSecret: 'short' }))).fieldErrors?.appSecret, 'a secret that is not one is a field error')
+    let view = done(await as(admin, () => instagramActions.saveAppKeysAction({ appId: APP_ID, appSecret: APP_SECRET })))
+    ok(view.appId === APP_ID && view.appSecretSet && !view.connected, 'keys saved')
+    ok(!JSON.stringify(view).includes(APP_SECRET), 'the view never holds the secret')
+    ok(view.redirectUri === `${SITE_URL}/admin/plugins/instagram-feed/callback`, `the redirect address is built from the site's own address: ${view.redirectUri}`)
+    const keysRow = await settingsRow()
+    ok(keysRow.appSecretEncrypted && !JSON.stringify(keysRow).includes(APP_SECRET) && open(keysRow.appSecretEncrypted, SECRET_PURPOSE) === APP_SECRET, 'the secret is stored sealed, under the plugin\'s own purpose')
+    ok(open(keysRow.appSecretEncrypted, 'instagram-feed:app-secret') === null && open(keysRow.appSecretEncrypted, TOKEN_PURPOSE) === null, 'and opens for no other purpose')
+    view = done(await as(admin, () => instagramActions.saveAppKeysAction({ appId: APP_ID })))
+    ok(view.appSecretSet && (await settingsRow()).appSecretEncrypted === keysRow.appSecretEncrypted && (await activity()).length === 1, 'a blank secret keeps the saved one, and saving nothing new is not logged')
+
+    // --- The sign-in's one-time state ----------------------------------------------------------
+    let start = done(await as(admin, () => instagramActions.startAuthorizationAction()))
+    const authorize = new URL(start.url)
+    ok(authorize.origin === 'https://www.instagram.com' && authorize.pathname === '/oauth/authorize' && authorize.searchParams.get('client_id') === APP_ID && authorize.searchParams.get('scope') === 'instagram_business_basic' && authorize.searchParams.get('response_type') === 'code' && authorize.searchParams.get('redirect_uri') === view.redirectUri, `the sign-in address: ${authorize.origin}${authorize.pathname}`)
+    ok(!start.url.includes(APP_SECRET), 'the sign-in address holds no secret')
+    const stateRow = await settingsRow()
+    ok(/^[A-Za-z0-9_-]{43}$/.test(stateOf(start.url)) && stateRow.oauthStateHash === createHash('sha256').update(stateOf(start.url)).digest('hex') && !JSON.stringify(stateRow).includes(stateOf(start.url)), 'only the sha256 of the state is stored')
+    const callsBefore = fake.calls.length
+    ok(/could not be finished/.test(await saidTo(instagram.completeAuthorization(admin, { code: 'good-code', state: 'x'.repeat(43) }))), 'a wrong state is refused')
+    ok(/could not be finished/.test(await saidTo(instagram.completeAuthorization(otherAdmin, { code: 'good-code', state: 'not a state' }))) && /could not be finished/.test(await saidTo(instagram.completeAuthorization(admin, { code: 'good-code' }))), 'and so is one of the wrong shape, or none')
+    ok((await settingsRow()).oauthStateHash === stateRow.oauthStateHash, 'a made-up callback does not end the sign-in that is under way')
+    ok(/could not be finished/.test(await saidTo(instagram.completeAuthorization(otherAdmin, { code: 'good-code', state: stateOf(start.url) }))), 'another person cannot finish a sign-in they did not start')
+    ok((await settingsRow()).oauthStateHash === null && /could not be finished/.test(await saidTo(instagram.completeAuthorization(admin, { code: 'good-code', state: stateOf(start.url) }))), 'and the real state is spent by that try: it works once, whoever brings it')
+    start = await instagram.startAuthorization(admin)
+    await instagram.backdateForChecks(11 * 60_000)
+    ok(/could not be finished/.test(await saidTo(instagram.completeAuthorization(admin, { code: 'good-code', state: stateOf(start.url) }))) && (await settingsRow()).oauthStateHash === null, 'a state older than 10 minutes is refused, and spent')
+    ok(fake.calls.length === callsBefore, 'a refused state never reaches Instagram')
+    start = await instagram.startAuthorization(admin)
+    ok(/sign-in answer could not be used/.test(await saidTo(instagram.completeAuthorization(admin, { code: 'used-code', state: stateOf(start.url) }))), 'a code Instagram refuses gets a fixed sentence')
+    ok(!(await instagram.getConnection(admin)).connected, 'still not connected')
+
+    // --- A personal account --------------------------------------------------------------------
+    fake.accountType = 'PERSONAL'
+    start = await instagram.startAuthorization(admin)
+    ok(/Only Business and Creator/.test(await saidTo(instagram.completeAuthorization(admin, { code: 'good-code', state: stateOf(start.url) }))), 'a personal account is refused')
+    const personalRow = await settingsRow()
+    ok(!(await instagram.getConnection(admin)).connected && personalRow.accessTokenEncrypted === null && personalRow.accountId === null && (await cacheRows()).length === 0 && (await blockData({})) === null, 'and nothing of it was kept')
+    fake.accountType = 'BUSINESS'
+
+    // --- Connecting through Instagram's sign-in ------------------------------------------------
+    start = await instagram.startAuthorization(admin)
+    refused(await as(audit, () => instagramActions.completeAuthorizationAction({ code: 'good-code', state: stateOf(start.url) })))
+    view = done(await as(admin, () => instagramActions.completeAuthorizationAction({ code: 'good-code#_', state: stateOf(start.url) })))
+    ok(view.connected && view.method === 'oauth' && view.account?.username === 'happy.paws' && view.account.accountType === 'BUSINESS', 'connected through the sign-in')
+    ok(fake.redirectSeen === view.redirectUri, 'the same redirect address is sent with the code')
+    ok(view.tokenExpiresAt !== null && view.lastFetchedAt !== null && view.lastError === null, 'the expiry is known and the first feed was read')
+    const connectedRow = await settingsRow()
+    ok(connectedRow.accessTokenEncrypted && !JSON.stringify(connectedRow).includes(TOKEN_LONG) && !JSON.stringify(connectedRow).includes(TOKEN_SHORT) && !JSON.stringify(await cacheRows()).includes(TOKEN_LONG), 'the raw token is in no row')
+    ok(open(connectedRow.accessTokenEncrypted, TOKEN_PURPOSE) === TOKEN_LONG && open(connectedRow.accessTokenEncrypted, SECRET_PURPOSE) === null, 'the long-lived token is stored sealed')
+    ok(!JSON.stringify(view).includes(ACCOUNT_ID), 'the view does not hold the account id')
+    ok(/could not be finished/.test(await saidTo(instagram.completeAuthorization(admin, { code: 'good-code', state: stateOf(start.url) }))), 'a state works once')
+    ok(refused(await as(admin, () => instagramActions.saveAppKeysAction({ appId: '99999999' }))).fieldErrors?.appId, 'the app ID cannot change while an account is connected through it')
+
+    // --- The feed: only what is safe to draw ---------------------------------------------------
+    let feed = note(await instagram.loadInstagramFeed({}))
+    ok(feed?.posts.length === DEFAULT_POSTS, 'the default number of posts')
+    ok(feed?.profile.username === 'happy.paws' && feed.profile.followers === 1234 && feed.profile.posts === 56 && feed.profile.profileUrl === 'https://www.instagram.com/happy.paws/' && feed.profile.biography === 'We rehome cats.\nOpen daily.', 'the profile')
+    const all = done(await as(audit, () => instagramActions.listRecentPostsAction()))
+    const byId = (id: string) => all.find((item) => item.id === id)
+    ok(!byId('1003') && !byId('1008'), 'pictures on another host, or not on https, are dropped')
+    ok(!byId('1004'), 'a look-alike permalink host is dropped')
+    ok(!byId('1005') && byId('1002')?.imageUrl === 'https://scontent.xx.fbcdn.net/cover2.jpg' && byId('1002')?.kind === 'video', 'a video without a still picture is dropped; one with a cover uses it')
+    ok(all.length === 14 && all.every((item) => /^https:\/\/[a-z0-9.-]+\.(cdninstagram\.com|fbcdn\.net)\//.test(item.imageUrl) && item.permalink.startsWith('https://www.instagram.com/')), 'every address kept is https on Instagram\'s own hosts')
+    const longAlt = byId('1006')?.alt ?? ''
+    ok(all[0].alt === 'Post 1 first line' && Array.from(longAlt).length <= 120 && longAlt.endsWith('…') && !longAlt.includes('\u0007'), 'the text alternative is the caption\'s first line, cut, without control characters')
+    ok(all[0].postedAt === '2026-11-27T10:00:00.000Z' && byId('1007')?.kind === 'album', 'dates are ISO; albums are named')
+
+    // --- How many, and the pins ----------------------------------------------------------------
+    ok((await instagram.loadInstagramFeed({ count: 99 }))?.posts.length === MAX_POSTS && (await instagram.loadInstagramFeed({ count: 1 }))?.posts.length === MIN_POSTS && (await instagram.loadInstagramFeed({ count: '7' }))?.posts.length === 7, `the number of posts stays between ${MIN_POSTS} and ${MAX_POSTS}`)
+    ok((await instagram.loadInstagramFeed({ count: { evil: 1 }, pinned: ['x'] }))?.posts.length === DEFAULT_POSTS, 'nonsense options fall back to the defaults')
+    ok((await fieldsOf(instagram.setPinnedPosts(['1001', '1002', '1007', '1009']))).ids, 'more than three pins are refused')
+    ok((await fieldsOf(instagram.setPinnedPosts(['abc']))).ids && (await fieldsOf(instagram.setPinnedPosts(['1001; drop table']))).ids && (await fieldsOf(instagram.setPinnedPosts('1001'))).ids, 'ids are digits, in a list')
+    ok((await fieldsOf(instagram.setPinnedPosts(['9999']))).ids, 'a post of another account cannot be pinned')
+    ok((await fieldsOf(instagram.setPinnedPosts(['5555']))).ids, 'a post Instagram does not know cannot be pinned')
+    refused(await as(audit, () => instagramActions.setPinnedPostsAction({ ids: ['1001'] })))
+    ok((await settingsRow()).pinnedIds.length === 0, 'nothing was pinned by the refused tries')
+    const pinned = done(await as(editor, () => instagramActions.setPinnedPostsAction({ ids: ['1040', '1007', '1001'] })))
+    ok(idsOf(pinned.slice(0, 3)) === '1040,1007,1001' && pinned.slice(0, 3).every((item) => item.pinned) && !pinned[3].pinned, 'an editor pins posts; they lead in the order chosen (an older one is confirmed with Instagram)')
+    feed = note(await instagram.loadInstagramFeed({ count: 5 }))
+    ok(idsOf(feed?.posts) === '1040,1007,1001,1002,1006', `pins count towards the limit and no post shows twice: ${idsOf(feed?.posts)}`)
+    feed = note(await instagram.loadInstagramFeed({ count: 5, pinned: 'exclude' }))
+    ok(idsOf(feed?.posts) === '1001,1002,1006,1007,1009' && feed?.posts.every((item) => !item.pinned), `a block can leave the pins out: ${idsOf(feed?.posts)}`)
+
+    // --- Through the page builder's block path -------------------------------------------------
+    // The site checks a block's options before its loader sees them: a number the choices do not offer
+    // (99) reaches the loader as the default, not clamped by the loader.
+    ok((await blockData({ count: 99, pinned: 'include' }))?.posts.length === DEFAULT_POSTS, 'a number of posts the block does not offer reaches the loader as the default')
+    const forBlock = await blockData({ count: MAX_POSTS, pinned: 'include' })
+    ok(forBlock?.posts.length === MAX_POSTS && idsOf(forBlock.posts.slice(0, 3)) === '1040,1007,1001' && forBlock.posts.filter((item) => item.pinned).length === 3, `the block loader gives at most ${MAX_POSTS} posts, pins first`)
+    ok(isEqual(Object.keys(forBlock ?? {}).sort(), ['fetchedAt', 'posts', 'profile']), `the block gets the feed and nothing else: ${Object.keys(forBlock ?? {}).join()}`)
+    ok(isEqual(Object.keys(forBlock?.profile ?? {}).sort(), ['biography', 'followers', 'name', 'pictureUrl', 'posts', 'profileUrl', 'username']) && forBlock?.posts.every((item) => isEqual(Object.keys(item).sort(), ['alt', 'id', 'imageUrl', 'kind', 'permalink', 'pinned', 'postedAt'])), 'a profile and posts hold public fields only')
+    ok(!JSON.stringify(forBlock).includes(ACCOUNT_ID) && !/token|secret|error|appId/i.test(JSON.stringify(forBlock)), 'no account id, token, key or error is in it')
+    const withoutPins = await blockData({ count: MAX_POSTS, pinned: 'exclude' })
+    ok(withoutPins?.posts.length === MAX_POSTS && withoutPins.posts.every((item) => !item.pinned) && !idsOf(withoutPins.posts).includes('1040'), 'the block can leave the pins out')
+    ok((await blockData({ count: 'many', pinned: 'maybe' }))?.posts.length === DEFAULT_POSTS && (await fetchPluginBlockData('InstagramFeed', { count: { deep: 1 } })) !== null, 'options the block does not offer fall back')
+    const resolved = await puck.resolveData({ props: { id: 'ig1', heading: 'Follow us', count: MAX_POSTS, columns: 4, pinned: 'include' } }, { metadata })
+    ok((resolved.props.pluginData as InstagramFeedData | null)?.posts.length === MAX_POSTS && resolved.props.count === MAX_POSTS, 'the page builder block loads it; the saved options are not rewritten')
+    // "Number of posts" and "Columns" are selects with numbers as values (a number field could not be
+    // typed into): a number saved by the older number field is still one of the choices.
+    const asSaved = (props: Record<string, unknown>) => sanitizeLayout({ root: { props: {} }, zones: {}, content: [{ type: 'InstagramFeed', props: { id: 'ig2', ...props } }] } as unknown as Parameters<typeof sanitizeLayout>[0], pageBlocks).content[0].props as Record<string, unknown>
+    ok(isEqual(pluginBlockOptions(siteBlock!, { count: 7, columns: 5 }), { ...siteBlock!.defaultProps, count: 7, columns: 5 }) && asSaved({ count: 7, columns: 5 }).count === 7 && asSaved({ count: 7, columns: 5 }).columns === 5, 'a saved number of posts and of columns is kept')
+    ok(pluginBlockOptions(siteBlock!, { count: 99, columns: '4' }).count === DEFAULT_POSTS && pluginBlockOptions(siteBlock!, { count: 99, columns: '4' }).columns === siteBlock!.defaultProps.columns && !('count' in asSaved({ count: 99 })) && !('count' in asSaved({ count: '7' })), 'a number the choices do not offer, or text, falls back to the default')
+    ok(((await puck.resolveData({ props: { id: 'ig1', count: 7 } }, { metadata })).props.pluginData as InstagramFeedData | null)?.posts.length === 7, 'and the loader is asked for the chosen number')
+    const drawn = note(renderToStaticMarkup(puck.render({ ...resolved.props, headingLevel: 2, puck: { isEditing: false } })))
+    ok(drawn.split('class="ig-feed-tile"').length - 1 === MAX_POSTS && drawn.includes('Follow us') && drawn.includes('happy.paws') && drawn.includes('href="https://www.instagram.com/happy.paws/"'), 'the block draws the profile, the posts and the link to the profile')
+    ok(!drawn.includes('evil.example') && !drawn.includes(ACCOUNT_ID), 'and nothing that was dropped')
+
+    // --- The cache, and Instagram failing ------------------------------------------------------
+    let before = fake.calls.length
+    await blockData({})
+    ok(fake.calls.length === before, 'a fresh cache is served without calling Instagram')
+    await instagram.backdateForChecks(2 * 3_600_000)
+    fake.down = true
+    before = fake.calls.length
+    feed = await blockData({ count: 5 })
+    ok(feed?.posts.length === 5 && fake.calls.length > before, 'a cache older than an hour is read again; when Instagram cannot be reached the old feed is served')
+    view = note(await instagram.getConnection(admin))
+    ok(view.lastError === 'Instagram could not be reached. Try again in a moment.', `the failure is recorded as a fixed sentence: ${view.lastError}`)
+    before = fake.calls.length
+    ok((await blockData({}))?.posts.length === DEFAULT_POSTS && fake.calls.length === before, 'during the retry pause the old feed is served and Instagram is not called')
+    ok(/could not be reached/.test(await saidTo(instagram.refreshFeed())), 'a manual refresh says why it failed')
+    fake.down = false
+    fake.refuses = true
+    const refusal = await saidTo(instagram.refreshFeed())
+    ok(/no longer accepts the saved access token/.test(refusal) && (await instagram.getConnection(admin)).lastError === refusal && (await blockData({}))?.posts.length === DEFAULT_POSTS, 'an answer of Instagram\'s with the token in it becomes a fixed sentence too, and the feed stays')
+    fake.refuses = false
+    refused(await as(audit, () => instagramActions.refreshFeedAction()))
+    const refreshed = done(await as(editor, () => instagramActions.refreshFeedAction()))
+    ok(refreshed?.posts.length === MAX_POSTS && refreshed.posts[0].id === '1040' && (await instagram.getConnection(admin)).lastError === null, 'an editor refreshes the feed; it works again and keeps the older pinned post')
+
+    // --- Renewing the token --------------------------------------------------------------------
+    await instagram.backdateForChecks(8 * 86_400_000)
+    fake.refreshFails = true
+    before = fake.calls.length
+    await instagram.refreshFeed()
+    view = note(await instagram.getConnection(admin))
+    ok(fake.calls.slice(before).some((call) => call.includes('refresh_access_token')) && /could not be renewed/.test(view.lastError ?? ''), 'a token over a week old is renewed during a read; a failed renewal is recorded')
+    ok(open((await settingsRow()).accessTokenEncrypted, TOKEN_PURPOSE) === TOKEN_LONG && view.connected && (await blockData({ count: 5 }))?.posts.length === 5 && new Date(view.lastFetchedAt ?? 0).getTime() > Date.now() - 60_000, 'and it keeps the old token, so the feed still loads')
+    fake.refreshFails = false
+    before = fake.calls.length
+    await instagram.refreshFeed()
+    ok(!fake.calls.slice(before).some((call) => call.includes('refresh_access_token')), 'a failed renewal is tried again a day later, not at once')
+    await instagram.backdateForChecks(2 * 86_400_000)
+    await instagram.refreshFeed()
+    const renewedRow = await settingsRow()
+    ok(open(renewedRow.accessTokenEncrypted, TOKEN_PURPOSE) === TOKEN_FRESH && !JSON.stringify(renewedRow).includes(TOKEN_FRESH) && (await instagram.getConnection(admin)).lastError === null, 'the renewed token replaces the old one, sealed')
+
+    // --- A pasted access token -----------------------------------------------------------------
+    ok((await fieldsOf(instagram.connectWithToken(admin, 'short'))).token && (await fieldsOf(instagram.connectWithToken(admin, ''))).token && (await fieldsOf(instagram.connectWithToken(admin, { token: TOKEN_PASTED }))).token, 'a token that is not one is a field error')
+    const notAccepted = refused(await as(admin, () => instagramActions.connectWithTokenAction({ token: TOKEN_WRONG })))
+    ok(notAccepted.fieldErrors?.token && !JSON.stringify(notAccepted).includes(TOKEN_WRONG), 'a token Instagram refuses is a field error that does not repeat it')
+    ok(open((await settingsRow()).accessTokenEncrypted, TOKEN_PURPOSE) === TOKEN_FRESH, 'a refused token leaves the connection as it was')
+    fake.wrapProfile = false
+    view = done(await as(admin, () => instagramActions.connectWithTokenAction({ token: `  ${TOKEN_PASTED}\n` })))
+    const pastedRow = await settingsRow()
+    ok(view.connected && view.method === 'token' && view.tokenExpiresAt === null && view.account?.username === 'happy.paws', 'connected with a pasted token')
+    ok(open(pastedRow.accessTokenEncrypted, TOKEN_PURPOSE) === TOKEN_PASTED && !JSON.stringify(pastedRow).includes(TOKEN_PASTED) && !JSON.stringify(view).includes(TOKEN_PASTED), 'it is stored sealed and not sent back')
+    ok(idsOf((await instagram.listRecentPosts()).slice(0, 3)) === '1040,1007,1001', 'the same account keeps its pins')
+
+    // --- Disconnecting -------------------------------------------------------------------------
+    refused(await as(audit, () => instagramActions.disconnectAction()))
+    refused(await as(editor, () => instagramActions.disconnectAction()))
+    ok((await instagram.getConnection(admin)).connected, 'an editor or an audit account cannot disconnect')
+    view = done(await as(admin, () => instagramActions.disconnectAction()))
+    ok(!view.connected && view.account === null && view.method === null && view.lastError === null, 'disconnected')
+    const goneRow = await settingsRow()
+    ok(goneRow.accessTokenEncrypted === null && goneRow.accountId === null && goneRow.accountUsername === null && goneRow.pinnedIds.length === 0 && (await cacheRows()).length === 0, 'the token, the account, the cache and the pins are gone')
+    ok(view.appId === APP_ID && view.appSecretSet && open(goneRow.appSecretEncrypted, SECRET_PURPOSE) === APP_SECRET, 'the app\'s keys stay')
+    ok((await blockData({ count: 99, pinned: 'include' })) === null && done(await as(editor, () => instagramActions.getFeedPreviewAction())) === null && (await instagram.listRecentPosts()).length === 0, 'no feed after disconnecting')
+    done(await as(admin, () => instagramActions.disconnectAction()))
+
+    // The sections from here to the activity log call the plugin's rules directly (no action), so
+    // they add nothing to the log that is counted below.
+
+    // --- A saved secret belongs to its app ID ---------------------------------------------------
+    ok((await fieldsOf(instagram.saveAppKeys(admin, { appId: '99999999' }))).appSecret, 'a new app ID without its secret is a field error on the secret')
+    const unmoved = await settingsRow()
+    ok(unmoved.appId === APP_ID && unmoved.appSecretEncrypted === goneRow.appSecretEncrypted, 'and nothing was saved: the secret stays with the app it was typed for')
+    let moved = note((await instagram.saveAppKeys(admin, { appId: '99999999', appSecret: OTHER_SECRET })).view)
+    ok(moved.appId === '99999999' && open((await settingsRow()).appSecretEncrypted, SECRET_PURPOSE) === OTHER_SECRET, 'a new app ID with its own secret is saved')
+    moved = note((await instagram.saveAppKeys(admin, { appId: '88888888', clearSecret: true })).view)
+    ok(moved.appId === '88888888' && !moved.appSecretSet && (await settingsRow()).appSecretEncrypted === null, 'or the saved secret is removed with the change')
+    moved = note((await instagram.saveAppKeys(admin, { appId: APP_ID, appSecret: APP_SECRET })).view)
+    ok(moved.appId === APP_ID && moved.appSecretSet, 'the keys are back')
+
+    // --- A first feed that is slow --------------------------------------------------------------
+    const until = async (condition: () => Promise<boolean>) => {
+      for (let tries = 0; tries < 250 && !(await condition()); tries++) await pause(20)
+    }
+    fake.refuses = true
+    view = note(await instagram.connectWithToken(admin, TOKEN_PASTED))
+    fake.refuses = false
+    ok(view.connected && /no longer accepts/.test(view.lastError ?? '') && (await cacheRows()).length === 0, 'connected, but the first read failed: there is no feed yet')
+    await instagram.backdateForChecks(6 * 60_000)
+    fake.delayMs = 150
+    instagram.setPageWaitForChecks(20)
+    before = fake.calls.length
+    ok((await blockData({})) === null && fake.calls.length > before && (await cacheRows()).length === 0, 'a page does not wait for a slow first read: the block shows nothing this time')
+    await until(async () => (await cacheRows()).length === 1)
+    before = fake.calls.length
+    ok((await blockData({}))?.posts.length === DEFAULT_POSTS && fake.calls.length === before, 'the read finished on its own, and the next page has the feed')
+    await store.db.delete(store.t.cache)
+    await instagram.backdateForChecks(6 * 60_000)
+    ok((await instagram.getFeedPreview())?.posts.length === MAX_POSTS, 'the team\'s own screens wait for a first feed')
+    fake.delayMs = 0
+    instagram.setPageWaitForChecks(null)
+
+    // --- While the site is being built ----------------------------------------------------------
+    // `next build` draws pages ahead of time. Its fetch stores every answer with its address, and
+    // the access token is in the address, so a build must never reach Instagram.
+    await instagram.backdateForChecks(2 * 3_600_000)
+    const attemptBefore = (await settingsRow()).lastAttemptAt?.getTime()
+    const phase = process.env.NEXT_PHASE
+    process.env.NEXT_PHASE = 'phase-production-build'
+    try {
+      before = fake.calls.length
+      ok((await blockData({}))?.posts.length === DEFAULT_POSTS && fake.calls.length === before && (await settingsRow()).lastAttemptAt?.getTime() === attemptBefore, 'during a build a feed older than an hour is served as it is: Instagram is not called and no read is started')
+      ok(/could not be updated/.test(await saidTo(instagram.refreshFeed())) && fake.calls.length === before, 'not even when a read is asked for')
+      await store.db.delete(store.t.cache)
+      ok((await blockData({})) === null && (await instagram.getFeedPreview()) === null && fake.calls.length === before && (await settingsRow()).lastError === null, 'and with nothing cached a build draws nothing, without calling Instagram')
+    } finally {
+      if (phase === undefined) delete process.env.NEXT_PHASE
+      else process.env.NEXT_PHASE = phase
+    }
+    const { readFileSync: readSource } = await import('node:fs')
+    const withoutComments = (file: string) => readSource(file, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+    const apiSource = withoutComments('../../plugins/instagram-feed/src/instagram-api.ts')
+    const callsFetch = /(^|[^A-Za-z0-9_.$])fetch\s*\(|globalThis\.fetch|_nextOriginalFetch/
+    ok(apiSource.includes("from 'node:https'") && !callsFetch.test(apiSource) && !callsFetch.test(withoutComments('../../plugins/instagram-feed/src/server.ts')), 'the plugin calls Instagram through node:https, never the global fetch (which Next wraps, caches and traces)')
+
+    // --- A read belongs to the connection it started with ---------------------------------------
+    ok((await instagram.refreshFeed())?.posts.length === MAX_POSTS, 'the feed is read again')
+    await instagram.backdateForChecks(2 * 3_600_000)
+    during('/me/media', () => instagram.disconnect(admin))
+    await saidTo(instagram.refreshFeed())
+    let raced = await settingsRow()
+    ok(raced.accessTokenEncrypted === null && raced.accountId === null && raced.lastFetchedAt === null && raced.lastAttemptAt === null && raced.lastError === null && (await cacheRows()).length === 0 && (await blockData({})) === null, 'a disconnect while the feed is being read stays a disconnect: the read stores no feed and no dates')
+    await instagram.connectWithToken(admin, TOKEN_PASTED)
+    await instagram.backdateForChecks(8 * 86_400_000)
+    during('/refresh_access_token', () => instagram.disconnect(admin))
+    before = fake.calls.length
+    await saidTo(instagram.refreshFeed())
+    raced = await settingsRow()
+    ok(fake.calls.slice(before).some((call) => call.includes('refresh_access_token')) && raced.accessTokenEncrypted === null && raced.tokenExpiresAt === null && raced.accountId === null && (await cacheRows()).length === 0, 'a token renewed while the account was being disconnected is not put back in the row')
+    await instagram.connectWithToken(admin, TOKEN_PASTED)
+    await instagram.backdateForChecks(8 * 86_400_000)
+    during('/refresh_access_token', () => instagram.connectWithToken(otherAdmin, TOKEN_OTHER))
+    await saidTo(instagram.refreshFeed())
+    raced = await settingsRow()
+    ok(open(raced.accessTokenEncrypted, TOKEN_PURPOSE) === TOKEN_OTHER && raced.accountId === OTHER_ID && raced.accountUsername === 'other.paws' && raced.connectedBy === otherAdmin.id && raced.lastError === null && Date.now() - (raced.tokenIssuedAt?.getTime() ?? 0) < 60_000, 'another account connected while a token was being renewed keeps its own token: the first account\'s renewed one is dropped')
+    ok((await cacheRows())[0]?.profile.username === 'other.paws' && (await blockData({}))?.profile.username === 'other.paws', 'and the feed is the new account\'s, read by a read of its own')
+
+    // --- A pin made while the feed is being read ------------------------------------------------
+    await instagram.disconnect(admin)
+    await instagram.connectWithToken(admin, TOKEN_PASTED)
+    await instagram.backdateForChecks(2 * 3_600_000)
+    during('/me/media', () => instagram.setPinnedPosts(['1040']))
+    await instagram.refreshFeed()
+    ok(idsOf((await instagram.listRecentPosts()).slice(0, 1)) === '1040' && (await cacheRows())[0].pinnedPosts.some((item) => item.id === '1040'), 'an older post pinned while the feed was being read is still in the feed after that read')
+    fake.nameless = true
+    await instagram.refreshFeed()
+    ok(!idsOf(await instagram.listRecentPosts()).includes('1040') && (await settingsRow()).pinnedIds.join() === '1040', 'a pinned post that Instagram no longer names the owner of is left out, as it would be refused when pinning')
+    fake.nameless = false
+    await instagram.refreshFeed()
+    ok(idsOf((await instagram.listRecentPosts()).slice(0, 1)) === '1040', 'and is back when Instagram names its owner again')
+    await instagram.disconnect(admin)
+
+    // --- The activity log ----------------------------------------------------------------------
+    const entries = note(await activity())
+    ok(isEqual(entries.map((entry) => entry.action), [
+      'instagram-feed.keys.update',
+      'instagram-feed.account.authorize',
+      'instagram-feed.account.connect',
+      'instagram-feed.pins.update',
+      'instagram-feed.feed.refresh',
+      'instagram-feed.account.connect',
+      'instagram-feed.account.disconnect',
+    ]), `each change is logged once, and a refused or repeated one is not: ${entries.map((entry) => entry.action).join()}`)
+    ok(revalidated === 5, `each change that visitors can see (two connections, the pins, a refresh, the disconnect) asks the site to redraw its pages, and a refused or repeated one does not: ${revalidated}`)
+    ok(entries.every((entry) => entry.area === 'plugins' && (entry.actorId === admin.id || entry.actorId === editor.id)) && entries[3].actorId === editor.id && entries[4].actorId === editor.id, 'under Plugins, by the person who did it')
+    ok(isEqual(entries[0].fields, ['app ID', 'app secret']) && isEqual(entries[2].fields, ['account', 'access token']) && isEqual(entries[3].fields, ['pinned posts']) && isEqual(entries[6].fields, ['account', 'access token', 'pinned posts']), 'entries name what changed, never a value')
+    ok(entries[2].summary === 'Connected the Instagram account @happy.paws' && entries[3].summary === 'Pinned 3 Instagram posts to the start of the feed' && entries[5].summary === 'Connected the Instagram account @happy.paws with an access token' && entries[6].summary === 'Disconnected the Instagram account @happy.paws', `summaries: ${entries.map((entry) => entry.summary).join(' | ')}`)
+
+    // --- Nothing secret, anywhere --------------------------------------------------------------
+    const rows = JSON.stringify([await settingsRow(), await cacheRows()])
+    const everything = [...seen, ...logged, rows].join('\n')
+    const leaked = NEVER_SHOWN.filter((secret) => everything.includes(secret))
+    // Named by position: the message of a failed check must not repeat what leaked.
+    ok(leaked.length === 0, `a token, the app secret or an Instagram API address reached a view, a feed, an error, the activity log, a row or the server log (items ${leaked.map((secret) => NEVER_SHOWN.indexOf(secret)).join()} of NEVER_SHOWN)`)
+    ok(!loggedSomethingElse, 'only text is logged, never an error object')
+    const CODES_ONLY = /^instagram-feed: the "[a-z-]+" call to Instagram failed: Error: status (\d+|-), code (\d+|-), subcode (\d+|-), thrown [A-Za-z-]+$/
+    const odd = logged.filter((line) => !CODES_ONLY.test(line))
+    ok(logged.length >= 6 && odd.length === 0, `failed calls are logged as the step, the status and Instagram's numeric codes, nothing else (${logged.length} lines; ${odd.length} others, the first is ${odd[0]?.length ?? 0} characters long)`)
+    ok(logged.some((line) => line.endsWith('thrown TypeError')) && logged.some((line) => line.includes('status 400, code 190')), 'a thrown error is logged by its name, a refusal by its code')
+  } finally {
+    console.error = realConsoleError
+    provideHost(realHost)
+    instagram.setInstagramFetchForChecks(null)
+    instagram.setPageWaitForChecks(null)
+    if (!hadReact) delete globals.React
+    await cleanUp()
+  }
+})
 
 await check('small rules from the security review: an archived page cannot be unpublished, an image in an email template is in use, form responses are routed only by people who may see them', async () => {
   const placeholder = () => s3Settings({ S3_BUCKET: 'b', S3_ACCESS_KEY_ID: 'your-access-key-id', S3_SECRET_ACCESS_KEY: 'your-secret-access-key' } as unknown as NodeJS.ProcessEnv)
