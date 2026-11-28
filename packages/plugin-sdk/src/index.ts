@@ -299,6 +299,12 @@ export type Plugin = {
    * emails always have a template.
    */
   emailTemplates?: PluginEmailTemplate[]
+  /**
+   * The server half of the page builder blocks this plugin adds: for each block's `name`, the
+   * function that loads what it shows (see `PluginBlock`). Server-only. It runs for visitors and
+   * for the page builder's preview, so it must return only what any visitor may see.
+   */
+  blockLoaders?: Record<string, PluginBlockLoader>
   /** Other plugins this one is built from (flattened, in order, before this one). */
   plugins?: Plugin[]
 }
@@ -340,6 +346,153 @@ export function definePlugin<Options = void>(
   factory: Plugin | ((options: Options) => Plugin),
 ): (options: Options) => Plugin {
   return (options) => (typeof factory === 'function' ? factory(options) : factory)
+}
+
+// --- Page builder blocks ----------------------------------------------------------------------
+// A plugin can add blocks to the page builder. A block has two halves, because the page builder
+// runs in the browser and a plugin's rules run on the server:
+//
+//   1. The block itself (`definePluginBlock`): its name, its options and how it is drawn. This
+//      half is loaded by the browser, so the module that holds it must import nothing that only
+//      works on a server (no storage, no `host()`, no secrets). A site lists it in
+//      `apps/web/pet-adopt.blocks.ts`.
+//   2. Its loader (`Plugin.blockLoaders[name]`): a server function that returns what the block
+//      shows. The result is handed to `render` as `data`, on the site and in the editor's preview,
+//      and is never saved with the page.
+//
+// The block module may import two kinds of file that are not plain browser code, because Next.js
+// sends the browser a reference instead of the file: a `'use client'` component (an interactive
+// part `render` returns, such as a form) and a `'use server'` actions file (for a `choice` option's
+// `load`). Nothing else that only works on a server.
+//
+// `render` must be a plain function of its props: no hooks and no browser-only code, because the
+// same function draws the block on the server for visitors. It may return a `'use client'`
+// component for an interactive part (the component may use hooks; `render` itself may not). Style it with plain CSS in `css`,
+// using the site's theme variables (`var(--primary)`, `var(--surface)`, `var(--radius)` and the
+// like): the public site and the editor's canvas do not load Tailwind. The CSS is not scoped: it
+// is added to the page as written, once for each place the block is drawn, so start every selector
+// with a class of your own (`.my-plugin-...`).
+//
+// Names: a block's `name` shares one namespace with the site's built-in blocks and every other
+// plugin's, so give it a prefix of your own (`AcmeGallery`, not `Gallery`): the site refuses to
+// start when two blocks have one name. An option cannot be named `id`, `puck`, `editMode`,
+// `padding`, `spacing`, `headingLevel`, `data`, `editing` or `pluginData`: the page builder and
+// the site use those on every block.
+
+/** One entry of a `choice` option's list: `value` is what is saved (an id), `label` what people see. */
+export type PluginBlockChoice = { label: string; value: string | number; note?: string }
+
+/** One option of a block, shown in the page builder's sidebar. A missing value means the default look. */
+export type PluginBlockField =
+  | { type: 'text' | 'textarea'; label: string }
+  | { type: 'number'; label: string; min?: number; max?: number; step?: number }
+  | { type: 'select' | 'radio'; label: string; options: ReadonlyArray<{ label: string; value: string | number | boolean }> }
+  | {
+      /**
+       * A dropdown whose choices come from the database when the page builder shows it (one of the
+       * plugin's own records, such as a form). The saved value is the picked entry's `value` (text
+       * or a number), or null for none; the site refuses anything else. Choose it with care: a
+       * value that no longer exists (a deleted record) still reaches `render` and the loader, which
+       * must cope with it.
+       */
+      type: 'choice'
+      label: string
+      /**
+       * A server action (exported from your plugin's `'use server'` file) that lists the choices.
+       * The browser calls it, so it must check a permission itself, first:
+       * `host().requirePermission('pages:view')` lets everyone who can open the page builder see
+       * the list. Read-only: it records no activity. Return `host().run(...)`'s result. `note` is
+       * shown after the label in brackets ("closed").
+       */
+      load: () => Promise<ActionResult<PluginBlockChoice[]>>
+      /** The first entry's text when nothing is picked ("Choose a form"). */
+      empty?: string
+    }
+
+/** What a block's `render` receives besides its own options. */
+export type PluginBlockContext<Data = unknown> = {
+  /** What the block's loader returned; null when there is no loader, it returned nothing, or it failed. */
+  data: Data | null
+  /** True inside the page builder, where a block with nothing to show should say why instead of vanishing. */
+  editing: boolean
+  /** The tag for the block's main heading (`heading` option), worked out per page. Unset in the editor. */
+  headingLevel?: 1 | 2
+}
+
+export type PluginBlock<Props extends Record<string, unknown> = Record<string, unknown>, Data = unknown> = {
+  /**
+   * The block's type in saved pages: letters and digits, starting with a capital (`AcmeGallery`).
+   * It must be unique on the site (built-in blocks and other plugins' included, so start it with
+   * something of your own) and never change, or saved pages lose the block.
+   */
+  name: string
+  /** The name shown in the page builder's list of blocks. */
+  label: string
+  /** The plugin it belongs to (`Plugin.name`), which holds its loader. */
+  plugin: string
+  /**
+   * Its options. A text option named `heading` is drawn as the block's main heading by convention.
+   * Reserved names: `id`, `puck`, `editMode`, `padding`, `spacing`, `headingLevel`, `data`,
+   * `editing`, `pluginData`.
+   */
+  fields: { [Key in keyof Props]?: PluginBlockField }
+  defaultProps: Props
+  /**
+   * Set when the block draws nothing on the site without data from its loader. Its `heading` is
+   * then not counted as a heading of the page while there is no data, so a page whose only
+   * heading would be in an empty block still gets a main heading.
+   */
+  needsData?: boolean
+  /**
+   * Set when the block draws a heading whenever it has data, even with a blank `heading` option
+   * (the Form block falls back to the form's name). The page then counts it as a heading while
+   * there is data, so the first such block can be the page's main heading. Draw that heading with
+   * the tag `headingLevel` asks for.
+   */
+  headingFromData?: boolean
+  /**
+   * Set to offer the block in the Pet page template too (the layout of every pet's page), under
+   * "Plugins". Without it the block is only offered on ordinary pages. Only blocks that make sense
+   * on every pet's page should set it: the loader is not told which pet is shown.
+   */
+  petPage?: boolean
+  /**
+   * The options the loader reads. When given, the page builder runs the loader again only when one
+   * of them changes (and when the block is first shown), and redraws the block with what it has
+   * for any other change. Without it the loader runs after every change to the block, each
+   * keystroke in a text option included. The public site always runs the loader.
+   */
+  dataOptions?: ReadonlyArray<keyof Props & string>
+  /**
+   * Plain CSS for the block, added to the page as written with each instance of the block that
+   * draws something. It is not scoped: start every selector with a class of your own.
+   */
+  css?: string
+  render: (props: Props & PluginBlockContext<Data>) => React.ReactElement | null
+}
+
+/**
+ * Loads what a block shows. `props` are the block's saved options, unchecked: treat them as
+ * untrusted. Return plain JSON (it crosses to the browser in the editor), or null for nothing.
+ *
+ * A later version of the SDK may call it with a second argument (what the site knows about the
+ * page being drawn). Declare one parameter, or ignore the rest: do not pass a function that
+ * gives a second parameter another meaning.
+ */
+export type PluginBlockLoader = (props: Record<string, unknown>) => Promise<unknown>
+
+/** Wrap a block for type checking. Keep it in a module the browser can load (see the notes above). */
+export function definePluginBlock<Props extends Record<string, unknown>, Data = unknown>(block: PluginBlock<Props, Data>): PluginBlock<Props, Data> {
+  return block
+}
+
+/** Any block, as a site's list of blocks holds them. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- a list of blocks with different options
+export type AnyPluginBlock = PluginBlock<any, any>
+
+/** Wrap a site's list of plugin blocks (`apps/web/pet-adopt.blocks.ts`) for type checking. */
+export function defineBlocks(blocks: AnyPluginBlock[]): AnyPluginBlock[] {
+  return blocks
 }
 
 // --- Errors and action results -------------------------------------------------------------
