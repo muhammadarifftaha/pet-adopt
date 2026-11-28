@@ -357,9 +357,8 @@ async function claimState(user: PluginUser, state: string): Promise<boolean> {
   return row.oauthStateUserId === user.id && Boolean(row.oauthStateExpiresAt) && row.oauthStateExpiresAt!.getTime() > Date.now()
 }
 
-/** Finishes Instagram's sign-in with the `code` and `state` it sent back to the callback screen. */
 /**
- * Finishes a sign-in. `afterClaim` runs only once the stored state matched (the action counts a
+ * Finishes Instagram's sign-in with the `code` and `state` it sent back to the callback screen. `afterClaim` runs only once the stored state matched (the action counts a
  * connect attempt there), so a made-up link costs nobody an attempt.
  */
 export async function completeAuthorization(user: PluginUser, raw: unknown, afterClaim?: () => Promise<void>): Promise<ConnectionView> {

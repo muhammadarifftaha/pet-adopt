@@ -2318,7 +2318,7 @@ await check('roles: the permission table is as agreed, every action checks a per
   // Every exported server action checks a permission. The listed ones are public or are about the
   // person's own account; save/publish in the page builder check it inside persist().
   const allowed = new Set([
-    'signInAction', 'signOutAction', 'getCurrentUserAction', 'updateProfileAction', 'changePasswordAction',
+    'signInAction', 'signOutAction', 'updateProfileAction', 'changePasswordAction',
     'verifyTwoFactorAction', 'getTwoFactorStatusAction', 'startTwoFactorSetupAction', 'confirmTwoFactorSetupAction',
     'disableTwoFactorAction', 'regenerateBackupCodesAction',
     'startProviderSignInAction', 'getMyProvidersAction', 'connectProviderAction', 'disconnectProviderAction',
@@ -2327,7 +2327,6 @@ await check('roles: the permission table is as agreed, every action checks a per
     'requestAccountDeletionAction', 'requestEmailVerificationAction',
     'createFirstAdminAction', 'finishSetupAction',
     'requestPasswordResetAction', 'resetPasswordWithTokenAction', 'acceptInviteAction', 'submitFormAction',
-    'fetchPetSpotlightAction', 'fetchCatalogAction', 'fetchPetProfilesAction', 'fetchPetsAction', 'fetchSimilarPetsAction',
   ])
   const { readFileSync, readdirSync } = await import('node:fs')
   const files = [

@@ -28,7 +28,7 @@ export type ResolvedWidget = PluginWidget & { plugin: string }
 /**
  * One registered plugin, for the admin's plugin list and its page. Every plugin has a page at
  * `href`: its own home screen (`path: ''`) when it declares one, otherwise a built-in overview
- * (`hasOwnHome: false`), which is admin-only because it shows how the plugin is set up.
+ * (`hasOwnHome: false`), shown only to roles with `plugins:view` because it shows how the plugin is set up.
  */
 export type PluginInfo = {
   name: string
