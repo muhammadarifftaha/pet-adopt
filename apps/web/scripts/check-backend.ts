@@ -66,8 +66,10 @@ import {
   clearAttempts,
   clientAddress,
   consumeAttempt,
+  guardLinkUse,
   guardPasswordChange,
   guardSignIn,
+  LINK_USE_RULE,
 } from '../src/server/throttle'
 import { removeUpload, saveUpload } from '../src/server/uploads'
 import { getPetPage, getPetPagePreview, siteIcons } from '../src/lib/queries'
@@ -1855,6 +1857,11 @@ await check('reset links: one use, hashed at rest, expire, cancel older ones, en
   ])
   ok(results.filter((r) => r.status === 'fulfilled').length === 1, `one of two parallel uses succeeds: ${results.map((r) => r.status)}`)
   ok(/expired or was already used/.test(await userError(resetPasswordWithToken({ token: token2, password: 'again-password-123456' }))), 'a used link is refused')
+  // Using links (signed out) is limited per client, since each try may hash a password.
+  for (let i = 0; i < LINK_USE_RULE.max; i++) await guardLinkUse(ip(71))
+  ok(/Too many attempts/.test(await userError(guardLinkUse(ip(71)))), 'too many link uses from one client are refused')
+  await guardLinkUse(ip(72))
+  await clearAttempts(['linkuse:ip:10.0.0.71', 'linkuse:ip:10.0.0.72'])
 
   const [{ n: sessions }] = await db.select({ n: sql<number>`count(*)` }).from(t.sessions).where(eq(t.sessions.userId, id))
   ok(Number(sessions) === 0, 'every session of that person ended')
@@ -4395,8 +4402,10 @@ await check('email changes: yourself with your password and a link to the new ad
   ok(!(await emailChangeFor(firstToken)) && (await emailChangeFor(secondToken))?.email === 'mover.second@example.test', 'a new request cancels the older link')
 
   // Confirming: once; then the new address signs in and the old one does not.
+  const oldAddressReset = new URL((await createResetLink(id)).url).searchParams.get('token')!
   const changed = await confirmEmailChange(secondToken)
   ok(changed.from === email && changed.to === 'mover.second@example.test', 'confirmed')
+  ok(!(await isResetTokenValid(oldAddressReset)), 'a reset link sent to the old address stops working')
   ok(/expired or was already used/.test(await userError(confirmEmailChange(secondToken))), 'a link works once')
   ok((await auth.api.signInEmail({ body: { email: 'mover.second@example.test', password }, headers: ip(98) })).user.id === id, 'signs in with the new address')
   ok((await authCode(auth.api.signInEmail({ body: { email, password }, headers: ip(98) }))) !== '', 'not with the old one')
@@ -4568,9 +4577,50 @@ await check('sample content: example pets and an About page are added once, neve
     ok(added > 0 && (await hasSampleContent()), `added ${added} example pets`)
     ok((await addSamplePets()) === 0, 'running it again adds nothing')
     await addSampleAboutPage()
-    ok((await removeSampleContent()) === added && !(await hasSampleContent()), 'all taken out again')
+    ok((await removeSampleContent()).pets === added && !(await hasSampleContent()), 'all taken out again')
   } else {
     ok((await addSamplePets()) === 0 && !(await hasSampleContent()), 'never next to real pets')
+  }
+})
+
+await check('sample content: removing it never deletes a real pet with a sample name or an About page someone changed', async () => {
+  await removeSampleContent()
+  // Real pets that share a sample's name: one with its own photo, one with a placeholder made for
+  // another pet. Neither is a sample.
+  const own = await saveUpload({ data: png, alt: 'Bella on the sofa' })
+  const borrowed = await saveUpload({ data: png, alt: 'Placeholder picture for Bella' })
+  const bella = await savePet(null, { name: 'Bella', species: 'cat', photoIds: [own.id] })
+  const max = await savePet(null, { name: 'Max', species: 'dog', photoIds: [borrowed.id] })
+  try {
+    ok(!(await hasSampleContent()), 'real pets with sample names are not samples')
+    ok((await removeSampleContent()).pets === 0, 'nothing to remove')
+    ok(!!(await getPetById(bella.id)) && !!(await getPetById(max.id)), 'both pets are still there')
+    ok((await listMedia({ search: 'Bella', limit: 100 })).docs.filter((m) => m.id === own.id || m.id === borrowed.id).length === 2, 'and their photos')
+    ok((await addSamplePets()) === 0, 'no samples are added next to them')
+  } finally {
+    await deletePet(bella.id)
+    await deletePet(max.id)
+    await removeUpload(own.id)
+    await removeUpload(borrowed.id)
+  }
+
+  // The About page: only the untouched sample goes. Skipped when the site has a page at /about.
+  if (!(await listPages()).some((page) => page.slug === 'about')) {
+    await addSampleAboutPage()
+    const about = (await listPages()).find((page) => page.slug === 'about')!
+    const layout = structuredClone((await getPageById(about.id))!.puckDraft) as { content: Array<{ props: Record<string, unknown> }> }
+    layout.content[0].props.body = 'Our own story, written by the shelter.'
+    await saveDraft(about.id, layout)
+    await publishPage(about.id)
+    await removeSampleContent()
+    ok(!!(await getPageById(about.id)), 'an About page someone changed stays')
+    await archivePage(about.id)
+    await deletePage(about.id)
+
+    await addSampleAboutPage()
+    const fresh = (await listPages()).find((page) => page.slug === 'about')!
+    await removeSampleContent()
+    ok(!(await getPageById(fresh.id)), 'the untouched sample About page goes')
   }
 })
 
