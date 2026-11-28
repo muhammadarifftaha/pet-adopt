@@ -14,7 +14,7 @@ import { and, count, eq, inArray, max } from 'drizzle-orm'
 
 import { getDatabase } from '@/db/client'
 
-import { SITE_URL } from './auth'
+import { getAuth, SITE_URL } from './auth'
 import { DISCOVERY_UNREADABLE, discoveryProblem, endpointProblem } from './provider-endpoints'
 import { isLoopbackHost } from './email'
 import { asRecord, Fields, logError, UserError } from './result'
@@ -126,9 +126,14 @@ export async function listAuthProviders(): Promise<AuthProviderView[]> {
   return rows.map((row) => view(row, connected.get(row.slug) ?? 0)).sort((a, b) => foldText(a.name).localeCompare(foldText(b.name)))
 }
 
-/** The enabled providers, for the sign-in and Account pages. */
+/**
+ * The enabled providers this server's Better Auth was built with, for the sign-in and Account pages.
+ * One providerConfigs left out (see `skipped`) is not offered: it could not sign anyone in.
+ */
 export async function listEnabledProviders(): Promise<PublicProvider[]> {
-  return (await listAuthProviders()).filter((p) => p.enabled).map(({ slug, name }) => ({ slug, name }))
+  // Built first, so `skipped` describes the instance that would handle the sign-in.
+  await getAuth()
+  return (await listAuthProviders()).filter((p) => p.enabled && !skipped.has(p.slug)).map(({ slug, name }) => ({ slug, name }))
 }
 
 /** Which providers this account has connected (Better Auth account rows, by provider id). */
@@ -261,6 +266,9 @@ const RETRY_FIRST_MS = 30_000
 const RETRY_MAX_MS = 10 * 60_000
 const retry: { at: number | null; delay: number; round: number } = { at: null, delay: RETRY_FIRST_MS, round: 0 }
 
+/** Enabled providers the last providerConfigs on this server left out, by slug, with the reason. */
+const skipped = ((globalThis as { __petAdoptSkippedProviders?: Map<string, string> }).__petAdoptSkippedProviders ??= new Map())
+
 // A skipped provider is logged at most once an hour for the same reason (a rebuild can run often).
 const SKIP_LOG_MS = 60 * 60_000
 const skipLogged = new Map<string, number>()
@@ -294,13 +302,16 @@ export async function providerConfigs() {
   const { db, t } = await getDatabase()
   const rows = await db.select().from(t.authProviders).where(eq(t.authProviders.enabled, true))
   const configs = []
+  const left = new Map<string, string>()
   let unreadable = false
   for (const row of rows) {
     let clientSecret: string | undefined
     if (row.clientSecretEncrypted) {
       const opened = open(row.clientSecretEncrypted, SECRET_PURPOSE)
       if (opened === null) {
-        logSkip(row.slug, 'its client secret cannot be opened (was BETTER_AUTH_SECRET changed?)')
+        const problem = 'its client secret cannot be opened (was BETTER_AUTH_SECRET changed?)'
+        logSkip(row.slug, problem)
+        left.set(row.slug, problem)
         continue
       }
       clientSecret = opened
@@ -314,6 +325,7 @@ export async function providerConfigs() {
           : null
     if (problem) {
       logSkip(row.slug, problem)
+      left.set(row.slug, problem)
       // Only a document that could not be read is worth another try; a redirect or a private address is not.
       if (problem === DISCOVERY_UNREADABLE) unreadable = true
       continue
@@ -341,5 +353,7 @@ export async function providerConfigs() {
     retry.at = null
     retry.delay = RETRY_FIRST_MS
   }
+  skipped.clear()
+  for (const [slug, problem] of left) skipped.set(slug, problem)
   return configs
 }

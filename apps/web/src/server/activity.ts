@@ -14,7 +14,7 @@
 import { asRole, csvCell, type Role } from '@pet-adopt/plugin-sdk'
 import { randomBytes } from 'node:crypto'
 
-import { and, desc, eq, gte, lt, max, or, sql, type SQL } from 'drizzle-orm'
+import { and, desc, eq, gte, inArray, lt, max, or, sql, type SQL } from 'drizzle-orm'
 import { isEqual } from 'es-toolkit'
 import { headers } from 'next/headers'
 
@@ -99,7 +99,8 @@ export async function recordActivity(entry: ActivityInput): Promise<void> {
 }
 
 /**
- * Top-level keys whose values differ between two versions of a record, minus `ignore`. Compared
+ * Top-level keys whose values differ between two versions of a record, minus `ignore` (and
+ * `createdAt` / `updatedAt`, which are always left out). Compared
  * deeply, so lists and nested settings count as one field each. A key missing on one side counts.
  */
 export function changedFields<T extends object>(before: T | null | undefined, after: T | null | undefined, ignore: readonly string[] = []): string[] {
@@ -142,12 +143,15 @@ function parseInstant(value: unknown, name: string): Date | null {
   return date
 }
 
-/** Own scope: what they did, plus failed sign-ins on their account. */
+/** Sign-ins on someone's account that did not get through: the account holder sees these too. */
+const FAILED_SIGN_INS = ['auth.sign-in-failed', 'auth.two-factor-failed', 'auth.sign-in-archived']
+
+/** Own scope: what they did, plus failed sign-ins on their account (FAILED_SIGN_INS). */
 async function whereFor(viewer: ActivityViewer, filters: ActivityFilters): Promise<SQL | undefined> {
   const { t } = await getDatabase()
   const conditions: Array<SQL | undefined> = []
   if (!viewer.all) {
-    conditions.push(or(eq(t.activityLog.actorId, viewer.id), and(eq(t.activityLog.action, 'auth.sign-in-failed'), eq(t.activityLog.subjectId, viewer.id))))
+    conditions.push(or(eq(t.activityLog.actorId, viewer.id), and(inArray(t.activityLog.action, FAILED_SIGN_INS), eq(t.activityLog.subjectId, viewer.id))))
   } else if (typeof filters.actor === 'string' && filters.actor) {
     conditions.push(eq(t.activityLog.actorId, filters.actor.slice(0, 64)))
   }

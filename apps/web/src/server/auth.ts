@@ -1,12 +1,14 @@
 // Authentication with Better Auth, on this app's own Drizzle database.
 //
 //  - Only the owners sign in; there is no public sign-up. Accounts are created by an admin
-//    (src/server/users.ts) or from SEED_ADMIN_EMAIL / SEED_ADMIN_PASSWORD on first start.
+//    (src/server/users.ts, with a password or an email invite), by the first-time setup
+//    (src/server/setup.ts), or from SEED_ADMIN_EMAIL / SEED_ADMIN_PASSWORD on first start.
 //  - Roles (admin, editor, developer, audit) are our own: a `role` column Better Auth only carries
 //    (additionalFields below), and the permission table in the plugin SDK (`can`). No admin plugin.
 //  - Archived accounts (src/server/users.ts) cannot sign in: the session hook below refuses them,
 //    on every way in (password, two-factor code), and getSessionUser ignores them.
-//  - Sessions last 2 hours; five sign-in attempts per 10 minutes per client.
+//  - Sessions last 2 hours. Sign-in is throttled in src/server/throttle.ts (per client, per email
+//    and client, and per email overall).
 //  - Two-factor sign-in (authenticator app plus backup codes) with Better Auth's twoFactor plugin,
 //    driven by the server actions in src/server/actions/two-factor.ts; its HTTP endpoints stay closed
 //    (see the route handler). Rules around it (who must use it, admin reset) are in two-factor.ts.
@@ -26,6 +28,7 @@ import { eq } from 'drizzle-orm'
 
 import { getDatabase, type Database } from '@/db/client'
 
+import { logError } from './result'
 import { CLIENT_IP_HEADER } from './throttle'
 import { generateBackupCodes } from './two-factor-codes'
 
@@ -239,8 +242,9 @@ export async function getAuth(): Promise<Auth> {
     try {
       const { providersVersion } = await import('./auth-providers')
       if ((await providersVersion()) !== holder.version) holder.promise = undefined
-    } catch {
-      // Keep the current instance; the next check tries again.
+    } catch (error) {
+      // Keep the current instance; the next check tries again (checkedAt above limits the log too).
+      logError(error, 'could not check whether the sign-in providers changed')
     }
   }
   holder.promise ??= build()

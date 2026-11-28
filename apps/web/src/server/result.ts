@@ -188,8 +188,8 @@ export class Fields {
   }
 
   /**
-   * The health notes: a rich-text document (see src/lib/rich-text.ts) or plain text (one paragraph
-   * per line). Blank or with nothing visible clears it. Returns a clean copy built from the allowed
+   * A rich-text field (pet description and notes, timeline entries): a document (see
+   * src/lib/rich-text.ts) or plain text (one paragraph per line). Blank or with nothing visible clears it. Returns a clean copy built from the allowed
    * parts only; a node, mark or link outside them is a field error.
    */
   richText(key: string, opts: { maxChars?: number } = {}) {
