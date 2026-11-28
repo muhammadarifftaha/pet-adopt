@@ -3,10 +3,14 @@
 @import "shadcn/tailwind.css";
 
 /* Where Tailwind looks for class names (paths are relative to this file, in packages/ui): the app,
-   these components, and the plugins' screens. Anything not listed is left out of the CSS. */
+   these components, and the plugins' screens. Anything not listed is left out of the CSS.
+   Plugins are found in two places: as source in plugins/ (the project's own repository; a site
+   without that folder skips it) and as installed npm packages named @pet-adopt/plugin-*, whose
+   compiled dist/ holds the class names. A plugin with another name needs a line of its own here. */
 @source "../../../../apps/web/src";
 @source "../components";
 @source "../../../../plugins";
+@source "../../../../apps/web/node_modules/@pet-adopt/plugin-*/dist";
 
 /* The site switches light/dark with data-mode on <html> (see ThemeToggle), not a .dark class. */
 @custom-variant dark (&:is([data-mode="dark"] *));

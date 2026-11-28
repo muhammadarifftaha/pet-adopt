@@ -1,9 +1,22 @@
 {
   "name": "@pet-adopt/plugin-instagram-feed",
   "version": "0.1.0",
-  "private": true,
   "description": "Show an Instagram profile and its latest posts as a block in the page builder.",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/muhammadarifftaha/pet-adopt.git",
+    "directory": "plugins/instagram-feed"
+  },
+  "homepage": "https://github.com/muhammadarifftaha/pet-adopt/tree/main/plugins/instagram-feed#readme",
+  "bugs": "https://github.com/muhammadarifftaha/pet-adopt/issues",
+  "keywords": [
+    "pet-adopt",
+    "pet-adopt-plugin",
+    "plugin",
+    "instagram",
+    "social"
+  ],
   "type": "module",
   "exports": {
     ".": "./src/index.tsx",
@@ -12,23 +25,52 @@
     "./actions": "./src/actions.ts",
     "./types": "./src/types.ts"
   },
+  "files": [
+    "dist"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "exports": {
+      ".": {
+        "types": "./dist/src/index.d.ts",
+        "default": "./dist/src/index.js"
+      },
+      "./block": {
+        "types": "./dist/src/block.d.ts",
+        "default": "./dist/src/block.js"
+      },
+      "./server": {
+        "types": "./dist/src/server.d.ts",
+        "default": "./dist/src/server.js"
+      },
+      "./actions": {
+        "types": "./dist/src/actions.d.ts",
+        "default": "./dist/src/actions.js"
+      },
+      "./types": {
+        "types": "./dist/src/types.d.ts",
+        "default": "./dist/src/types.js"
+      }
+    }
+  },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "lint": "eslint ."
-  },
-  "dependencies": {
-    "@pet-adopt/plugin-sdk": "workspace:*",
-    "@pet-adopt/ui": "workspace:*"
+    "lint": "eslint .",
+    "build:package": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.build.json",
+    "prepack": "pnpm run build:package"
   },
   "peerDependencies": {
+    "@pet-adopt/plugin-sdk": "workspace:^",
+    "@pet-adopt/ui": ">=0.1.0",
     "drizzle-orm": "^0.45.4",
     "next": "^16.3.0",
     "react": "^19.2.0",
-    "react-dom": "^19.2.0",
     "react-icons": "^5.7.0"
   },
   "devDependencies": {
     "@libsql/client": "0.18.0",
+    "@pet-adopt/plugin-sdk": "workspace:*",
+    "@pet-adopt/ui": "workspace:*",
     "@types/node": "22.19.9",
     "@types/react": "19.2.14",
     "@types/react-dom": "19.2.3",
@@ -39,5 +81,10 @@
     "react-dom": "19.2.6",
     "react-icons": "^5.7.0",
     "typescript": "5.7.3"
+  },
+  "peerDependenciesMeta": {
+    "@pet-adopt/ui": {
+      "optional": true
+    }
   }
 }
