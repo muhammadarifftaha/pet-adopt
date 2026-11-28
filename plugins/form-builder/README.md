@@ -20,6 +20,15 @@ export default defineConfig({
 })
 ```
 
+Its **Form** block is listed separately, in `apps/web/pet-adopt.blocks.ts` (that file is loaded by the browser, so the block comes from its own entry point, never from the plugin itself). Keep any other blocks already in the list:
+
+```ts
+import { defineBlocks } from '@pet-adopt/plugin-sdk'
+import { formBlock } from '@pet-adopt/plugin-form-builder/block'
+
+export default defineBlocks([formBlock])
+```
+
 The plugin has its own database tables. Their migrations run by themselves on a local SQLite file, and with `pnpm migrate` (or `pnpm build`) on PostgreSQL and hosted libSQL.
 - **Before migrating:** until they've run, the plugin's screens explain what to run instead of failing.
 - **Removing the plugin** from the config keeps its tables and data.
@@ -29,7 +38,7 @@ The plugin has its own database tables. Their migrations run by themselves on a 
 In the admin, **Forms** lists every form, with its responses.
 
 1. **New form:** give it a name, then add questions in the editor.
-2. Add a **Form** block to a page in the page builder and pick the form. The form's name is the block's heading unless you give it another.
+2. Add a **Form** block (under **Plugins**) to a page, or to the Pet page template, in the page builder and pick the form. The form's name is the block's heading unless you give it another.
 3. Responses arrive in **Forms → (the form) → Responses**. New ones are marked until someone opens them.
 
 ### Questions
@@ -136,7 +145,8 @@ Its own tables, all named `plugin_form_builder_*`, in the site's database (SQLit
 | `src/index.tsx` | The plugin: screens, dashboard card, storage, email templates |
 | `src/fields.ts` | The question model and its checks (`validateFormFields`, `validateFormSettings`, `validateAnswers`). Pure, also used in the browser |
 | `src/server.ts` | The rules: forms, responses, CSV, sending a response, emails |
-| `src/actions.ts` | Server actions for the admin screens, and `submitFormAction` for the visitor's form. Each checks permission through `host()` |
+| `src/actions.ts` | Server actions for the admin screens, `listFormChoicesAction` for the Form block's picker, and `submitFormAction` for the visitor's form. Each checks permission through `host()` |
+| `src/block.tsx`, `public-form.tsx`, `block-css.ts` | The page builder's **Form** block, the visitor's form it draws, and its CSS. Its loader is `loadFormBlock` in `src/server.ts` |
 | `src/captcha.ts`, `captcha-providers.ts`, `captcha-widget.tsx` | Spam protection: settings and verification, the services, the visitor's widget |
 | `src/email-templates.ts` | The two default templates |
 | `src/storage.ts`, `schema/`, `migrations.ts`, `drizzle/` | Its tables and migrations |
@@ -147,12 +157,13 @@ Its own tables, all named `plugin_form_builder_*`, in the site's database (SQLit
 | Import | Gives |
 | --- | --- |
 | `.` | The plugin itself |
+| `./block` | The Form block, for `pet-adopt.blocks.ts` (loaded by the browser) |
 | `./fields` | The question model |
 | `./server` | The rules |
 | `./actions` | The server actions |
 | `./captcha` | The widget |
 
-The site's Form block (`apps/web/src/puck/config.tsx`, with the visitor's form in `apps/web/src/components/site/PublicForm.tsx`) uses `./server` and `./actions`.
+The Form block used to be built into the site. It keeps the same name (`FormBlock`) and options, so pages saved before the move still show their forms.
 
 **How it talks to the site:** it imports nothing from the app, only `@pet-adopt/plugin-sdk`. Everything it needs comes through `host()`:
 - permissions;
