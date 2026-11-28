@@ -46,7 +46,7 @@ The form builder's [`src/storage.ts`](https://github.com/muhammadarifftaha/pet-a
 
 The site checks these when the config loads, and refuses to start if one is broken:
 
-- **The prefix:** every table and index name starts with `plugin_<name>_`, with the name's dashes turned into underscores. For `form-builder` that is `plugin_form_builder_`. `pluginTablePrefix(name)` returns it.
+- **The prefix:** every table and index name starts with `plugin_<name>_`, with the name's dashes turned into underscores. For `form-builder` that is `plugin_form_builder_`. `pluginTablePrefix(name)` returns it. Avoid plugin names where one is the other plus a dash, such as `shop` and `shop-payments`: their prefixes overlap (`plugin_shop_` also begins `plugin_shop_payments_`), so their table names could clash.
 - **Twins:** `schema/sqlite.ts` and `schema/pg.ts` declare the same tables and columns.
 - **No site tables:** a migration may only name tables and indexes with the plugin's prefix. So a plugin table cannot have a foreign key into one of the site's tables. Store the id as a plain column instead. Foreign keys between the plugin's own tables are fine.
 - **Migration ids** look like `0000_init`, and are unique and in order.

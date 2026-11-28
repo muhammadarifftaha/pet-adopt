@@ -14,7 +14,7 @@ description: The site's services a plugin reaches through host(), the errors it 
 | `requireAdmin()` | Someone who can change plugin settings (`plugins:edit`): admins and developers |
 | `run(fn)` | Runs an action and turns what it throws into an `ActionResult`. See [Errors](#errors) |
 | `clientAddress()` | The visitor's address as the site's proxy reports it, or `null` |
-| `consumeAttempt(key, rule)` | A rate limit. Counts one attempt and throws a `UserError` on the attempt after the `rule.max`th. The count starts again only once `rule.windowMs` passes with no attempt under the limit (each attempt under it restarts the window), and a key over the limit stays refused until `rule.windowMs` after the attempt that reached it. Start the key with your plugin's name |
+| `consumeAttempt(key, rule)` | A rate limit. Counts one attempt and throws a `UserError` on the attempt after the `rule.max`th. The count starts again only once `rule.windowMs` passes with no attempt under the limit (each attempt under it restarts the window), and a key over the limit stays refused until `rule.windowMs` after the attempt that reached it. Keep `rule.windowMs` to two hours or less: counters untouched for two hours may be deleted. Start the key with your plugin's name |
 | `phone.validate(raw)` | `true`, or the reason a phone number cannot be used |
 | `phone.toE164(raw)` | The number in international form (`+60123456789`), or `null` |
 | `choices(source)` | Current choices from site data. `'pets'` gives the listed pets that are not adopted |
