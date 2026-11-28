@@ -70,7 +70,9 @@ import {
   guardSignIn,
 } from '../src/server/throttle'
 import { removeUpload, saveUpload } from '../src/server/uploads'
-import { siteIcons } from '../src/lib/queries'
+import { getPetPage, getPetPagePreview, siteIcons } from '../src/lib/queries'
+import { TIMELINE_MAX_ENTRIES, TIMELINE_MAX_PHOTOS, TIMELINE_TEXT_MAX_CHARS, TIMELINE_TITLE_MAX } from '../src/lib/pet-timeline'
+import { addTimelineEntry, deleteTimelineEntry, getTimelineEntry, listTimeline, updateTimelineEntry } from '../src/server/pet-timeline'
 import { activateTheme, createTheme, deleteTheme, getTheme, listThemes, updateTheme } from '../src/server/themes'
 import { createResetLink, isResetTokenValid, prepareResetEmail, resetPasswordWithToken } from '../src/server/password-reset'
 import { accessOf, accessPermission, asRole, can, host, pluginTablePrefix, provideHost, ROLES, type EmailMessage, type PluginEmail, type Role } from '@pet-adopt/plugin-sdk'
@@ -1109,7 +1111,7 @@ await check('pages: the Pet page template is a system page at id 3 with the pet 
   ok(template.slug === 'pet-page' && template.status === 'published', 'the template is id 3, published')
   ok((await getPageById(1))!.slug === 'home' && (await getPageById(2))!.slug === 'pets', 'the homepage and the Pets page keep ids 1 and 2')
   const layout = (await getPublishedPage('pet-page'))!.puckData as { content: Array<{ type: string }> }
-  ok(layout.content.map((block) => block.type).join() === 'PetGallery,PetSummary,PetDescription,PetHealth,PetPersonality,MorePets', 'starts with the pet blocks')
+  ok(layout.content.map((block) => block.type).join() === 'PetGallery,PetSummary,PetDescription,PetHealth,PetPersonality,PetTimeline,MorePets', 'starts with the pet blocks')
   ok((await fieldErrors(savePageDetails(3, { slug: 'pet-layout' }))).slug, 'its address cannot change')
   ok((await fieldErrors(savePageDetails(null, { title: 'Copy', slug: 'pet-page' }))).slug, 'no other page can take /pet-page')
   ok(/cannot be archived/.test(await userError(archivePage(3))), 'cannot be archived')
@@ -1145,6 +1147,126 @@ await check('more pets like this: available, listed pets of the same species fir
   } finally {
     for (const p of [pet, sameSpecies, adopted, unlisted, sameState]) await deletePet(p.id)
     await removeUpload(photo.id)
+  }
+})
+
+await check('pet timeline: entries checked (day, time, title, rich text, photos), newest first, edited field by field, capped per pet even in parallel, photos in use, on the pet page, gone with the pet', async () => {
+  const photo = await saveUpload({ data: png, alt: 'Timeline photo' })
+  const spare = await saveUpload({ data: png, alt: 'Spare photo' })
+  const pet = await savePet(null, { name: 'Timmy Line', species: 'dog', photoIds: [photo.id], unlisted: true })
+  const writer = await createUser({ email: 'timeline-writer@example.test', name: 'Tia Writer', password: 'timeline-password-1', role: 'editor' })
+  const para = (text: string, marks?: unknown[]) => ({ type: 'paragraph', content: [{ type: 'text', text, ...(marks ? { marks } : {}) }] })
+  let petGone = false
+  try {
+    // Checks, one error per field.
+    const missing = await fieldErrors(addTimelineEntry(pet.id, {}, null))
+    ok(missing.date && missing.title, `day and title are required: ${JSON.stringify(missing)}`)
+    for (const [label, input, key] of [
+      ['a day that does not exist', { date: '2026-02-30', title: 'x' }, 'date'],
+      ['a day in the wrong format', { date: '30/01/2026', title: 'x' }, 'date'],
+      ['a blank day', { date: '', title: 'x' }, 'date'],
+      ['a time past 23:59', { date: '2026-01-02', time: '24:00', title: 'x' }, 'time'],
+      ['a time without the leading zero', { date: '2026-01-02', time: '9:30', title: 'x' }, 'time'],
+      ['a blank title', { date: '2026-01-02', title: '   ' }, 'title'],
+      ['a title too long', { date: '2026-01-02', title: 'x'.repeat(TIMELINE_TITLE_MAX + 1) }, 'title'],
+      ['text too long', { date: '2026-01-02', title: 'x', body: 'y'.repeat(TIMELINE_TEXT_MAX_CHARS + 1) }, 'body'],
+      ['a heading in the text', { date: '2026-01-02', title: 'x', body: { type: 'doc', content: [{ type: 'heading', attrs: { level: 1 }, content: [{ type: 'text', text: 'x' }] }] } }, 'body'],
+      ['a javascript: link', { date: '2026-01-02', title: 'x', body: { type: 'doc', content: [para('x', [{ type: 'link', attrs: { href: 'javascript:alert(1)' } }])] } }, 'body'],
+      ['too many photos', { date: '2026-01-02', title: 'x', photoIds: Array.from({ length: TIMELINE_MAX_PHOTOS + 1 }, (_, i) => i + 1) }, 'photoIds'],
+      ['a photo id that is not one', { date: '2026-01-02', title: 'x', photoIds: ['1e3'] }, 'photoIds'],
+      ['a photo that does not exist', { date: '2026-01-02', title: 'x', photoIds: [2_000_000_000] }, 'photoIds'],
+    ] as const) {
+      ok((await fieldErrors(addTimelineEntry(pet.id, input, null)))[key], `${label} is a field error on ${key}`)
+    }
+    ok(/not found/i.test(await userError(addTimelineEntry(2_000_000_000, { date: '2026-01-02', title: 'x' }, null))), 'the pet must exist')
+
+    // Added: text rebuilt from allowed parts, a plain string taken as paragraphs, photos resolved, the creator named.
+    const first = await addTimelineEntry(
+      pet.id,
+      { date: '2026-01-05', title: '  Arrived   at the shelter ', body: { type: 'doc', content: [para('Shy', [{ type: 'bold' }, { type: 'bold' }, { type: 'link', attrs: { href: '/pets', target: '_blank' } }])] }, photoIds: [photo.id, photo.id] },
+      writer.id,
+    )
+    ok(first.title === 'Arrived at the shelter' && first.time === null, `title tidied: ${first.title}`)
+    const marks = (first.body!.content[0] as { content: Array<{ marks: unknown[] }> }).content[0]!.marks
+    ok(JSON.stringify(marks) === JSON.stringify([{ type: 'bold' }, { type: 'link', attrs: { href: '/pets' } }]), `text rebuilt: ${JSON.stringify(marks)}`)
+    ok(first.photoIds.join() === String(photo.id) && first.photos.length === 1 && first.photos[0]!.url === photo.url && first.photos[0]!.alt === 'Timeline photo' && first.photos[0]!.thumbnailUrl, 'photos deduplicated and resolved')
+    ok(first.createdByName === 'Tia Writer' && typeof first.createdAt === 'string', 'the creator is named, times are strings')
+    const plain = await addTimelineEntry(pet.id, { date: '2026-01-05', time: '14:30', title: 'Vet visit', body: 'Line one\nLine two' }, null)
+    ok(richTextToPlain(plain.body!) === 'Line one\nLine two' && plain.time === '14:30', 'plain text becomes paragraphs')
+    const morning = await addTimelineEntry(pet.id, { date: '2026-01-05', time: '08:00', title: 'Breakfast' }, null)
+    const older = await addTimelineEntry(pet.id, { date: '2025-12-31', title: 'Found' }, null)
+    const later = await addTimelineEntry(pet.id, { date: '2026-03-01', title: 'Foster home' }, null)
+
+    // Newest first: by day, then time (no time = start of the day), then id.
+    const order = (await listTimeline(pet.id)).map((e) => e.id)
+    ok(order.join() === [later.id, plain.id, morning.id, first.id, older.id].join(), `newest first: ${order}`)
+
+    // Edited: only the fields sent change; changedFields names them (and nothing derived).
+    const updated = await updateTimelineEntry(first.id, { time: '07:15', photoIds: [spare.id, photo.id] })
+    ok(updated.title === 'Arrived at the shelter' && updated.date === '2026-01-05' && updated.time === '07:15' && updated.body !== null, 'other fields kept')
+    ok(updated.photos.map((p) => p.url).join() === [spare.url, photo.url].join(), 'photo order kept')
+    const fields = changedFields(first, updated, ['id', 'petId', 'photos', 'createdByName']).sort()
+    ok(fields.join() === 'photoIds,time', `changed fields: ${fields}`)
+    const cleared = await updateTimelineEntry(first.id, { time: null, body: null, photoIds: [] })
+    ok(cleared.time === null && cleared.body === null && cleared.photoIds.length === 0, 'time, text and photos can be cleared')
+    ok((await fieldErrors(updateTimelineEntry(first.id, { title: '' }))).title, 'the title cannot be cleared')
+    ok((await fieldErrors(updateTimelineEntry(first.id, { date: null }))).date, 'the day cannot be cleared')
+    ok(/not found/i.test(await userError(updateTimelineEntry(2_000_000_000, { title: 'x' }))), 'editing a missing entry')
+
+    // A photo in a timeline is in use; the message says where.
+    await updateTimelineEntry(first.id, { photoIds: [spare.id] })
+    ok(/timeline/.test(await userError(removeUpload(spare.id))), 'a timeline photo cannot be deleted')
+
+    // The pet page (public and editor preview) carries the entries, newest first; an unlisted pet's too.
+    const page = await getPetPage(pet.slug)
+    ok(page?.timeline.map((e) => e.id).join() === order.join(), 'the pet page has the timeline, newest first')
+    ok((await getPetPagePreview(pet.id))?.timeline.length === 5, 'the editor preview too')
+
+    // Deleted one by one.
+    const gone = await deleteTimelineEntry(morning.id)
+    ok(gone.petId === pet.id && (await getTimelineEntry(morning.id)) === null, 'deleted')
+    ok(/not found/i.test(await userError(deleteTimelineEntry(morning.id))), 'deleting twice')
+
+    // The creator's account goes: the entry stays, unnamed.
+    await removeAccount(writer.id)
+    ok((await getTimelineEntry(first.id))?.createdByName === null, 'a deleted account leaves the entry without a name')
+
+    // At most TIMELINE_MAX_ENTRIES per pet, counted under a lock: parallel adds stop exactly at the cap.
+    const have = (await listTimeline(pet.id)).length
+    const room = 3
+    const { db: cdb, t: ct } = await getDatabase()
+    const filler = TIMELINE_MAX_ENTRIES - have - room
+    for (let i = 0; i < filler; i += 50) {
+      await cdb.insert(ct.petTimelineEntries).values(Array.from({ length: Math.min(50, filler - i) }, (_, j) => ({ petId: pet.id, date: '2020-01-01', title: `Filler ${i + j}`, photoIds: [] })))
+    }
+    const results = await Promise.allSettled(Array.from({ length: 8 }, (_, i) => addTimelineEntry(pet.id, { date: '2026-04-01', title: `Parallel ${i}` }, null)))
+    const passed = results.filter((r) => r.status === 'fulfilled').length
+    ok(passed === room, `expected exactly ${room} of 8 parallel adds to pass, got ${passed}`)
+    ok((await listTimeline(pet.id)).length === TIMELINE_MAX_ENTRIES, 'the cap holds')
+    const refused = results.find((r) => r.status === 'rejected') as PromiseRejectedResult | undefined
+    ok(refused?.reason instanceof UserError && /at most/.test(refused.reason.message), 'the others are told why')
+
+    // Permissions: viewing is pets:view, every change pets:edit and logged; audit cannot change it.
+    const { readFileSync } = await import('node:fs')
+    const source = readFileSync('src/server/actions/pet-timeline.ts', 'utf8')
+    for (const name of ['addPetTimelineEntryAction', 'updatePetTimelineEntryAction', 'deletePetTimelineEntryAction']) {
+      const body = source.split(`export async function ${name}`)[1]?.split(/^export /m)[0] ?? ''
+      ok(/requirePermission\('pets:edit'\)/.test(body) && /recordActivity\(/.test(body) && /assertId\(/.test(body), `${name} needs pets:edit, checks the id and is logged`)
+    }
+    ok(/requirePermission\('pets:view'\)/.test(source.split('export async function listPetTimelineAction')[1]!.split(/^export /m)[0]!), 'listing needs pets:view')
+    ok(!can('audit', 'pets:edit') && can('audit', 'pets:view') && can('editor', 'pets:edit'), 'audit views the timeline but cannot change it')
+
+    // Deleting the pet takes its entries with it, and the photo is free again.
+    await deletePet(pet.id)
+    petGone = true
+    const [{ n }] = await cdb.select({ n: sql<number>`count(*)` }).from(ct.petTimelineEntries).where(eq(ct.petTimelineEntries.petId, pet.id))
+    ok(Number(n) === 0, 'entries are deleted with the pet')
+    await removeUpload(spare.id)
+  } finally {
+    if (!petGone) await deletePet(pet.id).catch(() => undefined)
+    await removeAccount(writer.id).catch(() => undefined)
+    await removeUpload(spare.id).catch(() => undefined)
+    await removeUpload(photo.id).catch(() => undefined)
   }
 })
 

@@ -71,6 +71,8 @@ export function PetForm({ pet, siteName, siteCountry }: { pet: Pet | null; siteN
     // When the page reloads, fields the person has changed keep their text.
     resetOptions: { keepDirtyValues: true },
     mode: "onBlur",
+    // The error summary takes focus instead (it links to each field, switching tabs).
+    shouldFocusError: false,
   });
   const { control, formState } = form;
   const { dialog: leaveDialog, allowNavigation } = useUnsavedChanges(formState.isDirty);
@@ -106,10 +108,18 @@ export function PetForm({ pet, siteName, siteCountry }: { pet: Pet | null; siteN
   // "Saved." only while nothing has been changed since.
   const showSaved = saved && !formState.isDirty;
 
-  // Moves focus to the summary after a failed save, once it is on screen.
+  // Moves focus to the summary after a failed save, once it is on screen: React Hook Form can
+  // publish the errors one render after the failed submit, so wait for the summary itself.
+  const focusPending = React.useRef(false);
   React.useEffect(() => {
-    if (focusTick > 0) summaryRef.current?.focus();
+    if (focusTick > 0) focusPending.current = true;
   }, [focusTick]);
+  React.useEffect(() => {
+    if (focusPending.current && showSummary && summaryRef.current) {
+      focusPending.current = false;
+      summaryRef.current.focus();
+    }
+  });
 
   function problems() {
     setSummaryOpen(true);

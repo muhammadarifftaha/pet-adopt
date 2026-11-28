@@ -1,6 +1,7 @@
 import { headers } from 'next/headers'
 
 import { PageHeader } from '@/components/admin/PageHeader'
+import { PetTimelineUnsaved } from '@/components/admin/pets/timeline/PetTimeline'
 import { requirePermissionPage } from '@/lib/admin/unwrap'
 import { siteCountryCode } from '@/lib/places'
 import { getSettings } from '@/server/settings'
@@ -21,6 +22,7 @@ export default async function NewPetPage() {
     <>
       <PageHeader title="Add pet" />
       <PetForm pet={null} siteName={siteName} siteCountry={siteCountryCode(settings)} />
+      <PetTimelineUnsaved />
     </>
   )
 }

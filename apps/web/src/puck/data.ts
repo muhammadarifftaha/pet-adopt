@@ -3,7 +3,7 @@ import type { Data } from '@puckeditor/core'
 export const EMPTY_DATA: Data = { content: [], root: { props: {} }, zones: {} }
 
 /** Props that are filled in at render time and must never be saved into the page JSON. */
-const TRANSIENT_PROPS = ['pets', 'spotlight', 'profiles', 'catalog', 'form', 'headingLevel', 'similar']
+const TRANSIENT_PROPS = ['pets', 'spotlight', 'profiles', 'catalog', 'form', 'headingLevel', 'similar', 'empty']
 
 /** A saved layout is a few kilobytes. Anything near this size is a mistake or an attack. */
 const MAX_BYTES = 1_000_000
@@ -28,6 +28,8 @@ function showsHeading(item: Block): boolean {
   if (item.type === 'FormBlock') return Boolean(props.form)
   // Pet page template: the Pet summary block's heading is the pet's name, always there.
   if (item.type === 'PetSummary') return true
+  // A pet block that has nothing to show for this pet (resolveData sets `empty`) draws no heading.
+  if (props.empty === true) return false
   return typeof props.heading === 'string' && props.heading.trim() !== ''
 }
 
@@ -117,6 +119,7 @@ export const DEFAULT_PET_PAGE_DATA: Data = {
     { type: 'PetDescription', props: { id: 'pet-description', showButton: true, buttonLabel: '' } },
     { type: 'PetHealth', props: { id: 'pet-health', heading: 'Health', showChecks: true, showNotes: true, layout: 'columns', rowGap: 'default' } },
     { type: 'PetPersonality', props: { id: 'pet-personality', heading: 'Personality', showTemperament: true, showGoodWith: true, showNotes: true, layout: 'columns', rowGap: 'default' } },
+    { type: 'PetTimeline', props: { id: 'pet-timeline', heading: 'Timeline', align: 'left', order: 'newest', limit: 5, showPhotos: true, showTime: true } },
     { type: 'MorePets', props: { id: 'more-pets', heading: 'More pets like this', count: 3 } },
   ],
 }

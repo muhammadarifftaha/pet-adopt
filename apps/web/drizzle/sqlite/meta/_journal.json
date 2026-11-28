@@ -183,6 +183,13 @@
       "when": 1795776537825,
       "tag": "0025_tough_shotgun",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "6",
+      "when": 1795844727232,
+      "tag": "0026_faithful_mephistopheles",
+      "breakpoints": true
     }
   ]
 }

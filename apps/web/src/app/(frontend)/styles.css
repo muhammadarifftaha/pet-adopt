@@ -482,6 +482,68 @@ p { margin: 0 0 1em; }
   .pet-summary-media[data-photo='right'] .pet-summary-photo { order: 0; }
 }
 .pet-status-notice { margin-bottom: 0; }
+/* Pet timeline (src/components/site/PetTimeline.tsx): a line with a point per update. Each entry
+   says which side of it the line is on (data-line); text hugs the line (left-aligned with the line on
+   its left, right-aligned with the line on its right). The line uses --muted and the point
+   --primary-text: both are kept at 4.5:1 or more on the page backgrounds by the theme (ensureContrastOnAll),
+   above the 3:1 that graphics need, in light and dark. */
+.timeline { --timeline-point: calc(16px * var(--density)); --timeline-line: 2px; --timeline-gutter: calc(36px * var(--density)); --timeline-gap: calc(32px * var(--density)); }
+.timeline-list { list-style: none; margin: 0; padding: 0; }
+.timeline-entry { position: relative; padding-bottom: var(--timeline-gap); }
+.timeline-entry::before { content: ''; position: absolute; top: 0; bottom: 0; width: var(--timeline-line); background: var(--muted); }
+.timeline-point { position: absolute; top: 0.3em; width: var(--timeline-point); height: var(--timeline-point); border-radius: 50%; background: var(--bg); border: 3px solid var(--primary-text); }
+.timeline-entry[data-line='left'] { padding-left: var(--timeline-gutter); text-align: left; }
+.timeline-entry[data-line='left']::before { left: calc((var(--timeline-point) - var(--timeline-line)) / 2); }
+.timeline-entry[data-line='left'] .timeline-point { left: 0; }
+.timeline-entry[data-line='right'] { padding-right: var(--timeline-gutter); text-align: right; }
+.timeline-entry[data-line='right']::before { right: calc((var(--timeline-point) - var(--timeline-line)) / 2); }
+.timeline-entry[data-line='right'] .timeline-point { right: 0; }
+.timeline-date { display: block; margin-bottom: 0.2em; font-size: 0.9rem; font-weight: 600; color: var(--muted); }
+.timeline-title { margin: 0 0 0.35em; }
+.timeline-body p { margin: 0 0 0.5em; }
+.timeline-body ul, .timeline-body ol { margin: 0 0 0.5em; padding-left: 1.25em; }
+.timeline-body ul { list-style: disc; }
+.timeline-body ol { list-style: decimal; }
+.timeline-body li > p { margin: 0; }
+/* Right-aligned text: the bullets sit inside the text so they do not hang on the far side. */
+.timeline-entry[data-line='right'] .timeline-body ul, .timeline-entry[data-line='right'] .timeline-body ol { padding-left: 0; list-style-position: inside; }
+.timeline-photos { list-style: none; display: flex; flex-wrap: wrap; gap: calc(8px * var(--density)); margin: calc(8px * var(--density)) 0 0; padding: 0; }
+.timeline-entry[data-line='right'] .timeline-photos { justify-content: flex-end; }
+.timeline-photo { display: block; width: calc(96px * var(--density)); aspect-ratio: 1; overflow: hidden; border-radius: var(--radius-sm); background: var(--placeholder); }
+.timeline-photo img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.timeline-photo:hover img { opacity: 0.85; }
+/* Alternate: the line in the centre, entries on either half. */
+.timeline[data-align='alternate'] .timeline-entry { width: calc(50% + var(--timeline-point) / 2); }
+.timeline[data-align='alternate'] .timeline-entry[data-line='left'] { margin-left: calc(50% - var(--timeline-point) / 2); }
+/* "Show all updates": a <details>, so it works without JavaScript. */
+/* The last entry of each list keeps no space under it, so the line stops with its text. */
+.timeline-list > .timeline-entry:last-child { padding-bottom: 0; }
+.timeline-more { margin-top: var(--timeline-gap); }
+.timeline-more-toggle { display: inline-block; cursor: pointer; padding: 0.45em 1em; border: 2px solid var(--primary); border-radius: var(--radius-btn); color: var(--primary-text); font-weight: 600; font-size: 0.9rem; list-style: none; }
+.timeline-more[open] .timeline-more-toggle { margin-bottom: var(--timeline-gap); }
+.timeline-more-toggle::-webkit-details-marker { display: none; }
+.timeline-more-open, .timeline-more[open] .timeline-more-closed { display: none; }
+.timeline-more[open] .timeline-more-open { display: inline; }
+.timeline-more { text-align: left; }
+.timeline[data-align='right'] .timeline-more { text-align: right; }
+.timeline[data-align='alternate'] .timeline-more { text-align: center; }
+@media (max-width: 800px) {
+  /* Alternate falls back to the left layout on narrow screens. */
+  .timeline[data-align='alternate'] .timeline-entry { width: auto; }
+  .timeline[data-align='alternate'] .timeline-entry[data-line='left'] { margin-left: 0; }
+  .timeline[data-align='alternate'] .timeline-entry[data-line='right'] { padding-right: 0; padding-left: var(--timeline-gutter); text-align: left; }
+  .timeline[data-align='alternate'] .timeline-entry[data-line='right']::before { right: auto; left: calc((var(--timeline-point) - var(--timeline-line)) / 2); }
+  .timeline[data-align='alternate'] .timeline-entry[data-line='right'] .timeline-point { right: auto; left: 0; }
+  .timeline[data-align='alternate'] .timeline-entry[data-line='right'] .timeline-photos { justify-content: flex-start; }
+  .timeline[data-align='alternate'] .timeline-entry[data-line='right'] .timeline-body ul,
+  .timeline[data-align='alternate'] .timeline-entry[data-line='right'] .timeline-body ol { padding-left: 1.25em; list-style-position: outside; }
+  .timeline[data-align='alternate'] .timeline-more { text-align: left; }
+}
+@media (max-width: 480px) {
+  .timeline { --timeline-gutter: calc(28px * var(--density)); }
+  .timeline-photo { width: calc(72px * var(--density)); }
+}
+
 .pet-page-top { display: flex; flex-direction: column; gap: 12px; padding-top: 24px; }
 
 /* The form builder's spam check (captcha widget) above a form's button. */
