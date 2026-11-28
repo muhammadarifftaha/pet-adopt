@@ -41,7 +41,7 @@ const ITEMS: Item[] = [
   { href: "/admin/reset-password", label: "Password Reset" },
 ];
 
-export default function AuthNav({ label = "Account" }: { label?: string }) {
+export function AuthNav({ label = "Account" }: { label?: string }) {
   // usePathname() also works during server rendering, so aria-current is in the first HTML.
   const pathname = usePathname();
 

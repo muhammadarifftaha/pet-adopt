@@ -11,8 +11,8 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { FiExternalLink } from "react-icons/fi";
 
 import { StatusBadge } from "@/components/admin/StatusBadge";
-import { useUnsavedChanges } from "@/components/admin/useUnsavedChanges";
-import { ErrorSummary, type SummaryItem } from "@/components/admin/pets/form/ErrorSummary";
+import { useUnsavedChanges } from "@/components/admin/use-unsaved-changes";
+import { ErrorSummary, type SummaryItem } from "@/components/admin/ErrorSummary";
 import { MediaPickerDialog } from "@/components/admin/pets/form/MediaPickerDialog";
 import { Button, buttonVariants } from "@pet-adopt/ui/components/button";
 import { Card, CardContent, CardHeader } from "@pet-adopt/ui/components/card";

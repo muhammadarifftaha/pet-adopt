@@ -10,7 +10,18 @@ import { finishSetupAction } from "@/server/actions/setup";
 
 // Setup's last step: what is ready, what is left, and where to go next. Finishing ends the setup.
 
-export function SetupDone({ storage, emailReady, needsConfirmation, email }: { storage: string | null; emailReady: boolean; needsConfirmation: boolean; email: string }) {
+export function SetupDone({
+  storage,
+  emailReady,
+  needsConfirmation,
+  email,
+}: {
+  /** From a test write to the bucket: where uploads go, and what failed (null when it worked). */
+  storage: { description: string | null; problem: string | null };
+  emailReady: boolean;
+  needsConfirmation: boolean;
+  email: string;
+}) {
   const router = useRouter();
   const [pending, startTransition] = React.useTransition();
   const [error, setError] = React.useState<string | null>(null);
@@ -25,7 +36,12 @@ export function SetupDone({ storage, emailReady, needsConfirmation, email }: { s
   }
 
   const checks = [
-    { ok: Boolean(storage), label: storage ? `Image storage is set up (${storage}).` : "Image storage is not set up: uploads will fail until the S3_* settings are right." },
+    {
+      ok: !storage.problem,
+      label: storage.problem
+        ? `Image storage does not work yet${storage.description ? ` (${storage.description})` : ""}: uploads will fail until the S3_* settings are right. ${storage.problem}`
+        : `Image storage works (${storage.description}).`,
+    },
     { ok: emailReady, label: emailReady ? "Email is set up." : "Email is not set up: no reset links, invites or form notifications until it is (Settings > Email)." },
   ];
 

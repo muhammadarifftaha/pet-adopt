@@ -9,11 +9,11 @@ import { Controller, useFieldArray, useForm, type Control, type FieldPath } from
 import { zodResolver } from '@hookform/resolvers/zod'
 import { FiArrowDown, FiArrowUp, FiPlus, FiTrash2 } from 'react-icons/fi'
 
-import { ErrorSummary, type SummaryItem } from '@/components/admin/pets/form/ErrorSummary'
+import { ErrorSummary, type SummaryItem } from '@/components/admin/ErrorSummary'
 import { MediaPickerDialog } from '@/components/admin/pets/form/MediaPickerDialog'
 import { PhoneInput } from '@/components/admin/PhoneInput'
 import { RegionFields } from '@/components/admin/settings/RegionFields'
-import { useUnsavedChanges } from '@/components/admin/useUnsavedChanges'
+import { useUnsavedChanges } from '@/components/admin/use-unsaved-changes'
 import { Button, buttonVariants } from '@pet-adopt/ui/components/button'
 import { Checkbox } from '@pet-adopt/ui/components/checkbox'
 import { Field, FieldContent, FieldDescription, FieldError, FieldGroup, FieldLabel, FieldLegend, FieldSet } from '@pet-adopt/ui/components/field'

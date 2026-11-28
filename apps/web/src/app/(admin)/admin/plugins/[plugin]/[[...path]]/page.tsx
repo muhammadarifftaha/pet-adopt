@@ -17,7 +17,8 @@ type Props = {
 // Next cannot add routes while it runs, so every plugin screen is served by this one catch-all route.
 // `findPluginScreen` matches the URL against the screens declared in `pet-adopt.config.ts`. Every
 // plugin has a page: a plugin without a home screen of its own (`path: ''`) gets the built-in
-// overview at /admin/plugins/<name> (admins only, as it shows how the plugin is set up).
+// overview at /admin/plugins/<name>, for roles with `plugins:view` (admins and developers; audit
+// views it), as it shows how the plugin is set up.
 
 /** The built-in overview applies at a plugin's root when the plugin declares no home screen. */
 function overviewFor(plugin: string, path: string[]) {

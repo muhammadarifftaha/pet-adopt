@@ -21,6 +21,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Field, FieldContent, FieldLabel } from "@pet-adopt/ui/components/field";
 import { Input } from "@pet-adopt/ui/components/input";
 import { RadioGroup, RadioGroupItem } from "@pet-adopt/ui/components/radio-group";
+import { ErrorSummary } from "@/components/admin/ErrorSummary";
 import { useViewOnly } from "@/components/admin/view-only";
 import { deleteAuthProviderAction, saveAuthProviderAction } from "@/server/actions/auth-providers";
 import type { AuthProviderView, ProviderKind } from "@/server/auth-providers";
@@ -33,6 +34,20 @@ type Announce = (message: string, isError?: boolean) => void;
 type Failure = { ok: false; error: string; fieldErrors?: Record<string, string> };
 
 const DEFAULT_SCOPES: Record<ProviderKind, string> = { oidc: "openid email profile", oauth2: "email profile" };
+
+/** Field names in the error summary, by the server's field error keys. */
+const PROVIDER_LABELS: Record<string, string> = {
+  name: "Name on the button",
+  kind: "Type",
+  discoveryUrl: "Discovery URL",
+  authorizationUrl: "Authorization URL",
+  tokenUrl: "Token URL",
+  userInfoUrl: "User info URL",
+  clientId: "Client ID",
+  clientSecret: "Client secret",
+  scopes: "Scopes",
+};
+const providerFieldId = (key: string) => (key === "kind" ? "provider-kind-oidc" : `provider-${key}`);
 
 export function AuthProviders({ providers }: { providers: AuthProviderView[] }) {
   const router = useRouter();
@@ -163,7 +178,7 @@ function ProviderForm({ provider, onSaved }: { provider?: AuthProviderView; onSa
   const [errors, setErrors] = React.useState<Record<string, string>>({});
   const [formError, setFormError] = React.useState<string | null>(null);
   const [pending, startTransition] = React.useTransition();
-  const summaryRef = React.useRef<HTMLParagraphElement>(null);
+  const summaryRef = React.useRef<HTMLDivElement>(null);
   const set = (key: keyof typeof values) => (event: React.ChangeEvent<HTMLInputElement>) => setValues((v) => ({ ...v, [key]: event.target.value }));
 
   function changeKind(next: ProviderKind) {
@@ -205,7 +220,7 @@ function ProviderForm({ provider, onSaved }: { provider?: AuthProviderView; onSa
   }
 
   const text = (key: keyof typeof values, label: string, opts: { hint?: string; type?: string; placeholder?: string; required?: boolean } = {}) => {
-    const id = `provider-${key}`;
+    const id = providerFieldId(key);
     const error = errors[key];
     const describedBy = [opts.hint && `${id}-hint`, error && `${id}-error`].filter(Boolean).join(" ") || undefined;
     return (
@@ -250,9 +265,15 @@ function ProviderForm({ provider, onSaved }: { provider?: AuthProviderView; onSa
         </DialogDescription>
       </DialogHeader>
       {formError ? (
-        <p ref={summaryRef} tabIndex={-1} role="alert" className="rounded-md border border-destructive p-3 text-sm text-destructive outline-none">
-          {Object.keys(errors).length ? "Please check the highlighted fields." : formError}
-        </p>
+        <ErrorSummary
+          ref={summaryRef}
+          items={Object.entries(errors).map(([key, message]) => ({ name: key, label: PROVIDER_LABELS[key] ?? key, message }))}
+          general={Object.keys(errors).length ? null : formError}
+          idOf={providerFieldId}
+          failureTitle="The provider could not be saved"
+          onSelect={(key) => document.getElementById(providerFieldId(key))?.focus()}
+          className=""
+        />
       ) : null}
       {text("name", "Name on the button", { required: true, placeholder: "Google Workspace", hint: "People see “Sign in with <name>”." })}
       <fieldset className="flex flex-col gap-2">

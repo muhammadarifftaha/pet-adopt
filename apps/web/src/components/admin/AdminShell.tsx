@@ -21,8 +21,7 @@ import { ADMIN_NAV } from "./nav-items";
 import { UserMenu } from "./UserMenu";
 import { ViewSiteLink } from "./ViewSiteLink";
 
-// The frame around every admin screen: skip link, shadcn sidebar (a sheet on phones), header and <main>.
-// TODO(ui): toaster (shadcn `sonner`) goes here once it is added.
+/** The frame around every admin screen: skip link, shadcn sidebar (a sheet on phones), header and <main>. */
 export async function AdminShell({
   user,
   banner,

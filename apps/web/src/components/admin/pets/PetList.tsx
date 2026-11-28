@@ -4,7 +4,7 @@ import { EmptyState } from "@/components/admin/EmptyState";
 import { Button } from "@pet-adopt/ui/components/button";
 import { useInvalidatePets } from "@/lib/admin/pets-cache";
 import { usePetList, type PetListSeed } from "@/lib/admin/use-pet-list";
-import PetCard from "./PetCard";
+import { PetCard } from "./PetCard";
 import { PET_GRID, PetListSkeleton } from "./PetListSkeleton";
 
 // The pet list. The URL holds the filters (FilterBar writes it, debounced), `usePetList` reads the
@@ -13,7 +13,7 @@ import { PET_GRID, PetListSkeleton } from "./PetListSkeleton";
 // shows a grid of skeleton cards until its rows arrive.
 // The server page passes the first page of data so the first paint has no skeleton.
 // The pager lives in FilterBar's toolbar and reads the same cached data.
-export default function PetList(seed: PetListSeed) {
+export function PetList(seed: PetListSeed) {
   // No `keepPreviousData` here: with it the old rows would stay up while a new filter loads and the
   // skeleton would never show.
   const { data, error, isValidating } = usePetList(seed);
@@ -53,10 +53,6 @@ export default function PetList(seed: PetListSeed) {
           Try different filters, or add a pet.
         </EmptyState>
       ) : (
-        // TODO(ui): replace with a proper table: cover thumbnail (photos[0]?.thumbnailUrl), name,
-        // species, StatusBadge, flags (featured / unlisted / urgent), location, updated,
-        // and row actions (edit, view /pets/{slug}, delete with a confirm dialog -> deletePetAction,
-        // then call useInvalidatePets() from "@/lib/admin/pets-cache").
         <div className={PET_GRID}>
           {data.docs.map((pet) => (
             <PetCard key={pet.id} pet={pet} />

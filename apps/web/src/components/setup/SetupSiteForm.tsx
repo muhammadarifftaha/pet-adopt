@@ -8,11 +8,13 @@ import { Button } from "@pet-adopt/ui/components/button";
 import { Card, CardContent, CardFooter, CardHeader } from "@pet-adopt/ui/components/card";
 import { Field, FieldDescription, FieldGroup, FieldLabel } from "@pet-adopt/ui/components/field";
 import { Input } from "@pet-adopt/ui/components/input";
+import { PhoneInput } from "@/components/admin/PhoneInput";
 import { updateSettingsAction } from "@/server/actions/settings";
 import type { SiteSetting } from "@/server/types";
 
 // Setup step 2: the site's name, tagline and WhatsApp number (everything else is on Site settings).
-// The server checks the values as on Site settings.
+// The server checks the values as on Site settings, and the number uses the same country picker, so
+// it is sent with its country code (E.164) rather than read as the default country's.
 
 export function SetupSiteForm({ settings }: { settings: SiteSetting }) {
   const router = useRouter();
@@ -36,19 +38,23 @@ export function SetupSiteForm({ settings }: { settings: SiteSetting }) {
     });
   }
 
-  const field = (key: keyof typeof values, label: string, hint: string, opts: { required?: boolean; type?: string } = {}) => (
+  const describedBy = (key: keyof typeof values) => `setup-${key}-hint${errors[key] ? ` setup-${key}-error` : ""}`;
+  const errorText = (key: keyof typeof values) =>
+    errors[key] ? (
+      <p id={`setup-${key}-error`} className="text-sm text-destructive">
+        {errors[key]}
+      </p>
+    ) : null;
+
+  const field = (key: keyof typeof values, label: string, hint: string, opts: { required?: boolean } = {}) => (
     <Field data-invalid={errors[key] ? true : undefined}>
       <FieldLabel htmlFor={`setup-${key}`}>
         {label}
         {opts.required ? <span className="font-normal text-muted-foreground"> (required)</span> : null}
       </FieldLabel>
-      <Input id={`setup-${key}`} type={opts.type ?? "text"} value={values[key]} onChange={set(key)} aria-invalid={errors[key] ? true : undefined} aria-describedby={`setup-${key}-hint${errors[key] ? ` setup-${key}-error` : ""}`} />
+      <Input id={`setup-${key}`} value={values[key]} onChange={set(key)} aria-invalid={errors[key] ? true : undefined} aria-describedby={describedBy(key)} />
       <FieldDescription id={`setup-${key}-hint`}>{hint}</FieldDescription>
-      {errors[key] ? (
-        <p id={`setup-${key}-error`} className="text-sm text-destructive">
-          {errors[key]}
-        </p>
-      ) : null}
+      {errorText(key)}
     </Field>
   );
 
@@ -68,7 +74,20 @@ export function SetupSiteForm({ settings }: { settings: SiteSetting }) {
             ) : null}
             {field("siteName", "Site name", "Shown at the top of every page and in browser tabs.", { required: true })}
             {field("tagline", "Tagline", "A short line under the name, like “Every pet deserves a loving home”.")}
-            {field("whatsappNumber", "WhatsApp number", "Where visitors message you about a pet. With the country code, like +60 12 345 6789.", { type: "tel" })}
+            <Field data-invalid={errors.whatsappNumber ? true : undefined}>
+              <FieldLabel htmlFor="setup-whatsappNumber">WhatsApp number</FieldLabel>
+              <PhoneInput
+                id="setup-whatsappNumber"
+                value={values.whatsappNumber}
+                onChange={(whatsappNumber) => setValues((v) => ({ ...v, whatsappNumber }))}
+                invalid={Boolean(errors.whatsappNumber)}
+                describedBy={describedBy("whatsappNumber")}
+              />
+              <FieldDescription id="setup-whatsappNumber-hint">
+                Where visitors message you about a pet. Pick the country, then type the number; you can also paste one starting with +.
+              </FieldDescription>
+              {errorText("whatsappNumber")}
+            </Field>
           </FieldGroup>
         </form>
       </CardContent>

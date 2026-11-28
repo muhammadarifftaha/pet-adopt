@@ -20,7 +20,7 @@ import { Button, buttonVariants } from "@pet-adopt/ui/components/button";
 import { Card, CardContent, CardFooter, CardHeader } from "@pet-adopt/ui/components/card";
 
 // The two forms of /admin/reset-password, styled like the sign-in form:
-//  - RequestResetForm: "email me a link" (only shown when an email plugin is set up);
+//  - RequestResetForm: "email me a link" (only shown when the site can send email: built-in SMTP or an email plugin);
 //  - NewPasswordForm: choose a new password, opened from a reset link.
 // The server answers "request" the same way whether or not the account exists, so the success
 // message must not claim that an email was sent.

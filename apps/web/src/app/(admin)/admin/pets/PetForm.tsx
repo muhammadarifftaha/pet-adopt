@@ -8,8 +8,8 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 
 import { AgeFields } from "@/components/admin/pets/form/AgeFields";
-import { useUnsavedChanges } from "@/components/admin/useUnsavedChanges";
-import { ErrorSummary, type SummaryItem } from "@/components/admin/pets/form/ErrorSummary";
+import { useUnsavedChanges } from "@/components/admin/use-unsaved-changes";
+import { ErrorSummary, type SummaryItem } from "@/components/admin/ErrorSummary";
 import {
   CheckboxField,
   CheckboxGroupField,
@@ -17,11 +17,13 @@ import {
   SpeciesField,
   TextField,
   TextareaField,
+  fieldId,
   focusField,
 } from "@/components/admin/pets/form/fields";
 import { LocationFields } from "@/components/admin/pets/form/LocationFields";
 import { PhotosField } from "@/components/admin/pets/form/PhotosField";
 import { RichTextField } from "@/components/admin/pets/form/RichTextField";
+import { useWhen } from "@/components/admin/site-time";
 import { useViewOnly, ViewOnlyFieldset } from "@/components/admin/view-only";
 import { SeoPreview } from "@/components/admin/pets/form/SeoPreview";
 import { DESCRIPTION_MAX_CHARS } from "@/lib/rich-text";
@@ -61,6 +63,7 @@ import type { Pet } from "@/server/types";
 export function PetForm({ pet, siteName, siteCountry }: { pet: Pet | null; siteName: string; siteCountry: string }) {
   // View-only roles (audit) see every field, can switch tabs, and cannot save (the server refuses too).
   const viewOnly = useViewOnly();
+  const when = useWhen();
   const router = useRouter();
   const invalidatePets = useInvalidatePets();
 
@@ -178,7 +181,7 @@ export function PetForm({ pet, siteName, siteCountry }: { pet: Pet | null; siteN
       aria-label={pet ? `Edit ${pet.name}` : "New pet"}
       onSubmit={form.handleSubmit(onValid, problems)}
     >
-      {showSummary ? <ErrorSummary ref={summaryRef} items={items} general={general} onSelect={goTo} /> : null}
+      {showSummary ? <ErrorSummary ref={summaryRef} items={items} general={general} onSelect={goTo} idOf={fieldId} failureTitle="The pet could not be saved" /> : null}
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]">
         <div>
@@ -385,7 +388,11 @@ export function PetForm({ pet, siteName, siteCountry }: { pet: Pet | null; siteN
                 />
                 {pet?.adoptedAt ? (
                   <p className="text-sm">
-                    <span className="font-medium">Adopted on</span> {pet.adoptedAt.toISOString().slice(0, 10)}
+                    <span className="font-medium">Adopted on</span>{" "}
+                    {/* Without a site time zone the browser corrects the server's day to the viewer's. */}
+                    <time dateTime={pet.adoptedAt.toISOString()} suppressHydrationWarning>
+                      {when(pet.adoptedAt, "date")}
+                    </time>
                   </p>
                 ) : null}
               </FieldGroup>

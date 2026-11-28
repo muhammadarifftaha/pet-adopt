@@ -28,8 +28,13 @@ export function EmailConfirmBanner({ email }: { email: string }) {
         <strong>Confirm your email to make changes.</strong> You can look around, but saving anything waits until you confirm{" "}
         <span className="break-all">{email}</span>.
       </p>
-      <p role={message?.isError ? "alert" : "status"} className={`text-sm empty:hidden ${message?.isError ? "text-destructive" : ""}`}>
-        {message?.text ?? ""}
+      {/* Both stay in the page while empty (out of sight, not display:none), so screen readers
+          notice when text arrives. */}
+      <p role="status" className="text-sm empty:sr-only">
+        {message && !message.isError ? message.text : ""}
+      </p>
+      <p role="alert" className="text-sm text-destructive empty:sr-only">
+        {message?.isError ? message.text : ""}
       </p>
       <Button type="button" size="sm" onClick={send} aria-disabled={pending || undefined}>
         {pending ? "Sending…" : "Send confirmation link"}
