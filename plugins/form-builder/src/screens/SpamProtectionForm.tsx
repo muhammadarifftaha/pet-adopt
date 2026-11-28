@@ -41,7 +41,9 @@ export function SpamProtectionForm({ initial, canEdit, timeZone = null }: { init
   const unsaved = chosen !== view.provider || siteKey.trim() !== view.siteKey || Boolean(secret.trim()) || clearSecret || Number(minScore) !== view.minScore
   const items = [{ value: '', label: 'Off (no spam check)' }, ...CAPTCHA_PROVIDERS.map((id) => ({ value: id, label: CAPTCHA_INFO[id].label }))]
 
-  const save = (enabled: boolean) =>
+  // Buttons use aria-disabled while a request runs (so focus stays put); each handler returns early instead.
+  const save = (enabled: boolean) => {
+    if (pending) return
     startTransition(async () => {
       const result = await saveCaptchaSettingsAction({ provider: chosen, siteKey, secret, clearSecret, minScore: Number(minScore), enabled })
       if (result.ok) {
@@ -58,8 +60,11 @@ export function SpamProtectionForm({ initial, canEdit, timeZone = null }: { init
         setNotice({ ok: false, text: result.error })
       }
     })
+  }
 
-  const check = () =>
+  // One check at a time: a second press would verify a token that was already used, and fail.
+  const check = () => {
+    if (pending) return
     startTransition(async () => {
       const token = await widget.current?.getToken()
       if (!token) {
@@ -73,6 +78,18 @@ export function SpamProtectionForm({ initial, canEdit, timeZone = null }: { init
         setNotice({ ok: true, text: 'The keys work. Switch on “Protect forms” to use them.' })
       } else setNotice({ ok: false, text: result.error })
     })
+  }
+
+  const toggleProtection = (checked: boolean) => {
+    if (pending) return
+    startTransition(async () => {
+      const result = await saveCaptchaSettingsAction({ provider: view.provider, siteKey: view.siteKey, minScore: view.minScore, enabled: checked })
+      if (result.ok) {
+        setView(result.data)
+        setNotice({ ok: true, text: result.data.active ? 'Forms are protected.' : 'Spam protection is switched off.' })
+      } else setNotice({ ok: false, text: result.fieldErrors?.enabled ?? result.error })
+    })
+  }
 
   const status = !view.provider ? (
     <Badge variant="secondary">Off</Badge>
@@ -95,7 +112,7 @@ export function SpamProtectionForm({ initial, canEdit, timeZone = null }: { init
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <fieldset disabled={!canEdit || pending} className="m-0 flex min-w-0 flex-col gap-5 border-0 p-0">
+          <fieldset disabled={!canEdit} className="m-0 flex min-w-0 flex-col gap-5 border-0 p-0">
             <Field>
               <FieldLabel htmlFor="captcha-provider">Service</FieldLabel>
               <Select items={items} value={provider} onValueChange={(value) => setProvider(value ?? '')}>
@@ -215,18 +232,12 @@ export function SpamProtectionForm({ initial, canEdit, timeZone = null }: { init
                   Check these keys
                 </Button>
                 <label className="flex items-center gap-2 text-sm">
+                  {/* Natively disabled only while it cannot be used (keys not checked, or unsaved changes); while a request runs it stays focusable. */}
                   <Switch
                     checked={view.enabled}
-                    disabled={pending || !view.checkedAt || unsaved}
-                    onCheckedChange={(checked) =>
-                      startTransition(async () => {
-                        const result = await saveCaptchaSettingsAction({ provider: view.provider, siteKey: view.siteKey, minScore: view.minScore, enabled: checked })
-                        if (result.ok) {
-                          setView(result.data)
-                          setNotice({ ok: true, text: result.data.active ? 'Forms are protected.' : 'Spam protection is switched off.' })
-                        } else setNotice({ ok: false, text: result.fieldErrors?.enabled ?? result.error })
-                      })
-                    }
+                    disabled={!view.checkedAt || unsaved}
+                    aria-disabled={pending || undefined}
+                    onCheckedChange={toggleProtection}
                   />
                   Protect forms
                 </label>

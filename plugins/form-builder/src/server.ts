@@ -179,8 +179,9 @@ export type FormBlockData = {
 
 /**
  * The Form block's loader (public: it runs for every visitor, with nobody signed in). Reads
- * `formId` from the block's saved, unchecked options: a whole number, or its digits as text (pages
- * saved before the block moved into the plugin hold a number). Never throws: null for no form, a
+ * `formId` from the block's saved options (checked by the site against the block's fields, so a
+ * plain id, but read defensively anyway): a whole number, or its digits as text (pages saved before
+ * the block moved into the plugin hold a number). The form it names may have been deleted since. Never throws: null for no form, a
  * deleted one, the plugin's tables not set up yet, or a failure (logged without the error object).
  */
 export async function loadFormBlock(props: Record<string, unknown>): Promise<FormBlockData | null> {
@@ -334,9 +335,12 @@ async function assertNameFree(db: Opened['db'], t: Opened['t'], name: string, ex
 export type SubmitResult = { message: string }
 
 /**
- * A visitor sends a form. Answers are checked first (so a typo costs nothing), then the visitor's and
- * the form's limits are counted. A filled honeypot gets the same answer but nothing is stored.
- * Returns what to show, plus the stored response for the notification (null when nothing was stored).
+ * A visitor sends a form. An oversized answer is refused before anything else runs; then the answers
+ * are checked (so a typo costs nothing), the visitor's limit is counted, the spam trap and the
+ * captcha run, and only a send that passed both counts toward the form's shared limit (so bots
+ * cannot use it up and close the form for everyone). A filled honeypot gets the same answer but
+ * nothing is stored. Returns what to show, plus the stored response for the notification (null
+ * when nothing was stored).
  */
 export async function submitResponse(
   formId: number,
@@ -346,6 +350,8 @@ export async function submitResponse(
   const form = await getForm(formId)
   if (!form) throw new UserError('This form is no longer available.')
   if (!form.isOpen) throw new UserError('This form is not accepting responses right now.')
+
+  if (oversizedAnswers(form.fields, raw)) throw new UserError('Some answers are far too long. Shorten them and send the form again.')
 
   const { phone } = host()
   const result = validateAnswers(form.fields, raw, {
@@ -357,8 +363,8 @@ export async function submitResponse(
   })
   if (!result.ok) throw new ValidationError(result.errors)
 
+  // Per address first: it bounds the work (and captcha checks) one address can cause.
   if (opts.client) await host().consumeAttempt(`form-builder:ip:${opts.client}`, SUBMIT_CLIENT_RULE)
-  await host().consumeAttempt(`form-builder:form:${form.id}`, SUBMIT_FORM_RULE)
 
   const message = form.settings.successMessage ?? DEFAULT_SUCCESS_MESSAGE
   // The spam trap (on unless the form switched it off): a filled hidden box gets the usual answer, and nothing is stored.
@@ -366,12 +372,31 @@ export async function submitResponse(
   if (trapped) return { message, stored: null }
   // Spam protection (src/captcha.ts): only while it is on and its keys were checked.
   await requireCaptcha(opts.captchaToken, opts.client)
+  // The form's shared limit counts only sends that got past the trap and the captcha.
+  await host().consumeAttempt(`form-builder:form:${form.id}`, SUBMIT_FORM_RULE)
 
   const { db, t } = await openFormsDatabase()
   const [{ n }] = await db.select({ n: sql<number>`count(*)` }).from(t.responses).where(eq(t.responses.formId, form.id))
   if (Number(n) >= MAX_RESPONSES_PER_FORM) throw new UserError('This form is not accepting responses right now.')
   await db.insert(t.responses).values({ formId: form.id, answers: result.answers, createdAt: new Date() })
   return { message, stored: { form, answers: result.answers } }
+}
+
+/**
+ * A cheap size check before the answers are read: no answer much longer than the longest one
+ * allowed, and no list longer than a question can have options. Only the form's own questions are
+ * looked at (other keys are ignored anyway). Answers that pass can still fail `validateAnswers`.
+ */
+function oversizedAnswers(fields: readonly FormField[], raw: unknown): boolean {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return false
+  const input = raw as Record<string, unknown>
+  const longest = FORM_LIMITS.textarea * 4
+  return fields.some((field) => {
+    const value = Object.hasOwn(input, field.id) ? input[field.id] : undefined
+    if (typeof value === 'string') return value.length > longest
+    if (Array.isArray(value)) return value.length > FORM_LIMITS.options || value.some((item) => typeof item === 'string' && item.length > longest)
+    return false
+  })
 }
 
 /** Emails a new response to the form's notify address, through its template, when the site can send email. Never throws. */

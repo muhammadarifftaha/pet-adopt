@@ -7,8 +7,9 @@
 //
 // It was a built-in block of the site before it moved here, so its name and options are the ones
 // pages were saved with (`formId`, `heading`, `showDescription`, `background`), and they must stay.
-// Saved options are unchecked: the site checks them against the fields below before `render` sees
-// them, and the background still goes into a class name only when it is one of the three choices.
+// The site checks saved options against the fields below before `render` and the loader see them;
+// the background still goes into a class name only when it is one of the three choices, in case a
+// future site version checks less.
 
 import { definePluginBlock } from '@pet-adopt/plugin-sdk'
 
