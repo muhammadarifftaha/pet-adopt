@@ -1111,7 +1111,7 @@ await check('pages: the Pet page template is a system page at id 3 with the pet 
   ok(template.slug === 'pet-page' && template.status === 'published', 'the template is id 3, published')
   ok((await getPageById(1))!.slug === 'home' && (await getPageById(2))!.slug === 'pets', 'the homepage and the Pets page keep ids 1 and 2')
   const layout = (await getPublishedPage('pet-page'))!.puckData as { content: Array<{ type: string }> }
-  ok(layout.content.map((block) => block.type).join() === 'PetGallery,PetSummary,PetDescription,PetHealth,PetPersonality,MorePets', 'starts with the pet blocks')
+  ok(layout.content.map((block) => block.type).join() === 'PetGallery,PetSummary,PetDescription,PetHealth,PetPersonality,PetTimeline,MorePets', 'starts with the pet blocks')
   ok((await fieldErrors(savePageDetails(3, { slug: 'pet-layout' }))).slug, 'its address cannot change')
   ok((await fieldErrors(savePageDetails(null, { title: 'Copy', slug: 'pet-page' }))).slug, 'no other page can take /pet-page')
   ok(/cannot be archived/.test(await userError(archivePage(3))), 'cannot be archived')
