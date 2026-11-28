@@ -10,7 +10,7 @@
 
 ## Installing
 
-> **Not published yet:** this package is not on npm yet; it will be published with the first release. In the Pet Adopt repository it is already installed as a workspace package (see [In this repository](#in-this-repository)), so a site cloned from it has the plugin and its block already.
+> **In the Pet Adopt repository** it is already installed as a workspace package (see [In this repository](#in-this-repository)), so a site cloned from it has the plugin and its block already.
 
 ### From npm, in a site
 

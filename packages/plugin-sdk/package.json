@@ -1,6 +1,6 @@
 {
   "name": "@pet-adopt/plugin-sdk",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Types and helpers for writing Pet Adopt plugins: definePlugin, defineConfig, screens, widgets, email.",
   "license": "MIT",
   "repository": {

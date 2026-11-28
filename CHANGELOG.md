@@ -4,6 +4,19 @@ What changed in each release, newest first. The format follows [Keep a Changelog
 
 **Versions:** the project is below 1.0, so a minor version (0.2.0) may need action from you when you update, and a patch version (0.1.1) never does. Anything that needs action is listed under **Upgrading** in that release. Each release is a git tag (`v0.1.0`), and the npm packages carry the same version number. To update a site, see [Updating](apps/docs/content/docs/developers/deployment/backups-and-updates.mdx#updating) in the deployment guide.
 
+## 0.1.1 (28 Nov 2026)
+
+The npm packages catch up with the repository. Nothing to do when you update.
+
+### Packages
+
+- **`@pet-adopt/plugin-sdk`:** TSDoc that matches what the site does: plugin storage and migrations, the host services, `consumeAttempt` (keep `windowMs` to two hours or less), block loaders and `provideHost`.
+- **`@pet-adopt/plugin-form-builder`:** the Form block's notice in the page builder covers a form that could not be read as well as a deleted one, plus small fixes in the form editor, the visitor's form and the captcha widget.
+- **`@pet-adopt/plugin-instagram-feed`:** small fixes on the dashboard card and the pinned posts screen.
+- **Provenance:** published from the repository's workflow, so each package links to the commit and run that built it.
+
+0.1.0 of the three packages was published from the repository before these review fixes were merged; the site itself (a clone) had them from the start.
+
 ## 0.1.0 (28 Nov 2026)
 
 The first tagged release. A site starts as a clone of this repository.

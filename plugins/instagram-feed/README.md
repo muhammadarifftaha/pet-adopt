@@ -14,7 +14,7 @@
 
 ## Installing
 
-> **Not published yet:** this package is not on npm yet; it will be published with the first release. In the Pet Adopt repository it is already installed as a workspace package (see [In this repository](#in-this-repository)), so a site cloned from it has steps 1 to 3 done, step 4 happens with the usual `pnpm migrate` (or `pnpm build`), and step 5 is yours to do.
+> **In the Pet Adopt repository** it is already installed as a workspace package (see [In this repository](#in-this-repository)), so a site cloned from it has steps 1 to 3 done, step 4 happens with the usual `pnpm migrate` (or `pnpm build`), and step 5 is yours to do.
 
 ### From npm, in a site
 

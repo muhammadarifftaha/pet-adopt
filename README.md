@@ -131,8 +131,6 @@ apps/docs/                The documentation site (Fumadocs): guides for admins a
 
 ### Packages
 
-> **Not published yet:** none of these packages is on npm yet. They are published with the first release. Until then, this repository uses them as workspace packages.
-
 Three packages are published to npm from this repository:
 
 | Package | Folder | What it is |

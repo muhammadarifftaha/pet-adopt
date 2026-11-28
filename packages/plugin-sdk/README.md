@@ -1,7 +1,5 @@
 # @pet-adopt/plugin-sdk
 
-> **Not published yet:** this package is not on npm yet. It is published with the first release of Pet Adopt.
-
 Types and helpers for writing plugins for [Pet Adopt](https://github.com/muhammadarifftaha/pet-adopt), an open-source storefront for adoptable pets.
 
 A plugin can add admin screens, dashboard cards, page builder blocks, its own database tables, default email templates and an email sender. This package is everything a plugin imports: it contains no part of the site itself.
