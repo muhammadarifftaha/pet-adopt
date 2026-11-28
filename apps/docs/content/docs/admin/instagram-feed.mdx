@@ -35,7 +35,7 @@ Visitors' browsers load the pictures from Instagram's servers. A Pet Adopt site'
 CSP_IMG_SRC="https://*.cdninstagram.com https://*.fbcdn.net"
 ```
 
-- **Restart the site** afterwards: the content security policy is read when the site starts.
+- **Rebuild the site** afterwards (`pnpm build`, then start it again): the content security policy is fixed when the site is built. In development, restart `pnpm dev`.
 - **Without it,** the grid shows empty squares and the browser's console names the blocked address.
 - **What it means for visitors:** their browsers contact Instagram's servers to load the pictures, so Instagram sees their address. Say so in your privacy policy (see [Privacy](#privacy)).
 
@@ -149,7 +149,7 @@ Messages in quotes are the ones the plugin shows.
 
 - **The block is not in the page builder:** it is missing from `apps/web/pet-adopt.blocks.ts`, or the site was not restarted or rebuilt since.
 - **The block shows a note that no account is connected:** connect one on the plugin's screen. On PostgreSQL or hosted libSQL, also check that `pnpm migrate` has run.
-- **Empty squares where pictures should be:** the content security policy does not allow Instagram's picture hosts (see [Allow Instagram's pictures](#2-allow-instagrams-pictures)); the browser's console names the blocked address. Restart the site after changing the policy. If only older pictures are missing, press **Refresh now**: their addresses have expired.
+- **Empty squares where pictures should be:** the content security policy does not allow Instagram's picture hosts (see [Allow Instagram's pictures](#2-allow-instagrams-pictures)); the browser's console names the blocked address. Rebuild the site after changing the policy. If only older pictures are missing, press **Refresh now**: their addresses have expired.
 - **"Only Business and Creator accounts can be connected.":** it is a personal account. Switch it to a professional account in the Instagram app's settings and connect again.
 - **"Instagram did not accept the redirect address.":** the address in your Meta app must be exactly the one on the plugin's screen, including `https://`. It is built from `NEXT_PUBLIC_SERVER_URL`, so check that too.
 - **"Instagram did not accept the app secret.":** copy the Instagram app secret again from the Meta app and press **Save keys**.

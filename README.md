@@ -254,7 +254,7 @@ Every block except Spacer has a **Padding** option for the space above and below
 - **The block:** the profile photo, handle, numbers and biography, then a grid of 5 to 10 square posts and a **Show more** button. Each part can be hidden, and it follows the site's theme.
 - **Pinned posts:** the team pins up to 3 posts on the plugin's screen. They lead the feed and count towards the block's number of posts.
 - **Freshness:** the feed is kept in the database and read again about once an hour. **Refresh now** reads it at once.
-- **Pictures:** visitors' browsers load them from Instagram's servers, which the site's content security policy blocks until you allow them: set `CSP_IMG_SRC="https://*.cdninstagram.com https://*.fbcdn.net"` and restart. Instagram then sees visitors' addresses, so say so in your privacy policy.
+- **Pictures:** visitors' browsers load them from Instagram's servers, which the site's content security policy blocks until you allow them: set `CSP_IMG_SRC="https://*.cdninstagram.com https://*.fbcdn.net"`, then rebuild the site (the policy is fixed when the site is built). Instagram then sees visitors' addresses, so say so in your privacy policy.
 
 ### Users and roles
 
