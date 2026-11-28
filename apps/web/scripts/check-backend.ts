@@ -74,6 +74,7 @@ import { getPetPage, getPetPagePreview, siteIcons } from '../src/lib/queries'
 import { TIMELINE_MAX_ENTRIES, TIMELINE_MAX_PHOTOS, TIMELINE_TEXT_MAX_CHARS, TIMELINE_TITLE_MAX } from '../src/lib/pet-timeline'
 import { addTimelineEntry, deleteTimelineEntry, getTimelineEntry, listTimeline, updateTimelineEntry } from '../src/server/pet-timeline'
 import { activateTheme, createTheme, deleteTheme, getTheme, listThemes, updateTheme } from '../src/server/themes'
+import { contrast, PRESET_KEYS, resolveTheme, THEME_VARIABLES, themeCss } from '../src/lib/theme'
 import { createResetLink, isResetTokenValid, prepareResetEmail, resetPasswordWithToken } from '../src/server/password-reset'
 import { accessOf, accessPermission, asRole, can, host, pluginTablePrefix, provideHost, ROLES, type EmailMessage, type PluginEmail, type Role } from '@pet-adopt/plugin-sdk'
 import { formBuilderStorage, openFormsDatabase } from '@pet-adopt/plugin-form-builder'
@@ -1085,6 +1086,41 @@ await check('themes: created from a preset or duplicated, unique names, readable
   ok((await getTheme(id)) === null, 'deleted')
   ok(/no longer exists/.test(await userError(activateTheme({ themeId: id }))), 'a deleted theme cannot be used')
   await activateTheme({ preset: before.theme })
+})
+
+await check('theme variables for plugin authors: every documented one is in the theme CSS of every preset, light and dark, keeps its contrast pairs, is in the stylesheet fallback and in docs/theming.md', async () => {
+  const { readFileSync } = await import('node:fs')
+  const declared = (rule: string | undefined) => new Set([...(rule ?? '').matchAll(/(--[a-z0-9-]+):/g)].map((m) => m[1]))
+  ok(THEME_VARIABLES.length > 0 && new Set(THEME_VARIABLES.map((v) => v.name)).size === THEME_VARIABLES.length, 'the list has no duplicates')
+  for (const preset of PRESET_KEYS) {
+    const theme = resolveTheme({ theme: preset })
+    const css = themeCss(theme)
+    // The light rule holds every variable; both dark rules (system setting, and the visitor's toggle) redeclare the colours.
+    const light = declared(css.match(/^html:root\{([^}]*)\}/m)?.[1])
+    const darkToggle = declared(css.match(/html:root\[data-mode="dark"\]\{([^}]*)\}/)?.[1])
+    const darkSystem = declared(css.match(/@media \(prefers-color-scheme: dark\)\{html:root:not\(\[data-mode="light"\]\)\{([^}]*)\}\}/)?.[1])
+    for (const v of THEME_VARIABLES) {
+      ok(light.has(v.name), `${preset}: ${v.name} is missing from the light theme CSS`)
+      if (v.changesWithMode) {
+        ok(darkToggle.has(v.name) && darkSystem.has(v.name), `${preset}: ${v.name} is missing from the dark theme CSS`)
+      } else {
+        ok(!(v.name in theme.dark), `${preset}: ${v.name} changes in dark mode, so changesWithMode should be true`)
+      }
+      for (const mode of ['light', 'dark'] as const) {
+        const tokens = { ...theme.shared, ...theme[mode] }
+        for (const background of v.readableOn ?? []) {
+          const ratio = contrast(tokens[v.name], tokens[background])
+          ok(ratio >= 4.5, `${preset} ${mode}: ${v.name} on ${background} is ${ratio.toFixed(2)}:1, below the documented 4.5:1`)
+        }
+      }
+    }
+  }
+  const fallback = declared(readFileSync('src/app/(frontend)/styles.css', 'utf8').match(/:root\s*\{([^}]*)\}/)?.[1])
+  const docs = readFileSync('../../docs/theming.md', 'utf8')
+  for (const v of THEME_VARIABLES) {
+    ok(fallback.has(v.name), `${v.name} is missing from the :root fallback in styles.css`)
+    ok(docs.includes(`\`${v.name}\``), `${v.name} is not described in docs/theming.md`)
+  }
 })
 
 await check('pages: the Pets page is a system page at id 2, keeps /pets, cannot be archived or deleted', async () => {

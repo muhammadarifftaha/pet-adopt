@@ -441,6 +441,87 @@ export function puckDarkCss(theme: ResolvedTheme): string {
 }
 
 // ---------------------------------------------------------------------------------------------
+// The variables plugin authors may rely on
+// ---------------------------------------------------------------------------------------------
+
+/** One CSS variable from themeCss that plugin blocks may use. Documented in docs/theming.md. */
+export type ThemeVariable = {
+  name: `--${string}`
+  kind: 'colour' | 'status' | 'shadow' | 'shape' | 'type' | 'spacing'
+  /** One line: what to use it for. */
+  purpose: string
+  /** True when dark mode gives it another value (every colour and shadow); false when both modes share it. */
+  changesWithMode: boolean
+  /**
+   * Backgrounds this colour reads on as text at 4.5:1 or more (WCAG AA), in light and dark, for
+   * every built-in preset. docs/theming.md says how far that holds for custom colours.
+   */
+  readableOn?: ReadonlyArray<`--${string}`>
+}
+
+/**
+ * The public part of the theme: the variables a plugin block's CSS can count on, with what each is
+ * for and the contrast pairs it is promised. It only describes themeCss's output and changes none
+ * of it. `check:backend` fails when one of these is missing from themeCss for any preset (light or
+ * dark), when a promised pair falls below 4.5:1 on a preset, or when docs/theming.md leaves one out.
+ * The admin-only variables (`--sidebar-bg`, `--sidebar-accent`) are left out on purpose.
+ */
+export const THEME_VARIABLES: readonly ThemeVariable[] = [
+  // Surfaces and text
+  { name: '--bg', kind: 'colour', changesWithMode: true, purpose: 'The page background.' },
+  { name: '--surface', kind: 'colour', changesWithMode: true, purpose: 'Cards, panels and inputs that sit on the page.' },
+  { name: '--surface-alt', kind: 'colour', changesWithMode: true, purpose: 'A quieter panel: notes, empty states, alternating rows.' },
+  { name: '--tint', kind: 'colour', changesWithMode: true, purpose: 'A soft wash of the brand colour for a highlighted section.' },
+  { name: '--placeholder', kind: 'colour', changesWithMode: true, purpose: 'The fill behind an image that has not loaded or is missing.' },
+  { name: '--ink', kind: 'colour', changesWithMode: true, purpose: 'Body text and headings.', readableOn: ['--bg', '--surface'] },
+  {
+    name: '--muted',
+    kind: 'colour',
+    changesWithMode: true,
+    purpose: 'Secondary text: captions, hints, dates.',
+    readableOn: ['--bg', '--surface', '--surface-alt', '--tint'],
+  },
+  { name: '--line', kind: 'colour', changesWithMode: true, purpose: 'Hairline borders and dividers (decoration only, not for text).' },
+  { name: '--line-strong', kind: 'colour', changesWithMode: true, purpose: 'Borders that must show: inputs, outlined boxes.' },
+  // Brand
+  { name: '--primary', kind: 'colour', changesWithMode: true, purpose: 'The brand colour as a fill: solid buttons, active marks.' },
+  { name: '--on-primary', kind: 'colour', changesWithMode: true, purpose: 'Text and icons on a --primary fill.', readableOn: ['--primary'] },
+  {
+    name: '--primary-text',
+    kind: 'colour',
+    changesWithMode: true,
+    purpose: 'The brand colour as text: links, outlined buttons, focus rings.',
+    readableOn: ['--bg', '--surface', '--surface-alt', '--tint'],
+  },
+  // The dark band (footer and banner sections)
+  { name: '--band-bg', kind: 'colour', changesWithMode: true, purpose: 'A dark band, like the site footer.' },
+  { name: '--band-ink', kind: 'colour', changesWithMode: true, purpose: 'Text on --band-bg.', readableOn: ['--band-bg'] },
+  { name: '--band-link', kind: 'colour', changesWithMode: true, purpose: 'Links on --band-bg.', readableOn: ['--band-bg'] },
+  // Status pairs: always use the ink on its own background
+  { name: '--ok-bg', kind: 'status', changesWithMode: true, purpose: 'Background of a good-news badge or notice ("Available").' },
+  { name: '--ok-ink', kind: 'status', changesWithMode: true, purpose: 'Text on --ok-bg.', readableOn: ['--ok-bg'] },
+  { name: '--warn-bg', kind: 'status', changesWithMode: true, purpose: 'Background of a caution badge or notice ("Pending").' },
+  { name: '--warn-ink', kind: 'status', changesWithMode: true, purpose: 'Text on --warn-bg.', readableOn: ['--warn-bg'] },
+  { name: '--neutral-bg', kind: 'status', changesWithMode: true, purpose: 'Background of a plain badge or label ("Adopted", a count).' },
+  { name: '--neutral-ink', kind: 'status', changesWithMode: true, purpose: 'Text on --neutral-bg.', readableOn: ['--neutral-bg'] },
+  // Depth
+  { name: '--shadow-card', kind: 'shadow', changesWithMode: true, purpose: 'The resting shadow of a card (may be none).' },
+  { name: '--shadow-hover', kind: 'shadow', changesWithMode: true, purpose: 'The shadow of a card under the pointer (may be none).' },
+  // Shape
+  { name: '--radius', kind: 'shape', changesWithMode: false, purpose: 'Corner radius of cards and large boxes.' },
+  { name: '--radius-sm', kind: 'shape', changesWithMode: false, purpose: 'Corner radius of small parts: images in a grid, inputs, chips.' },
+  { name: '--radius-btn', kind: 'shape', changesWithMode: false, purpose: 'Corner radius of buttons (999px for pill buttons).' },
+  { name: '--radius-badge', kind: 'shape', changesWithMode: false, purpose: 'Corner radius of badges and tags.' },
+  // Type
+  { name: '--font-body', kind: 'type', changesWithMode: false, purpose: 'The font stack for body text.' },
+  { name: '--font-heading', kind: 'type', changesWithMode: false, purpose: 'The font stack for headings.' },
+  { name: '--heading-weight', kind: 'type', changesWithMode: false, purpose: 'The font weight of headings (a number).' },
+  { name: '--font-size-root', kind: 'type', changesWithMode: false, purpose: 'The root text size; size text in rem so it follows.' },
+  // Spacing
+  { name: '--density', kind: 'spacing', changesWithMode: false, purpose: 'A spacing multiplier (0.8, 1 or 1.25): use calc(<length> * var(--density)).' },
+]
+
+// ---------------------------------------------------------------------------------------------
 // Admin validation
 // ---------------------------------------------------------------------------------------------
 
