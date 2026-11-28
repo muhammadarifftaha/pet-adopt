@@ -135,11 +135,11 @@ apps/docs/                The documentation site (Fumadocs): guides for admins a
 
 Three packages are published to npm from this repository:
 
-| Package | Folder | What it is |
-| --- | --- | --- |
-| `@pet-adopt/plugin-sdk` | [`packages/plugin-sdk`](packages/plugin-sdk) | Everything a plugin and a site's `pet-adopt.config.ts` and `pet-adopt.blocks.ts` import |
-| `@pet-adopt/plugin-form-builder` | [`plugins/form-builder`](plugins/form-builder) | The form builder plugin and its **Form** block |
-| `@pet-adopt/plugin-instagram-feed` | [`plugins/instagram-feed`](plugins/instagram-feed) | The Instagram feed plugin and its block |
+| Package | npm | Folder | What it is |
+| --- | --- | --- | --- |
+| `@pet-adopt/plugin-sdk` | [![@pet-adopt/plugin-sdk on npm](https://img.shields.io/npm/v/@pet-adopt/plugin-sdk?label=npm)](https://www.npmjs.com/package/@pet-adopt/plugin-sdk) | [`packages/plugin-sdk`](packages/plugin-sdk) | Everything a plugin and a site's `pet-adopt.config.ts` and `pet-adopt.blocks.ts` import |
+| `@pet-adopt/plugin-form-builder` | [![@pet-adopt/plugin-form-builder on npm](https://img.shields.io/npm/v/@pet-adopt/plugin-form-builder?label=npm)](https://www.npmjs.com/package/@pet-adopt/plugin-form-builder) | [`plugins/form-builder`](plugins/form-builder) | The form builder plugin and its **Form** block |
+| `@pet-adopt/plugin-instagram-feed` | [![@pet-adopt/plugin-instagram-feed on npm](https://img.shields.io/npm/v/@pet-adopt/plugin-instagram-feed?label=npm)](https://www.npmjs.com/package/@pet-adopt/plugin-instagram-feed) | [`plugins/instagram-feed`](plugins/instagram-feed) | The Instagram feed plugin and its block |
 
 - **Not published:** the web app and `@pet-adopt/ui`. A site is a clone of this repository, so they are source you own. The example plugin ([`plugins/adoption-tips`](plugins/adoption-tips)) stays here for plugin authors to copy.
 - **Versions:** the packages share the project's version. [CHANGELOG.md](CHANGELOG.md) lists what changed, and [the release runbook](https://pet-adopt.dev/docs/developers/contributing/releasing) is the maintainer's guide to publishing them.
