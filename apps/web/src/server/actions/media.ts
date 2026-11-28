@@ -1,7 +1,7 @@
 'use server'
 
 import { changedFields, quoted, recordActivity, type Actor } from '../activity'
-import { getMedia, getMediaByIds, listMedia, loadLayoutTexts, mediaUsage, updateMediaAlt, updateMediaDetails } from '../media'
+import { getMedia, getMediaByIds, listMedia, loadLayoutTexts, mediaUsage, updateMediaDetails } from '../media'
 import { assertId, logError, run, UserError, ValidationError, type ActionResult } from '../result'
 import { requirePermission } from '../session'
 import type { MediaItem } from '../types'
@@ -56,18 +56,10 @@ export async function uploadMediaAction(formData: FormData): Promise<ActionResul
   })
 }
 
-export async function updateMediaAltAction(id: number, alt: string): Promise<ActionResult<MediaItem>> {
-  return run(async () => {
-    const user = await requirePermission('media:edit')
-    const mediaId = assertId(id)
-    const before = await getMedia(mediaId)
-    const after = await updateMediaAlt(mediaId, typeof alt === 'string' ? alt : '')
-    await recordUpdate(user, before, after)
-    return after
-  })
-}
-
-/** Refused (with a message saying where it is used) while a pet, page layout or the logo uses the image. */
+/**
+ * Refused (with a message saying where it is used) while a pet, page, email template, timeline
+ * entry, the logo or the site icon uses the image.
+ */
 export async function deleteMediaAction(id: number): Promise<ActionResult> {
   return run(async () => {
     const user = await requirePermission('media:edit')

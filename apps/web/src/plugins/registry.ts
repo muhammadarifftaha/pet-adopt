@@ -270,10 +270,10 @@ export function getEmailPlugin(): { plugin: string; sender: EmailSender } | null
 
 /**
  * Where each email template is used, from every plugin that reports it (`emailTemplateUsage`), keyed
- * by template id. A plugin that fails (not migrated yet, say) is skipped.
+ * by template id, or by seed key (`<plugin>:<key>`) for uses of a plugin's default: look up both. A
+ * plugin that fails (not migrated yet, say) is skipped.
  */
 export async function getEmailTemplateUsage(): Promise<Map<number | string, Array<{ label: string; href?: string }>>> {
-  // Keyed by template id, or by seed key (`<plugin>:<key>`) for uses of a plugin's default.
   const byTemplate = new Map<number | string, Array<{ label: string; href?: string }>>()
   for (const { plugin, usage } of registry().templateUsage) {
     try {

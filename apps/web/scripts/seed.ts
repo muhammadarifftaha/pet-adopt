@@ -12,7 +12,7 @@
  *   WhatsApp number cannot end up on a live site by accident.
  * - On PostgreSQL run `pnpm migrate` first. SQLite migrates itself.
  */
-import { closeDatabase } from '../src/db/client'
+import { closeDatabase, isRemoteSqlite, resolveDatabaseUrl } from '../src/db/client'
 import { getSettings, updateSettings } from '../src/server/settings'
 import { ensureSystemPages } from '../src/server/pages'
 import { describeError } from '../src/server/result'
@@ -46,8 +46,16 @@ async function seedSettings() {
 }
 
 /** True for a database server that is not on this machine (a local file and localhost are fine). */
-function isRemoteDatabase(url: string | undefined): boolean {
-  if (!url || url.startsWith('file:')) return false
+function isRemoteDatabase(): boolean {
+  let url: string
+  try {
+    const resolved = resolveDatabaseUrl()
+    // A local SQLite file, however it is written (`file:`, `sqlite:` or a plain path).
+    if (resolved.dialect === 'sqlite' && !isRemoteSqlite(resolved.url)) return false
+    url = resolved.url
+  } catch {
+    return true
+  }
   try {
     const host = new URL(url).hostname.replace(/^\[|\]$/g, '')
     return !(host === 'localhost' || host.endsWith('.localhost') || host === '::1' || /^127\./.test(host))
@@ -59,7 +67,7 @@ function isRemoteDatabase(url: string | undefined): boolean {
 async function main() {
   // NODE_ENV is often unset in a shell on the server, so a database on another machine counts as
   // production too.
-  if ((process.env.NODE_ENV === 'production' || isRemoteDatabase(process.env.DATABASE_URL)) && !process.env.SEED_FORCE) {
+  if ((process.env.NODE_ENV === 'production' || isRemoteDatabase()) && !process.env.SEED_FORCE) {
     console.error('Refusing to add sample content: this looks like a production site (NODE_ENV=production, or a database on another machine). Set SEED_FORCE=1 if you really mean it.')
     process.exit(1)
   }

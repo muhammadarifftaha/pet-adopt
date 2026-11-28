@@ -190,6 +190,13 @@
       "when": 1795844727583,
       "tag": "0026_spooky_komodo",
       "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1795869039378,
+      "tag": "0027_big_thunderbolts",
+      "breakpoints": true
     }
   ]
 }

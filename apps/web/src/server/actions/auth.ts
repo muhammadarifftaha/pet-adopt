@@ -95,16 +95,6 @@ export async function signOutAction(): Promise<ActionResult> {
   })
 }
 
-/** The signed-in person, or null. Handy for a client-side header. */
-export async function getCurrentUserAction(): Promise<SessionUser | null> {
-  try {
-    return await getSessionUser()
-  } catch (error) {
-    logError(error, 'could not read the session')
-    return null
-  }
-}
-
 /** Changes your own name. */
 export async function updateProfileAction(input: { name: string }): Promise<ActionResult> {
   return run(async () => {
