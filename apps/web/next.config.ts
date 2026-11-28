@@ -30,7 +30,7 @@ const siteURL = (process.env.NEXT_PUBLIC_SERVER_URL ?? '').trim()
 //    Everything else is locked down: no other script origins, no eval in production, no plugins,
 //    no framing by other sites, forms and <base> only to this site.
 //  - Images come from this site (uploads are served through /media), plus data:/blob: for
-//    previews in the admin.
+//    previews in the admin, plus the hosts in CSP_IMG_SRC, if any (see extraImageHosts below).
 //  - The only thing that may be embedded is a Google Maps embed (see safeMapEmbed in lib/links.ts).
 //  - Development also needs eval (React refresh) and websockets (hot reload).
 //  - Captcha services (the form builder's spam protection, src/captcha-widget.tsx in the plugin):
@@ -40,13 +40,27 @@ const siteURL = (process.env.NEXT_PUBLIC_SERVER_URL ?? '').trim()
 // Set CSP_REPORT_ONLY=1 to report violations in the browser console without blocking anything.
 const CAPTCHA_SCRIPTS = 'https://challenges.cloudflare.com https://www.google.com/recaptcha/ https://www.gstatic.com/recaptcha/ https://hcaptcha.com https://*.hcaptcha.com'
 const CAPTCHA_FRAMES = 'https://challenges.cloudflare.com https://www.google.com/recaptcha/ https://recaptcha.google.com/recaptcha/ https://hcaptcha.com https://*.hcaptcha.com'
+// Other sites that pictures may be loaded from, for a plugin whose pictures are not uploads (the
+// Instagram feed plugin's README says which hosts it needs). None by default: a site only talks to
+// another company's servers when whoever runs it says so. CSP_IMG_SRC is a list of https hosts
+// separated by spaces, each optionally starting with "*." for its subdomains. Anything else stops
+// the start, so a typing mistake cannot quietly widen the policy.
+function extraImageHosts(): string {
+  const hosts = (process.env.CSP_IMG_SRC ?? '').split(/\s+/).filter(Boolean)
+  for (const host of hosts) {
+    if (!/^https:\/\/(\*\.)?[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/.test(host)) {
+      throw new Error(`CSP_IMG_SRC: "${host}" is not allowed. Use https hosts separated by spaces, such as https://*.example.com (lower case, no path, no port).`)
+    }
+  }
+  return hosts.length ? ` ${hosts.join(' ')}` : ''
+}
 const CAPTCHA_CONNECT = 'https://www.google.com/recaptcha/ https://hcaptcha.com https://*.hcaptcha.com'
 
 const contentSecurityPolicy = [
   "default-src 'self'",
   `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ''} ${CAPTCHA_SCRIPTS}`,
   "style-src 'self' 'unsafe-inline' https://hcaptcha.com https://*.hcaptcha.com",
-  "img-src 'self' data: blob:",
+  `img-src 'self' data: blob:${extraImageHosts()}`,
   "font-src 'self' data:",
   `connect-src 'self'${isDev ? ' ws: wss:' : ''} ${CAPTCHA_CONNECT}`,
   // 'self': the admin pages table previews pages in an iframe (/edit/<id>/preview).

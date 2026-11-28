@@ -37,6 +37,7 @@
     "@libsql/client": "0.18.0",
     "@pet-adopt/plugin-adoption-tips": "workspace:*",
     "@pet-adopt/plugin-form-builder": "workspace:*",
+    "@pet-adopt/plugin-instagram-feed": "workspace:*",
     "@pet-adopt/plugin-sdk": "workspace:*",
     "@pet-adopt/ui": "workspace:*",
     "@puckeditor/core": "^0.24.0",

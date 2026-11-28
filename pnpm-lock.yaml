@@ -212,6 +212,9 @@ importers:
       '@pet-adopt/plugin-form-builder':
         specifier: workspace:*
         version: link:../../plugins/form-builder
+      '@pet-adopt/plugin-instagram-feed':
+        specifier: workspace:*
+        version: link:../../plugins/instagram-feed
       '@pet-adopt/plugin-sdk':
         specifier: workspace:*
         version: link:../../packages/plugin-sdk
