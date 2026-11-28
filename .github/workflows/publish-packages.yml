@@ -22,9 +22,14 @@ name: Publish packages
 #      Publish the tarball pnpm wrote, never the folder: only pnpm turns `workspace:` ranges into
 #      versions and swaps in the compiled exports from publishConfig.
 #   2. Then, on npmjs.com, each package's Settings > Trusted publishing names this repository's
-#      GitHub owner and name, and this workflow file, publish-packages.yml (no environment).
-#      Renaming this file breaks publishing until all three packages are updated. Once it works,
-#      the package's publishing access can be set to require two-factor and disallow tokens.
+#      GitHub owner and name, this workflow file, publish-packages.yml, and the environment
+#      `release`. Renaming this file or the environment breaks publishing until all three packages
+#      are updated. Once it works, the package's publishing access can be set to require two-factor
+#      and disallow tokens.
+#
+# The publish job runs in the GitHub environment `release` (Settings > Environments), which needs
+# a maintainer's approval and accepts only `main`. A real publish waits for that approval after
+# the pack job has passed; a dry run never reaches it.
 #
 # Order for a release: the SDK first, then the plugins (they take the SDK as a peer dependency).
 on:
@@ -261,6 +266,9 @@ jobs:
     name: Publish to npm
     needs: pack
     if: ${{ github.ref == 'refs/heads/main' && !inputs.dry_run }}
+    # Waits for a maintainer's approval. npm's trusted publisher names this environment too, so a
+    # token from a run outside it is refused.
+    environment: release
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:

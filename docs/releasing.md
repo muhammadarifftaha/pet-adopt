@@ -50,9 +50,17 @@ Do this once, before the first release.
    | Organisation or user | `muhammadarifftaha` |
    | Repository | `pet-adopt` |
    | Workflow filename | `publish-packages.yml` |
+   | Environment | `release` |
 
-   Leave the environment empty; the workflow names none. Renaming the workflow file breaks publishing until all three packages are updated.
-5. **After that, publish only through the workflow.** It uses npm's trusted publishing, so no npm token is stored in the repository. Once the workflow has published successfully, set each package to require two-factor and refuse tokens, in the same settings page.
+   Renaming the workflow file or the environment breaks publishing until all three packages are updated.
+5. **The `release` environment on GitHub.** In the repository's **Settings**, open **Environments** and check that `release` exists with:
+
+   - **Required reviewers:** the maintainers who may approve a publish.
+   - **Prevent self-review** off while there is a single maintainer; otherwise nobody can approve your own run.
+   - **Deployment branches and tags:** selected branches, `main` only.
+
+   A real publish then stops after **Pack and check** and waits for an approval. Read the packed file list and the tarball digest in that job before you approve. A dry run never asks.
+6. **After that, publish only through the workflow.** It uses npm's trusted publishing, so no npm token is stored in the repository. Once the workflow has published successfully, set each package to require two-factor and refuse tokens, in the same settings page.
 
 ## Before each release
 
@@ -122,7 +130,7 @@ Publish in this order. Each step depends on the one before it.
 
 5. **The GitHub release.** Create it from the tag, and paste that version's section of `CHANGELOG.md` as its notes.
 
-For each package, run the publish workflow from `main` with **Dry run** switched off. It refuses a version that is already on npm. After each one, check the package's page on npmjs.com before starting the next.
+For each package, run the publish workflow from `main` with **Dry run** switched off. It refuses a version that is already on npm. When **Pack and check** has passed, the run waits on the `release` environment: check its file list and digest, then approve it under **Review deployments**. After each one, check the package's page on npmjs.com before starting the next.
 
 **If a step fails part-way,** stop. The packages already published stay published. Fix the problem, and publish the remaining packages at the same version if they were never published. If a published package is itself wrong, bump every package to the next patch version and start the order again.
 
