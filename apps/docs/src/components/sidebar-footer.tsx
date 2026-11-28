@@ -12,6 +12,8 @@ export function SidebarFooter() {
     <div className="flex items-center rounded-lg border bg-fd-secondary/50 p-0.5 pe-0 text-fd-muted-foreground">
       <a
         href={repoUrl}
+        target="_blank"
+        rel="noopener noreferrer"
         className="inline-flex min-w-0 flex-1 items-center gap-1.5 rounded-md px-1.5 py-1.5 text-xs transition-colors hover:bg-fd-accent hover:text-fd-accent-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fd-ring"
       >
         <svg aria-hidden viewBox="0 0 24 24" className="size-3.5 shrink-0 fill-current">
@@ -19,6 +21,7 @@ export function SidebarFooter() {
         </svg>
         <span className="sr-only">GitHub: </span>
         <span className="truncate">{gitConfig.repo}</span>
+        <span className="sr-only"> (opens in a new tab)</span>
       </a>
       <ThemeSwitch className="ms-auto shrink-0 rounded-none border-y-0 border-e-0 px-1 py-0 *:rounded-md" />
     </div>
