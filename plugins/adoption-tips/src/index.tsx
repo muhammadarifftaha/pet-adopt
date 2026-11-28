@@ -6,8 +6,9 @@ import { definePlugin } from '@pet-adopt/plugin-sdk'
 // remove it there to switch it off. A Tips entry appears in the admin menu, its page lives at
 // /admin/plugins/adoption-tips, and a card shows on the dashboard.
 //
-// Screens and widgets are server components by default: they can be async, call the data layer in
-// `src/server`, and render shadcn components. For interactivity, render a `'use client'` component.
+// Screens and widgets are server components by default: they can be async, use `host()` and their
+// own storage from @pet-adopt/plugin-sdk (never the app's code), and render @pet-adopt/ui
+// components. For interactivity, render a `'use client'` component.
 export const adoptionTips = definePlugin<{ heading?: string } | void>((options) => {
   const heading = options?.heading ?? 'Adoption tips'
 

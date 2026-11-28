@@ -124,7 +124,8 @@ export function CaptchaWidget({ captcha, ref }: { captcha: PublicCaptcha; ref?: 
     ref,
     () => ({
       async getToken() {
-        const loaded = api.current
+        // Still loading: wait for the script (the same promise the effect waits on), for a while.
+        const loaded = api.current ?? (failed ? null : await Promise.race([loadApi(captcha.provider, captcha.siteKey).catch(() => null), new Promise<null>((resolve) => setTimeout(resolve, 10_000, null))]))
         if (!loaded) return null
         if (captcha.provider === 'recaptcha-v3') {
           return new Promise<string | null>((resolve) => {
@@ -140,7 +141,7 @@ export function CaptchaWidget({ captcha, ref }: { captcha: PublicCaptcha; ref?: 
         if (api.current && widgetId.current !== null) api.current.reset(widgetId.current)
       },
     }),
-    [captcha.provider, captcha.siteKey],
+    [captcha.provider, captcha.siteKey, failed],
   )
 
   if (failed) {

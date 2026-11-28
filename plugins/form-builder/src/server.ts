@@ -375,10 +375,16 @@ export async function submitResponse(
   // The form's shared limit counts only sends that got past the trap and the captcha.
   await host().consumeAttempt(`form-builder:form:${form.id}`, SUBMIT_FORM_RULE)
 
-  const { db, t } = await openFormsDatabase()
-  const [{ n }] = await db.select({ n: sql<number>`count(*)` }).from(t.responses).where(eq(t.responses.formId, form.id))
-  if (Number(n) >= MAX_RESPONSES_PER_FORM) throw new UserError('This form is not accepting responses right now.')
-  await db.insert(t.responses).values({ formId: form.id, answers: result.answers, createdAt: new Date() })
+  const { t, withTransaction } = await openFormsDatabase()
+  // Counted and inserted under one lock, so parallel sends cannot pass the cap together.
+  await withTransaction(
+    async (tx) => {
+      const [{ n }] = await tx.select({ n: sql<number>`count(*)` }).from(t.responses).where(eq(t.responses.formId, form.id))
+      if (Number(n) >= MAX_RESPONSES_PER_FORM) throw new UserError('This form is not accepting responses right now.')
+      await tx.insert(t.responses).values({ formId: form.id, answers: result.answers, createdAt: new Date() })
+    },
+    { lock: `form-builder:responses:${form.id}` },
+  )
   return { message, stored: { form, answers: result.answers } }
 }
 

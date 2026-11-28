@@ -119,7 +119,6 @@ export type PluginScreen = {
   /** Page title, and the menu label unless `nav.label` is set. */
   title: string
   component: (props: PluginScreenProps) => React.ReactNode | Promise<React.ReactNode>
-  /** Menu label. Defaults to `title`. */
   /**
    * How the screen looks in the menu: `nav: { label: 'Reports', Icon: FiBarChart2 }`. `label`
    * defaults to `title`; `Icon` is a react-icons icon or an `SvgIcon` (a package icon if left out).
@@ -198,10 +197,13 @@ export type PluginMigration = {
 }
 
 /**
- * Tables a plugin owns. Every table (and index) name starts with `pluginTablePrefix(name)`, so two
- * plugins, or a plugin and the site, can never claim the same table. Plugin tables do not reference
- * the site's own tables. `pnpm migrate` applies the migrations (SQLite also applies them on start);
- * until it has, the plugin's screens show a notice instead and its widgets are left out.
+ * Tables a plugin owns. Every table (and index) name starts with `pluginTablePrefix(name)`, so a
+ * plugin never claims one of the site's tables. Prefixes only keep plugins apart when neither name
+ * starts with the other's name and a dash: `shop` and `shop-payments` overlap (`plugin_shop_` and
+ * `plugin_shop_payments_`), so avoid such pairs. Plugin tables do not reference the site's own
+ * tables. `pnpm migrate` (also run by `pnpm build`) applies the migrations; a local SQLite file also
+ * applies them when the site opens it. Until then the plugin's screens show a notice instead and its
+ * widgets are left out.
  */
 export type PluginStorage = {
   /** The Drizzle tables, as twins (same tables and columns) for each database. */
@@ -292,8 +294,8 @@ export type Plugin = {
   /** Its own tables and the migrations that create them. */
   storage?: PluginStorage
   /**
-   * Which of the site's email templates it uses, for the "Used by" column of Email > Sending
-   * templates and the warning before one is deleted. Server-only; a failure leaves the column empty.
+   * Which of the site's email templates it uses, for the "Used by" column of Email > Templates and
+   * the warning before one is deleted. Server-only; a failure leaves the column empty.
    */
   emailTemplateUsage?: () => Promise<EmailTemplateUse[]>
   /**
@@ -320,9 +322,10 @@ export type Plugin = {
 export type EmailTemplateUse = { templateId?: number; seedKey?: string; label: string; href?: string }
 
 /**
- * A default template a plugin ships. `key`: lowercase letters, digits and dashes, unique in the
- * plugin. `data`: a layout in the site's template format (Puck data of the email builder's blocks);
- * left out, or not valid, the site's built-in email of that purpose is used.
+ * A default template a plugin ships. `key`: lowercase letters, digits and dashes, at most 40
+ * characters, unique in the plugin. `name`: required, at most 80 characters. `data`: a layout in
+ * the site's template format (Puck data of the email builder's blocks); left out, or not valid, the
+ * site's built-in email of that purpose is used.
  */
 export type PluginEmailTemplate = { key: string; name: string; purpose: PluginEmailPurpose; data?: unknown }
 
@@ -577,7 +580,8 @@ export type PluginHost = {
    * the window to start from it). Once over the limit, the key stays refused until `rule.windowMs`
    * after the attempt that reached it, however often it is tried meanwhile. So `{ max: 3, windowMs:
    * one hour }` refuses a 4th attempt made within an hour of the 3rd. Keys are stored as
-   * `plugin:<key>`; start yours with the plugin name.
+   * `plugin:<key>`; start yours with the plugin name. Keep `windowMs` to two hours or less: counters
+   * untouched for two hours may be deleted, so a longer window can end early.
    */
   consumeAttempt(key: string, rule: RateRule): Promise<void>
   phone: {
@@ -591,16 +595,16 @@ export type PluginHost = {
    * are not adopted, by name (pending ones say so); `value` is the pet's id.
    */
   choices(source: ChoiceSource): Promise<Choice[]>
-  /** The site's email sender (a ready email plugin, else the built-in SMTP sender), or null while neither is set up. */
+  /** The site's email sender (a ready email plugin, else the built-in SMTP sender), or null when the site cannot send email. */
   emailSender(): Promise<EmailSender | null>
   /** Logs an error without the values a failed database query carries. Never log error objects yourself. */
   logError(error: unknown, context?: string): void
   /**
    * Sends an email through the site's templates (Email > Templates): a team notification
    * or a message to a visitor. Uses the template `templateId` when it exists and has that purpose,
-   * else the built-in one. `details` are only used for team notifications (a message to a visitor
-   * never repeats what someone typed). Resolves false when the site cannot send email; rejects when
-   * sending fails.
+   * else your default named by `fallback`, else the built-in template. `details` are only used for
+   * team notifications (a message to a visitor never repeats what someone typed). Resolves false
+   * when the site cannot send email; rejects when sending fails.
    */
   sendTemplatedEmail(message: PluginEmail): Promise<boolean>
   /**
@@ -648,10 +652,16 @@ export type PluginEmailPurpose = 'team-notification' | 'visitor-message'
 export type PluginEmail = {
   purpose: PluginEmailPurpose
   templateId?: number | null
-  /** Your default template (`<plugin name>:<key>` from `emailTemplates`), used when `templateId` is missing or deleted. */
+  /**
+   * Your default template (`<plugin name>:<key>` from `emailTemplates`), used when `templateId` is
+   * missing or deleted. Ignored unless it has that shape.
+   */
   fallback?: string
   to: string
-  /** Placeholders: `{ title }` (what it is about, such as a form's name). The site's name and address are added. */
+  /**
+   * Placeholders: `{ title }` (what it is about, such as a form's name). Text only: other values are
+   * dropped and each is cut to 500 characters. The site's name and address are added.
+   */
   values?: Record<string, string>
   /** Label and value pairs for the Details block (team notifications only), such as a form's answers. */
   details?: Array<{ label: string; value: string }>
@@ -681,14 +691,17 @@ export function csvCell(value: string): string {
 const HOST = Symbol.for('pet-adopt.plugin-host')
 const hostSlot = globalThis as unknown as Record<symbol, PluginHost | undefined>
 
-/** The app's services for plugins. Throws outside the app (a plugin's own tests should stub it). */
+/** The app's services for plugins. Throws outside the app (a plugin's own tests can install a stub with `provideHost`). */
 export function host(): PluginHost {
   const current = hostSlot[HOST]
   if (!current) throw new Error('Plugin host services are only available inside the Pet Adopt app.')
   return current
 }
 
-/** For the app only. Plugins never call this. */
+/**
+ * Installs the host services. The app calls it at start; a plugin's own tests may call it with a
+ * stub. Never call it from plugin code that runs in the app.
+ */
 export function provideHost(services: PluginHost): void {
   hostSlot[HOST] = services
 }

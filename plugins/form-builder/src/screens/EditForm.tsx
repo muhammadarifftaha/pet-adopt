@@ -28,6 +28,7 @@ export async function EditForm({ id, user }: { id: string; user: PluginUser }) {
     <FormEditor
       readOnly={!can(user.role, accessPermission('all', 'edit'))}
       canSeeResponses={can(user.role, accessPermission('personalData', 'view'))}
+      canRouteResponses={can(user.role, accessPermission('personalData', 'edit'))}
       templates={{ notification, confirmation }}
       // For the Spam trap card: whether the captcha is on, and its screen for those who may open it.
       captcha={{ active: captcha.active, href: can(user.role, accessPermission('admin', 'view')) ? spamProtectionHref : null }}

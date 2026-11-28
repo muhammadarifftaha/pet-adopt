@@ -8,7 +8,7 @@ import type { PluginEmailTemplate } from '@pet-adopt/plugin-sdk'
 
 export const NOTIFICATION_KEY = 'notification'
 export const CONFIRMATION_KEY = 'confirmation'
-/** The full keys (`<plugin>:<key>`); the plugin's name is fixed (FORM_BUILDER in ./storage). */
+/** The full keys (`<plugin>:<key>`); the plugin's name is fixed (FORM_BUILDER in ./names). */
 export const NOTIFICATION_SEED = `form-builder:${NOTIFICATION_KEY}`
 export const CONFIRMATION_SEED = `form-builder:${CONFIRMATION_KEY}`
 

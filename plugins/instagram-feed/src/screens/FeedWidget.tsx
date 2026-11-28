@@ -1,15 +1,15 @@
 import { accessPermission, can, host, type PluginUser } from '@pet-adopt/plugin-sdk'
 import Link from 'next/link'
 
-import { loadInstagramFeed } from '../server'
-import { DEFAULT_POSTS, type InstagramFeedData } from '../types'
+import { getConnection, loadInstagramFeed } from '../server'
+import { DEFAULT_POSTS, type ConnectionView, type InstagramFeedData } from '../types'
 import { FeedSummary } from './FeedSummary'
 import { BASE } from './paths'
 
 // The dashboard card: the same feed the block shows (the block's own loader, with the block's
-// default number of posts and pinned posts included). It never throws: a feed that cannot be read
-// is drawn as "not connected yet". The dashboard leaves the card out while the plugin's tables are
-// not set up.
+// default number of posts and pinned posts included). It never throws. Without a feed it reads the
+// connection to say why: not connected, or connected but the feed not read yet (or its last update
+// failed). The dashboard leaves the card out while the plugin's tables are not set up.
 export async function FeedWidget({ user }: { user: PluginUser }) {
   let feed: InstagramFeedData | null = null
   let timeZone: string | null = null
@@ -21,6 +21,23 @@ export async function FeedWidget({ user }: { user: PluginUser }) {
   }
 
   if (!feed) {
+    let connection: ConnectionView | null = null
+    try {
+      connection = await getConnection(user)
+    } catch {
+      // Treated as not connected below.
+    }
+    if (connection?.connected) {
+      return (
+        <div className="flex flex-col gap-1 text-sm text-muted-foreground">
+          <p>{connection.lastError ? 'Connected, but the last update of the feed failed:' : 'Connected. The feed has not been read yet: try again in a moment.'}</p>
+          {connection.lastError ? <p>{connection.lastError}</p> : null}
+          <Link href={BASE} className="self-start underline underline-offset-4">
+            Open the Instagram screen
+          </Link>
+        </div>
+      )
+    }
     return can(user.role, accessPermission('admin', 'edit')) ? (
       <p className="text-sm text-muted-foreground">
         Not connected yet.{' '}
