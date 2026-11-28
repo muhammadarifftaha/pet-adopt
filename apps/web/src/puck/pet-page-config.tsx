@@ -13,10 +13,12 @@ import type { Config, Fields } from '@puckeditor/core'
 
 import { PetCard } from '@/components/site/PetCard'
 import { PetGallery } from '@/components/site/PetGallery'
+import { PetTimeline } from '@/components/site/PetTimeline'
 import { RichText } from '@/components/site/RichText'
 import { WhatsAppButton } from '@/components/site/WhatsAppButton'
 import type { PetCardData, PetPageData } from '@/lib/queries'
 import { fillPetPlaceholders } from '@/lib/pet-placeholders'
+import { compareTimelineNewestFirst, TIMELINE_ALIGNMENTS, type TimelineAlignment, type TimelineEntry } from '@/lib/pet-timeline'
 import { fillMessage } from '@/lib/whatsapp'
 
 import { config as siteConfig, headingClass, headingStyleField, Section, type HeadingStyle, type Level, type PuckComponents } from './config'
@@ -60,6 +62,16 @@ type PetPersonalityProps = Level & ListsLayout & {
   showGoodWith?: boolean
   showNotes?: boolean
 }
+type PetTimelineProps = Level & {
+  heading?: string
+  /** Where the line is: left, right, or the centre with entries taking turns. Missing means left. */
+  align?: TimelineAlignment
+  order?: 'newest' | 'oldest'
+  /** Entries shown before "Show all updates"; 0 means all of them. */
+  limit?: number
+  showPhotos?: boolean
+  showTime?: boolean
+}
 type PetDescriptionProps = { showButton?: boolean; buttonLabel?: string }
 type MorePetsProps = Level & {
   heading?: string
@@ -74,6 +86,7 @@ type PetPageComponents = Pick<PuckComponents, 'TextSection' | 'AdoptionSteps' | 
   PetHealth: PetHealthProps
   PetPersonality: PetPersonalityProps
   PetDescription: PetDescriptionProps
+  PetTimeline: PetTimelineProps
   MorePets: MorePetsProps
 }
 
@@ -173,7 +186,7 @@ const shared = siteConfig.components
 const petBlocks: Config<PetPageComponents> = {
   root: { fields: {} },
   categories: {
-    pet: { title: 'This pet', components: ['PetGallery', 'PetSummary', 'PetHealth', 'PetPersonality', 'PetDescription', 'MorePets'] },
+    pet: { title: 'This pet', components: ['PetGallery', 'PetSummary', 'PetHealth', 'PetPersonality', 'PetDescription', 'PetTimeline', 'MorePets'] },
     sections: { title: 'Sections', components: ['TextSection', 'AdoptionSteps', 'Faq', 'CostTable', 'CallToAction', 'FormBlock'] },
     helpers: { title: 'Layout helpers', components: ['Spacer', 'Divider'] },
   },
@@ -356,6 +369,77 @@ const petBlocks: Config<PetPageComponents> = {
                 <WhatsAppButton phone={site?.whatsappNumber} message={fillMessage(site?.whatsappMessage, pet.name)} label={fillPetPlaceholders(buttonLabel?.trim() || 'Ask about {pet} on WhatsApp', pet) || `Ask about ${pet.name} on WhatsApp`} />
               </div>
             ) : null}
+          </Section>
+        )
+      },
+    },
+
+    PetTimeline: {
+      label: 'Pet timeline',
+      fields: {
+        heading: { type: 'text', label: 'Heading (optional)' },
+        align: {
+          type: 'radio',
+          label: 'Alignment',
+          options: [
+            { label: 'Line on the left', value: 'left' },
+            { label: 'Line on the right', value: 'right' },
+            { label: 'Alternate (line in the centre)', value: 'alternate' },
+          ],
+        },
+        order: {
+          type: 'radio',
+          label: 'Order',
+          options: [
+            { label: 'Newest first', value: 'newest' },
+            { label: 'Oldest first', value: 'oldest' },
+          ],
+        },
+        limit: {
+          type: 'select',
+          label: 'How many to show (the rest behind “Show all updates”)',
+          options: [
+            { label: '3', value: 3 },
+            { label: '5', value: 5 },
+            { label: '10', value: 10 },
+            { label: 'All', value: 0 },
+          ],
+        },
+        showPhotos: toggle('Photos'),
+        showTime: toggle('Time of day (when an update has one)'),
+      } as Fields<PetTimelineProps>,
+      defaultProps: { heading: 'Timeline', align: 'left', order: 'newest', limit: 5, showPhotos: true, showTime: true },
+      // The pet's dated updates (posted on the pet's edit page). Left out on the site when there are none.
+      render: ({ headingLevel, heading, align, order, limit, showPhotos, showTime, puck }) => {
+        const pet = petOf(puck)
+        if (!pet) return puck.isEditing ? <NoPet what="The pet’s timeline of updates" /> : <></>
+        const entries: TimelineEntry[] = [...(pet.timeline ?? [])].sort(compareTimelineNewestFirst)
+        if (!entries.length) {
+          return puck.isEditing ? (
+            <Section>
+              <p className="muted">The pet’s timeline appears here. {pet.name} has no updates yet: add them on the pet’s page in the admin (Pets › {pet.name} › Timeline).</p>
+            </Section>
+          ) : (
+            <></>
+          )
+        }
+        if (order === 'oldest') entries.reverse()
+        // Saved options are untrusted: only the offered values count, anything else is the default.
+        const alignment: TimelineAlignment = (TIMELINE_ALIGNMENTS as readonly unknown[]).includes(align) ? (align as TimelineAlignment) : 'left'
+        const count = limit === 3 || limit === 5 || limit === 10 || limit === 0 ? limit : 5
+        const title = heading?.trim()
+        const Title = headingLevel === 1 ? 'h1' : 'h2'
+        return (
+          <Section>
+            {title ? <Title className="block-heading">{title}</Title> : null}
+            <PetTimeline
+              entries={entries}
+              align={alignment}
+              limit={count}
+              showPhotos={showPhotos !== false}
+              showTime={showTime !== false}
+              itemTag={title ? (headingLevel === 1 ? 'h2' : 'h3') : 'h2'}
+            />
           </Section>
         )
       },
