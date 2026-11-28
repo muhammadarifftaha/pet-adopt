@@ -1,6 +1,7 @@
 // One-time links waiting in the `verifications` table, and cancelling them for one account.
 // Whenever an account's credentials are recovered (a password reset or change, an admin's new
-// password, a two-factor reset) or its address is changed by an admin, links made before that
+// password, a two-factor reset) or its address changes (by an admin, or a confirmed change of your
+// own, which cancels reset links sent to the old address), links made before that
 // moment must stop working: whoever asked for them may be the person being locked out.
 //
 // Kept apart from the modules that make the links (password-reset.ts, invites.ts, email-change.ts)

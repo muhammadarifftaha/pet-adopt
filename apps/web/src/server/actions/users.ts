@@ -74,30 +74,39 @@ export async function resendInviteAction(id: string): Promise<ActionResult<Invit
  * `{ name, role, email }`. Refuses to demote the last admin. A new email takes effect at once (agreed
  * with the owner): both addresses get a notice, a pending change the person asked for is cancelled,
  * and a pending invite goes to the new address.
+ *
+ * After an email change, `noticesSent` says how many of the two notices went out, and `invite` is
+ * the new invite of an account still waiting for one: when it was not emailed, its link is the only
+ * one that works (the old one was cancelled), so the screen shows it to copy, as after Add user.
  */
-export async function updateUserAction(id: string, input: unknown): Promise<ActionResult> {
+export async function updateUserAction(id: string, input: unknown): Promise<ActionResult<UpdateUserOutcome>> {
   return run(async () => {
     const actor = await requirePermission('users:edit')
     const target = userId(id)
     const before = await findUser(target)
     const { email } = await updateUser(target, input, { canChangeRole: true })
     const after = await findUser(target)
+    const outcome: UpdateUserOutcome = { invite: null, noticesSent: null }
     const fields = [before?.name !== after?.name && 'name', before?.role !== after?.role && 'role', email && 'email'].filter((field): field is string => Boolean(field))
-    if (!fields.length) return
+    if (!fields.length) return outcome
     // Roles are not personal data, and who was given which role is what an audit looks for. Email
     // addresses are personal data: the entry names the field only.
     const role = before && after && before.role !== after.role ? ` (role: ${ROLE_INFO[before.role].label} to ${ROLE_INFO[after.role].label})` : ''
     await record(actor, 'user.update', after, target, `Updated the account ${quoted(after?.name)}${role}`, fields)
     if (email && after) {
       await cancelEmailChange(target)
-      await sendEmailChangeNotice(after, email, actor.name, [email.from, email.to])
+      outcome.noticesSent = await sendEmailChangeNotice(after, email, actor.name, [email.from, email.to])
       if (after.invited) {
-        const invite = await sendInvite(target, actor.name)
-        await record(actor, 'user.invite', after, target, inviteSummary(after.name, invite))
+        outcome.invite = await sendInvite(target, actor.name)
+        await record(actor, 'user.invite', after, target, inviteSummary(after.name, outcome.invite))
       }
     }
+    return outcome
   })
 }
+
+/** What Edit tells the screen: see updateUserAction. `noticesSent` is null when the email stayed. */
+export type UpdateUserOutcome = { invite: InviteResult | null; noticesSent: number | null }
 
 /** `{ password }`. Signs that person out everywhere. */
 export async function resetUserPasswordAction(id: string, input: unknown): Promise<ActionResult> {

@@ -18,7 +18,7 @@ import { Input } from "@pet-adopt/ui/components/input";
 import { RadioGroup, RadioGroupItem } from "@pet-adopt/ui/components/radio-group";
 import { asRole, ROLE_INFO } from "@pet-adopt/plugin-sdk";
 import { createResetLinkAction } from "@/server/actions/password-reset";
-import { createUserAction, resetUserPasswordAction, updateUserAction } from "@/server/actions/users";
+import { createUserAction, resetUserPasswordAction, updateUserAction, type UpdateUserOutcome } from "@/server/actions/users";
 import type { InviteResult } from "@/server/invites";
 import type { UserListItem } from "@/server/users";
 
@@ -234,6 +234,43 @@ function RoleField({
   );
 }
 
+/**
+ * Replaces a form whose invite could not be emailed: the link to copy. The submit button that had the
+ * focus is gone, so the panel's title takes it (and InviteOutcome's alert says what happened).
+ */
+function UnsentInvitePanel({
+  title,
+  description,
+  unsent,
+  onDone,
+}: {
+  title: string;
+  description: string;
+  unsent: { invite: InviteResult; name: string; email: string };
+  onDone: () => void;
+}) {
+  const titleRef = React.useRef<HTMLHeadingElement>(null);
+  React.useEffect(() => {
+    titleRef.current?.focus();
+  }, []);
+  return (
+    <div className="flex flex-col gap-4">
+      <DialogHeader>
+        <DialogTitle ref={titleRef} tabIndex={-1} className="outline-none">
+          {title}
+        </DialogTitle>
+        <DialogDescription>{description}</DialogDescription>
+      </DialogHeader>
+      <InviteOutcome invite={unsent.invite} user={unsent} />
+      <DialogFooter>
+        <Button type="button" onClick={onDone}>
+          Done
+        </Button>
+      </DialogFooter>
+    </div>
+  );
+}
+
 /** A submit button that stays focusable while busy (aria-disabled, not disabled). */
 function SubmitButton({ pending, children, busyText }: { pending: boolean; children: React.ReactNode; busyText: string }) {
   return (
@@ -293,18 +330,12 @@ function AddUserForm({ minPasswordLength, onDone }: { minPasswordLength: number;
 
   if (unsent) {
     return (
-      <div className="flex flex-col gap-4">
-        <DialogHeader>
-          <DialogTitle>{unsent.name} was added</DialogTitle>
-          <DialogDescription>Their account is ready; it has no password until they open the invite link.</DialogDescription>
-        </DialogHeader>
-        <InviteOutcome invite={unsent.invite} user={unsent} />
-        <DialogFooter>
-          <Button type="button" onClick={() => onDone(`${unsent.name} was added. Send them the invite link.`)}>
-            Done
-          </Button>
-        </DialogFooter>
-      </div>
+      <UnsentInvitePanel
+        title={`${unsent.name} was added`}
+        description="Their account is ready; it has no password until they open the invite link."
+        unsent={unsent}
+        onDone={() => onDone(`${unsent.name} was added. Send them the invite link.`)}
+      />
     );
   }
 
@@ -403,6 +434,8 @@ function EditUserForm({ user, isMe, onDone }: { user: UserListItem; isMe: boolea
   const [name, setName] = React.useState(user.name);
   const [role, setRole] = React.useState<Role>(user.role);
   const [email, setEmail] = React.useState(user.email);
+  // A new invite that was not emailed: its link is the only one that works, so it stays on screen.
+  const [unsent, setUnsent] = React.useState<{ invite: InviteResult; name: string; email: string; message: string } | null>(null);
   const [pending, startTransition] = React.useTransition();
   const errors = useFormErrors();
   const prefix = `edit-user-${user.id}`;
@@ -413,11 +446,37 @@ function EditUserForm({ user, isMe, onDone }: { user: UserListItem; isMe: boolea
     event.preventDefault();
     if (pending) return;
     startTransition(async () => {
-      const result = (await updateUserAction(user.id, { name, role, email })) as Result;
+      const result = (await updateUserAction(user.id, { name, role, email })) as Result<UpdateUserOutcome>;
       if (!result.ok) return errors.show(result);
-      const movedEmail = email.trim().toLowerCase() !== user.email;
-      onDone(movedEmail ? `${name.trim()} was updated. Both email addresses were told about the change.` : `${name.trim()} was updated.`);
+      errors.clear();
+      const { invite, noticesSent } = result.data;
+      const updated = `${name.trim()} was updated.`;
+      // Only after an email change: how many of the two notices (old and new address) went out.
+      const notices =
+        noticesSent === null
+          ? ""
+          : noticesSent >= 2
+            ? " Both email addresses were told about the change."
+            : noticesSent === 1
+              ? " The change notice reached only one of the two addresses."
+              : " The change notice could not be emailed to either address; tell them yourself.";
+      if (invite && !invite.sent) {
+        return setUnsent({ invite, name: name.trim(), email: email.trim(), message: `${updated}${notices} Send them the new invite link.` });
+      }
+      const invited = invite ? ` A new invite was emailed to ${email.trim()}.` : "";
+      onDone(`${updated}${notices}${invited}`);
     });
+  }
+
+  if (unsent) {
+    return (
+      <UnsentInvitePanel
+        title={`${unsent.name} was updated`}
+        description="Their email changed, so the invite sent to the old address no longer works."
+        unsent={unsent}
+        onDone={() => onDone(unsent.message)}
+      />
+    );
   }
 
   return (

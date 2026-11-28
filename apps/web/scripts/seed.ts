@@ -15,6 +15,7 @@
 import { closeDatabase } from '../src/db/client'
 import { getSettings, updateSettings } from '../src/server/settings'
 import { ensureSystemPages } from '../src/server/pages'
+import { describeError } from '../src/server/result'
 import { addSampleAboutPage, addSamplePets } from '../src/server/sample-content'
 import { ensureOwner } from '../src/server/users'
 
@@ -78,6 +79,7 @@ try {
   await closeDatabase()
   process.exit(0)
 } catch (error) {
-  console.error(error)
+  // Never the error object: a failed query carries its parameters (the owner's email, a password hash).
+  console.error(`Seeding failed: ${describeError(error)}`)
   process.exit(1)
 }

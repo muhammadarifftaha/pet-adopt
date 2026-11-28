@@ -22,7 +22,7 @@ const { eq } = await import('drizzle-orm')
 const { closeDatabase, getDatabase } = await import('../src/db/client')
 const { clearLockoutsFor } = await import('../src/server/throttle')
 const { resetPassword } = await import('../src/server/users')
-const { ValidationError, UserError } = await import('../src/server/result')
+const { describeError, ValidationError, UserError } = await import('../src/server/result')
 
 try {
   const { db, t } = await getDatabase()
@@ -39,6 +39,7 @@ try {
 } catch (error) {
   if (error instanceof ValidationError) console.error(Object.values(error.fieldErrors).join(' '))
   else if (error instanceof UserError) console.error(error.message)
-  else console.error(error)
+  // Never the error object: a failed query carries its parameters (the new password hash).
+  else console.error(`Could not reset the password: ${describeError(error)}`)
   process.exit(1)
 }

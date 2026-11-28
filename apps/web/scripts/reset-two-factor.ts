@@ -19,7 +19,7 @@ if (!email) {
 
 const { eq } = await import('drizzle-orm')
 const { closeDatabase, getDatabase } = await import('../src/db/client')
-const { recordActivity } = await import('../src/server/activity')
+const { quoted, recordActivity } = await import('../src/server/activity')
 const { resetTwoFactor } = await import('../src/server/two-factor')
 const { describeError } = await import('../src/server/result')
 
@@ -36,7 +36,8 @@ try {
       actor: null,
       action: 'user.two-factor-reset',
       area: 'users',
-      summary: `Turned off two-factor sign-in for "${reset.name}" from the command line`,
+      // quoted(): the form anonymiseActivity looks for, so the name is replaced if the account is deleted.
+      summary: `Turned off two-factor sign-in for ${quoted(reset.name)} from the command line`,
       subject: { id: reset.id, label: reset.name },
       client: null,
     })
