@@ -45,7 +45,7 @@ function Entry({ entry, line, showPhotos, showTime, itemTag: Tag }: { entry: Tim
               <li key={`${photo.url}-${index}`}>
                 {/* The link opens the full image; its name is the photo's description. */}
                 <a href={photo.url} className="timeline-photo">
-                  <Image src={photo.thumbnailUrl || photo.url} alt={photo.alt} width={160} height={160} sizes="(max-width: 480px) 30vw, 120px" />
+                  <Image src={photo.thumbnailUrl || photo.url} alt={photo.alt || `${entry.title}, photo ${index + 1}`} width={160} height={160} sizes="(max-width: 480px) 30vw, 120px" />
                 </a>
               </li>
             ))}

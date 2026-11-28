@@ -71,6 +71,8 @@ type PetTimelineProps = Level & {
   limit?: number
   showPhotos?: boolean
   showTime?: boolean
+  /** Render-only (resolveData): this pet has no updates. Never saved. */
+  empty?: boolean
 }
 type PetDescriptionProps = { showButton?: boolean; buttonLabel?: string }
 type MorePetsProps = Level & {
@@ -409,6 +411,11 @@ const petBlocks: Config<PetPageComponents> = {
         showTime: toggle('Time of day (when an update has one)'),
       } as Fields<PetTimelineProps>,
       defaultProps: { heading: 'Timeline', align: 'left', order: 'newest', limit: 5, showPhotos: true, showTime: true },
+      // Render-only: whether this pet has no updates, so the page's main heading is not given to a
+      // block that draws nothing (showsHeading in data.ts; never saved, see TRANSIENT_PROPS).
+      resolveData: async ({ props }, { metadata }) => ({
+        props: { ...props, empty: !(metadata as Partial<PuckSiteMetadata>).pet?.timeline?.length },
+      }),
       // The pet's dated updates (posted on the pet's edit page). Left out on the site when there are none.
       render: ({ headingLevel, heading, align, order, limit, showPhotos, showTime, puck }) => {
         const pet = petOf(puck)

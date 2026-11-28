@@ -243,7 +243,8 @@ async function toPetPage(pet: Pet): Promise<PetPageData> {
     location,
     state: pet.state,
     unlisted: pet.unlisted,
-    timeline,
+    // Visitors' pages need what is drawn, not who posted each update.
+    timeline: timeline.map((entry) => ({ ...entry, createdByName: null })),
   }
 }
 

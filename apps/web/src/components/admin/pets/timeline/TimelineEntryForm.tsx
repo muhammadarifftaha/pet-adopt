@@ -191,7 +191,7 @@ export function TimelineEntryForm({
               return (
                 <Field data-invalid={fieldState.invalid || undefined}>
                   <FieldLabel htmlFor={id}>Time</FieldLabel>
-                  <FieldDescription id={`${id}-description`}>Optional, in the site&apos;s time zone.</FieldDescription>
+                  <FieldDescription id={`${id}-description`}>Optional. The time where the pet is (the site&apos;s time zone, when one is set).</FieldDescription>
                   <Input
                     id={id}
                     ref={field.ref}
