@@ -1,7 +1,5 @@
 'use server'
 
-import { listForms } from '@pet-adopt/plugin-form-builder/server'
-
 import { desc } from 'drizzle-orm'
 
 import { getDatabase } from '@/db/client'
@@ -29,15 +27,6 @@ export async function listPetChoicesAction(): Promise<PetChoice[]> {
     name: row.name,
     note: row.status === 'adopted' ? 'adopted, hidden' : row.unlisted ? 'link only, hidden' : null,
   }))
-}
-
-export type FormChoice = { id: number; name: string; note: string | null }
-
-/** Every form of the form builder, for the Form block's picker. Closed forms are marked. */
-export async function listFormChoicesAction(): Promise<FormChoice[]> {
-  await requirePermission('pages:view')
-  const forms = await listForms()
-  return forms.map((form) => ({ id: form.id, name: form.name, note: form.isOpen ? null : 'closed' }))
 }
 
 /**

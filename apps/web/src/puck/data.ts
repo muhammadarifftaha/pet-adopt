@@ -5,7 +5,7 @@ import pluginBlocks from '../../pet-adopt.blocks'
 export const EMPTY_DATA: Data = { content: [], root: { props: {} }, zones: {} }
 
 /** Props that are filled in at render time and must never be saved into the page JSON. */
-const TRANSIENT_PROPS = ['pets', 'spotlight', 'profiles', 'catalog', 'form', 'headingLevel', 'similar', 'empty', 'pluginData']
+const TRANSIENT_PROPS = ['pets', 'spotlight', 'profiles', 'catalog', 'headingLevel', 'similar', 'empty', 'pluginData']
 
 /** A saved layout is a few kilobytes. Anything near this size is a mistake or an attack. */
 const MAX_BYTES = 1_000_000
@@ -24,21 +24,20 @@ function stripBlock(item: Block): Block {
 
 /** Plugin blocks that draw nothing on the site without data from their loader. */
 const NEEDS_DATA = new Set(pluginBlocks.filter((block) => block.needsData).map((block) => block.name))
-/** Plugin blocks that draw a heading whenever they have data, even with a blank heading option. */
+/** Plugin blocks that draw a heading whenever they have data, even with a blank heading option (the Form block). */
 const HEADING_FROM_DATA = new Set(pluginBlocks.filter((block) => block.headingFromData).map((block) => block.name))
 
 /** Whether a block will show a main heading (after its live data has been resolved). */
 function showsHeading(item: Block): boolean {
   const props = item.props as Record<string, unknown>
   if (item.type === 'PetSpotlight') return Boolean(props.spotlight)
-  // The Form block's heading falls back to the form's name, so it shows one whenever the form exists.
-  if (item.type === 'FormBlock') return Boolean(props.form)
   // Pet page template: the Pet summary block's heading is the pet's name, always there.
   if (item.type === 'PetSummary') return true
   // A pet block that has nothing to show for this pet (resolveData sets `empty`) draws no heading.
   if (props.empty === true) return false
   const hasData = props.pluginData !== null && props.pluginData !== undefined
-  // A plugin block whose heading falls back to its data shows one whenever the data is there.
+  // A plugin block whose heading falls back to its data (the Form block: the form's name) shows one
+  // whenever the data is there.
   if (HEADING_FROM_DATA.has(item.type) && hasData) return true
   // A plugin block that draws nothing without its data has no heading until the data is there.
   if (NEEDS_DATA.has(item.type) && !hasData) return false

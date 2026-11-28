@@ -23,9 +23,6 @@ import { fillMessage } from '@/lib/whatsapp'
 import { BLOCK_ICON_OPTIONS, BlockIcon } from './icons'
 import { MediaPicker } from './media-picker'
 import { PetPicker } from './pet-picker'
-import { FormPicker } from './form-picker'
-import { PublicForm } from '@/components/site/PublicForm'
-import type { PublicForm as PublicFormData } from './forms'
 import type { MediaValue, PuckSiteMetadata } from './types'
 
 // ---------------------------------------------------------------------------
@@ -433,16 +430,6 @@ type WaysToHelpProps = {
   background: Background
 }
 
-type FormBlockProps = {
-  formId: number | null
-  /** Blank shows the form's own name. */
-  heading: string
-  showDescription: boolean
-  background: Background
-  /** Resolved at render (metadata.fetchForm); never saved (TRANSIENT_PROPS). */
-  form?: PublicFormData | null
-}
-
 export type PuckComponents = {
   Hero: HeroProps & Level
   TextSection: TextSectionProps & Level
@@ -466,7 +453,6 @@ export type PuckComponents = {
   WaysToHelp: WaysToHelpProps & Level
   CostTable: CostTableProps & Level
   PetCatalog: PetCatalogProps & Level
-  FormBlock: FormBlockProps & Level
 }
 
 // ---------------------------------------------------------------------------
@@ -482,7 +468,7 @@ const blocks: Config<PuckComponents> = {
     layout: { title: 'Sections', components: ['Hero', 'TextSection', 'ImageText', 'Features', 'CallToAction'] },
     media: { title: 'Media', components: ['ImageGallery', 'ImageCarousel', 'Video'] },
     pets: { title: 'Pets', components: ['PetCatalog', 'PetSpotlight', 'PetGrid', 'AdoptionSteps', 'Stats'] },
-    trust: { title: 'Trust & contact', components: ['Testimonials', 'Team', 'WaysToHelp', 'CostTable', 'Faq', 'FormBlock', 'ContactInfo', 'SocialLinksBlock'] },
+    trust: { title: 'Trust & contact', components: ['Testimonials', 'Team', 'WaysToHelp', 'CostTable', 'Faq', 'ContactInfo', 'SocialLinksBlock'] },
     helpers: { title: 'Layout helpers', components: ['Spacer', 'Divider'] },
   },
   components: {
@@ -1672,57 +1658,6 @@ const blocks: Config<PuckComponents> = {
       render: ({ size }) => <div className={`spacer spacer-${classToken(size)}`} aria-hidden="true" />,
     },
 
-    FormBlock: {
-      label: 'Form',
-      defaultProps: { formId: null, heading: '', showDescription: true, background: 'none' },
-      fields: {
-        formId: {
-          type: 'custom',
-          label: 'Form',
-          render: ({ id, value, onChange, readOnly }: { id: string; value: number | null; onChange: (value: number | null) => void; readOnly?: boolean }) => (
-            <FormPicker id={id} value={value} onChange={onChange} readOnly={readOnly} />
-          ),
-        },
-        heading: { type: 'text', label: "Heading (blank uses the form's name)" },
-        showDescription: {
-          type: 'radio',
-          label: "Show the form's description",
-          options: [
-            { label: 'Yes', value: true },
-            { label: 'No', value: false },
-          ],
-        },
-        background: backgroundField,
-      } as Fields<FormBlockProps>,
-      resolveData: async ({ props }, { metadata }) => {
-        const fetchForm = (metadata as Partial<PuckSiteMetadata>).fetchForm
-        const id = Number(props.formId)
-        if (!fetchForm || !Number.isSafeInteger(id) || id < 1) return { props: { ...props, form: null } }
-        return { props: { ...props, form: await fetchForm(id) } }
-      },
-      render: ({ headingLevel, heading, showDescription, background, form, formId, puck }) => {
-        // A deleted form (or a form builder that is not set up) hides the block on the live site.
-        if (!form) {
-          return puck.isEditing ? (
-            <Section background={background}>
-              <p className="muted">{formId ? 'This form was deleted, so the block is hidden on the site.' : 'Choose a form. Forms are made under Plugins, Forms.'}</p>
-            </Section>
-          ) : (
-            <></>
-          )
-        }
-        return (
-          <Section background={background}>
-            <div className="form-section">
-              <Title level={headingLevel}>{heading?.trim() || form.name}</Title>
-              {showDescription !== false && paragraphs(form.description ?? '').map((p, i) => <p key={i} className="form-intro">{p}</p>)}
-              <PublicForm form={form} preview={puck.isEditing} privacy={(puck.metadata as Partial<PuckSiteMetadata>).site?.privacy ?? null} />
-            </div>
-          </Section>
-        )
-      },
-    },
-
     Divider: {
       label: 'Divider',
       defaultProps: { width: 'container', spacing: 'sm' },
@@ -1750,7 +1685,8 @@ const blocks: Config<PuckComponents> = {
 
 /**
  * Every block, with the Padding option added to each (src/puck/padding.tsx). Blocks that plugins
- * add (pet-adopt.blocks.ts) join first, under "Plugins", so they get the Padding option too. The
- * Pet page template offers the ones that set `petPage`; the email builder offers none.
+ * add (pet-adopt.blocks.ts) join first, under "Plugins", so they get the Padding option too (the
+ * Form block comes from the form builder plugin this way). The Pet page template offers the ones
+ * that set `petPage`; the email builder offers none.
  */
 export const config: Config<PuckComponents> = withPadding(withPluginBlocks(blocks, pluginBlocks))

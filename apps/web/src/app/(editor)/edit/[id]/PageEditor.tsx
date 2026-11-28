@@ -15,7 +15,6 @@ import type { PuckSiteMetadata } from '@/puck/types'
 
 import {
   fetchCatalogAction,
-  fetchFormAction,
   fetchPetPagePreviewAction,
   fetchPetProfilesAction,
   fetchPetsAction,
@@ -511,7 +510,6 @@ export function PageEditor({ pageId, title, slug, status: initialStatus, version
       fetchPet: fetchPetSpotlightAction,
       fetchPetProfiles: fetchPetProfilesAction,
       fetchCatalog: () => fetchCatalogAction(),
-      fetchForm: fetchFormAction,
       fetchPluginBlock: loadPluginBlockAction,
       ...(isPetPage ? { pet, fetchSimilarPets: fetchSimilarPetsAction } : {}),
     }),

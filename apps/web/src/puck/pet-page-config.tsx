@@ -2,8 +2,9 @@
 // draws every pet's page at /pets/<slug>. Its own block set: the pet blocks below only make sense
 // where there is a pet, and they read it from Puck's metadata (`metadata.pet`: the pet in the
 // address on the site, the "Preview with" pet in the editor). Around them, a curated few of the
-// ordinary blocks (Text, Adoption steps, FAQ, Cost table, Call to action, Form, Divider, Spacer), and
-// the plugin blocks that ask to be offered here (`petPage` in pet-adopt.blocks.ts), under "Plugins".
+// ordinary blocks (Text, Adoption steps, FAQ, Cost table, Call to action, Divider, Spacer), and the
+// plugin blocks that ask to be offered here (`petPage` in pet-adopt.blocks.ts: the form builder's
+// Form block), under "Plugins".
 //
 // Same rules as src/puck/config.tsx: no hooks or browser-only code (blocks render on the server and
 // in the editor), headings through the heading helpers, and resolved props listed in
@@ -85,7 +86,7 @@ type MorePetsProps = Level & {
   similar?: PetCardData[]
 }
 
-type PetPageComponents = Pick<PuckComponents, 'TextSection' | 'AdoptionSteps' | 'Faq' | 'CostTable' | 'CallToAction' | 'FormBlock' | 'Divider' | 'Spacer'> & {
+type PetPageComponents = Pick<PuckComponents, 'TextSection' | 'AdoptionSteps' | 'Faq' | 'CostTable' | 'CallToAction' | 'Divider' | 'Spacer'> & {
   PetGallery: PetGalleryProps
   PetSummary: PetSummaryProps
   PetHealth: PetHealthProps
@@ -192,7 +193,7 @@ const petBlocks: Config<PetPageComponents> = {
   root: { fields: {} },
   categories: {
     pet: { title: 'This pet', components: ['PetGallery', 'PetSummary', 'PetHealth', 'PetPersonality', 'PetDescription', 'PetTimeline', 'MorePets'] },
-    sections: { title: 'Sections', components: ['TextSection', 'AdoptionSteps', 'Faq', 'CostTable', 'CallToAction', 'FormBlock'] },
+    sections: { title: 'Sections', components: ['TextSection', 'AdoptionSteps', 'Faq', 'CostTable', 'CallToAction'] },
     helpers: { title: 'Layout helpers', components: ['Spacer', 'Divider'] },
   },
   components: {
@@ -498,7 +499,6 @@ const petBlocks: Config<PetPageComponents> = {
     Faq: shared.Faq,
     CostTable: shared.CostTable,
     CallToAction: shared.CallToAction,
-    FormBlock: shared.FormBlock,
     Divider: shared.Divider,
     Spacer: shared.Spacer,
   },
@@ -506,6 +506,6 @@ const petBlocks: Config<PetPageComponents> = {
 
 /**
  * The pet blocks get the Padding option too (the shared ones already have it), and so do the plugin
- * blocks offered here: only those that set `petPage`, under "Plugins".
+ * blocks offered here: only those that set `petPage` (the Form block), under "Plugins".
  */
 export const petPageConfig: Config<PetPageComponents> = withPadding(withPluginBlocks(petBlocks, pluginBlocks.filter((block) => block.petPage === true)))

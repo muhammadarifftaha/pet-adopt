@@ -1,4 +1,5 @@
 import { defineBlocks } from "@pet-adopt/plugin-sdk";
+import { formBlock } from "@pet-adopt/plugin-form-builder/block";
 
 // Page builder blocks that plugins add. Each one shows up in the page builder under "Plugins".
 //
@@ -10,4 +11,4 @@ import { defineBlocks } from "@pet-adopt/plugin-sdk";
 //
 // The plugin still goes in pet-adopt.config.ts as usual: that is where its screens, its storage
 // and the server half of its blocks (what they load) come from.
-export default defineBlocks([]);
+export default defineBlocks([formBlock]);

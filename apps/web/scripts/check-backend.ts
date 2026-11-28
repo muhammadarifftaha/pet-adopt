@@ -79,8 +79,10 @@ import { accessOf, accessPermission, asRole, can, host, pluginTablePrefix, provi
 import { formBuilderStorage, openFormsDatabase } from '@pet-adopt/plugin-form-builder'
 import * as forms from '@pet-adopt/plugin-form-builder/server'
 import * as formFields from '@pet-adopt/plugin-form-builder/fields'
+import * as formActions from '@pet-adopt/plugin-form-builder/actions'
 import { classToken, sanitizeLayout } from '../src/puck/sanitize'
-import { definePluginBlock, type ActionResult, type Plugin as SdkPlugin } from '@pet-adopt/plugin-sdk'
+import { definePluginBlock, type ActionResult, type Plugin as SdkPlugin, type PluginUser } from '@pet-adopt/plugin-sdk'
+import * as ReactForChecks from 'react'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { stripTransient, assignHeadingLevels } from '../src/puck/data'
@@ -2277,7 +2279,7 @@ await check('roles: the permission table is as agreed, every action checks a per
     'requestAccountDeletionAction', 'requestEmailVerificationAction',
     'createFirstAdminAction', 'finishSetupAction',
     'requestPasswordResetAction', 'resetPasswordWithTokenAction', 'acceptInviteAction', 'submitFormAction',
-    'fetchPetSpotlightAction', 'fetchCatalogAction', 'fetchPetProfilesAction', 'fetchPetsAction', 'fetchFormAction', 'fetchSimilarPetsAction',
+    'fetchPetSpotlightAction', 'fetchCatalogAction', 'fetchPetProfilesAction', 'fetchPetsAction', 'fetchSimilarPetsAction',
   ])
   const { readFileSync, readdirSync } = await import('node:fs')
   const files = [
@@ -2307,7 +2309,8 @@ await check('roles: the permission table is as agreed, every action checks a per
     for (const part of source.split(/^export async function /m).slice(1)) {
       const name = part.match(/^(\w+)/)?.[1] ?? '?'
       const body = part.split(/^export /m)[0]
-      if (unlogged.has(name) || !/requirePermission\([^)]*(:edit|:export)/.test(body)) continue
+      // Plugins name the level instead: requirePermission(accessPermission('all', 'edit')).
+      if (unlogged.has(name) || !/requirePermission\([^)]*(:edit|:export|'edit'\))/.test(body)) continue
       if (!/record\w*\(/.test(body)) silent.push(`${file}: ${name}`)
     }
   }
@@ -3651,6 +3654,129 @@ await check('plugin blocks: a plugin\'s block becomes a page builder block under
 
   // A real plugin block (the form builder's Form block) is checked end to end in its own check.
 })
+
+await check('Form block (form builder plugin): pages saved with the built-in block draw the form through the plugin block, the loader gives public data or null, the heading falls back to the form, the picker lists forms for the page builder, and the Pet page template offers it', async () => {
+  type Loose = {
+    label: string
+    fields: Record<string, { type: string }>
+    resolveData: (data: { props: Record<string, unknown> }, params: { metadata?: unknown; lastData?: { props: Record<string, unknown> } | null; trigger?: string }) => Promise<{ props: Record<string, unknown> }>
+    render: (props: Record<string, unknown>) => Parameters<typeof renderToStaticMarkup>[0]
+  }
+  const block = siteBlocks.find((entry) => entry.name === 'FormBlock')
+  ok(block?.plugin === 'form-builder' && block.needsData === true && block.headingFromData === true && block.petPage === true && isEqual(block.dataOptions, ['formId']), 'pet-adopt.blocks.ts lists the form builder\'s Form block, with its data rules')
+  ok(isEqual(Object.keys(block!.fields).sort(), ['background', 'formId', 'heading', 'showDescription']) && isEqual(block!.defaultProps, { formId: null, heading: '', showDescription: true, background: 'none' }), 'the options pages were saved with, and their defaults')
+  const pageForm = (pageBlocks.components as unknown as Record<string, Loose>).FormBlock
+  const petForm = (petPageBlocks.components as unknown as Record<string, Loose>).FormBlock
+  ok(Boolean(pageForm) && Boolean(petForm) && 'padding' in pageForm.fields && 'padding' in petForm.fields, 'in the page builder and in the Pet page template, with the Padding option')
+  const petCategories = (petPageBlocks as unknown as { categories: Record<string, { title: string; components: string[] }> }).categories
+  ok(isEqual(petCategories.plugins?.components, ['FormBlock']) && petCategories.plugins?.title === 'Plugins' && !petCategories.sections.components.includes('FormBlock'), 'the Pet page template offers it under Plugins, and only the blocks that ask')
+
+  const realHost = host()
+  const globals = globalThis as { React?: unknown }
+  const hadReact = 'React' in globals
+  if (!hadReact) globals.React = ReactForChecks
+  const form = await forms.createForm({ name: 'Block check form', description: 'First paragraph.\n\nSecond one.', fields: [{ id: 'name', type: 'text', label: 'Your name', required: true }, { id: 'mail', type: 'email', label: 'Email' }] })
+  const privacyPage = await savePageDetails(null, { title: 'Privacy for forms', slug: 'privacy-form-check' })
+  try {
+    // The loader: through the site's path, as the page builder and the public site call it.
+    const loaded = (await fetchPluginBlockData('FormBlock', { formId: form.id })) as { form: { id: number; name: string; fields: unknown[]; spamTrap: boolean }; privacy: unknown } | null
+    ok(loaded?.form.id === form.id && loaded.form.name === 'Block check form' && loaded.form.fields.length === 2 && loaded.form.spamTrap === true && loaded.privacy === null, `a saved number loads that form, with no privacy policy yet: ${JSON.stringify(loaded)?.slice(0, 200)}`)
+    ok(!JSON.stringify(loaded).includes('notifyEmail') && !('settings' in (loaded?.form ?? {})), 'public data only')
+    ok(((await fetchPluginBlockData('FormBlock', { formId: String(form.id) })) as { form?: { id: number } } | null)?.form?.id === form.id, 'its digits as text load it too')
+    ok((await fetchPluginBlockData('FormBlock', { formId: 2_000_000 })) === null && (await fetchPluginBlockData('FormBlock', { formId: null })) === null && (await fetchPluginBlockData('FormBlock', { formId: -1 })) === null && (await fetchPluginBlockData('FormBlock', { formId: '1; drop' })) === null && (await fetchPluginBlockData('FormBlock', { formId: { id: form.id } })) === null, 'a missing form, none, a bad id or an object give null')
+    await saveDraft(privacyPage.id, { root: { props: {} }, zones: {}, content: [{ type: 'TextSection', props: { id: 'p', heading: 'Your data' } }] })
+    await updateSettings({ privacyPageId: privacyPage.id })
+    await publishPage(privacyPage.id)
+    const withPolicy = (await fetchPluginBlockData('FormBlock', { formId: form.id })) as { privacy: { title: string; href: string } | null } | null
+    ok(isEqual(withPolicy?.privacy, { title: 'Privacy for forms', href: '/privacy-form-check' }), `the live privacy policy comes with it: ${JSON.stringify(withPolicy?.privacy)}`)
+
+    // A page saved with the built-in block, in its old shape, draws the form through the plugin block.
+    const old = { root: { props: {} }, zones: {}, content: [{ type: 'FormBlock', props: { id: 'FormBlock-1', formId: form.id, heading: '', showDescription: true, background: 'none' } }] }
+    const blocks = { components: { ...pageBlocks.components, ...petPageBlocks.components } } as unknown as Parameters<typeof sanitizeLayout>[1]
+    ok(isEqual(sanitizeLayout(old as unknown as Parameters<typeof sanitizeLayout>[0], blocks), old), 'the saved block passes the layout check untouched')
+    const page = await savePageDetails(null, { title: 'Form block check', slug: 'form-block-check' })
+    await publishPage(page.id, old)
+    const stored = (await getPageById(page.id))?.puckPublished as typeof old | undefined
+    ok(isEqual(stored?.content[0], old.content[0]), `saved and published unchanged: ${JSON.stringify(stored?.content[0])}`)
+    const metadata = { fetchPluginBlock: fetchPluginBlockData }
+    const resolved = await pageForm.resolveData({ props: old.content[0].props }, { metadata })
+    const leveled = assignHeadingLevels({ ...old, content: [{ type: 'FormBlock', props: resolved.props }] } as unknown as Parameters<typeof assignHeadingLevels>[0])
+    ok(leveled.hasH1 && (leveled.data.content[0].props as { headingLevel?: number }).headingLevel === 1, 'with a blank heading and a form, the block is the page heading (its heading is the form\'s name)')
+    const html = renderToStaticMarkup(pageForm.render({ ...leveled.data.content[0].props, puck: { isEditing: false } }))
+    ok(html.includes('<h1 class="block-heading">Block check form</h1>') && html.includes('<p class="fb-form-intro">First paragraph.</p>') && html.includes('<p class="fb-form-intro">Second one.</p>'), `the heading falls back to the form's name, with its description: ${html.slice(0, 400)}`)
+    ok(html.includes('class="section section-none spacing-md align-left"') && html.includes('<style>') && html.includes('.fb-form-hp'), 'the site\'s section band, and the block\'s own CSS')
+    ok(/<input type="text" name="website" tabindex="-1" autoComplete="off" value=""\/>|name="website"/.test(html) && html.includes('class="fb-form-hp" aria-hidden="true"'), 'the spam trap is drawn, hidden from people')
+    ok(html.includes('We use your answers as described in our <a href="/privacy-form-check">Privacy for forms</a>.'), 'the privacy line sits under the button')
+    ok(html.includes('Your name') && html.includes('(required)') && html.includes('type="email"') && !html.includes('Preview: the form works'), 'the questions, and no preview note on the site')
+    const titled = renderToStaticMarkup(pageForm.render({ ...resolved.props, heading: '  Apply here ', showDescription: false, background: 'tint', headingLevel: 2, puck: { isEditing: false } }))
+    ok(titled.includes('<h2 class="block-heading">Apply here</h2>') && !titled.includes('class="fb-form-intro"') && titled.includes('section-tint'), 'a heading of its own, no description, another background')
+    const preview = renderToStaticMarkup(pageForm.render({ ...resolved.props, puck: { isEditing: true } }))
+    ok(preview.includes('Preview: the form works on the live page.') && preview.includes('aria-disabled="true"'), 'in the page builder it is a preview that never sends')
+
+    // Gone or not chosen: nothing on the site; a note in the page builder. No heading then.
+    const gone = await pageForm.resolveData({ props: { ...old.content[0].props, formId: 2_000_000 } }, { metadata })
+    ok(gone.props.pluginData === null && renderToStaticMarkup(pageForm.render({ ...gone.props, puck: { isEditing: false } })) === '', 'a deleted form hides the block on the site')
+    ok(renderToStaticMarkup(pageForm.render({ ...gone.props, puck: { isEditing: true } })).includes('This form was deleted') && renderToStaticMarkup(pageForm.render({ id: 'x', formId: null, puck: { isEditing: true } })).includes('Choose a form'), 'and says why in the page builder')
+    const noHeading = assignHeadingLevels({ ...old, content: [{ type: 'FormBlock', props: gone.props }, { type: 'TextSection', props: { id: 't', heading: 'About us' } }] } as unknown as Parameters<typeof assignHeadingLevels>[0])
+    ok(isEqual(noHeading.data.content.map((item) => (item.props as { headingLevel?: number }).headingLevel), [2, 1]), 'without its form the block has no heading, so the next block is the page heading')
+    const hostile = sanitizeLayout({ ...old, content: [{ type: 'FormBlock', props: { id: 'f', formId: { id: form.id }, heading: { evil: 1 }, background: 'dark fixed', showDescription: 'yes' } }] } as unknown as Parameters<typeof sanitizeLayout>[0], blocks)
+    ok(isEqual(hostile.content[0].props, { id: 'f' }), `an object for the form, and other wrong values, are removed: ${JSON.stringify(hostile.content[0].props)}`)
+
+    // dataOptions: a new heading or background redraws with what was loaded; a new form loads again.
+    let loads = 0
+    const counting = { fetchPluginBlock: async (name: string, props: Record<string, unknown>) => { loads++; return fetchPluginBlockData(name, props) } }
+    const first = await pageForm.resolveData({ props: old.content[0].props }, { metadata: counting, lastData: null, trigger: 'load' })
+    await pageForm.resolveData({ props: { ...first.props, heading: 'New heading', background: 'dark' } }, { metadata: counting, lastData: { props: old.content[0].props }, trigger: 'replace' })
+    ok(loads === 1, `changing the heading does not load the form again (${loads} loads)`)
+    const other = await forms.createForm({ name: 'Second block form' })
+    const switched = await pageForm.resolveData({ props: { ...first.props, formId: other.id } }, { metadata: counting, lastData: { props: old.content[0].props }, trigger: 'replace' })
+    ok(loads === 2 && (switched.props.pluginData as { form?: { name: string } }).form?.name === 'Second block form', 'picking another form loads it')
+
+    // The Pet page template draws it too (one of its saved layouts holds the old block).
+    const petHtml = renderToStaticMarkup(petForm.render({ ...resolved.props, puck: { isEditing: false } }))
+    ok(petHtml.includes('Block check form') && petHtml.includes('fb-form'), 'the Pet page template draws the Form block')
+
+    // The picker's list: a server action for the page builder (pages:view), names only.
+    let actor: PluginUser | null = null
+    provideHost({
+      ...realHost,
+      requirePermission: async (permission) => {
+        if (!actor) throw new UserError('You need to be signed in.')
+        if (!can(actor.role, permission)) throw new UserError(`Your role does not have access to this (${permission}).`)
+        return actor
+      },
+    })
+    const choices = async (role: Role | null) => {
+      actor = role ? { id: `form-check-${role}`, email: `form-${role}@example.test`, name: 'Form check', role } : null
+      try {
+        return await formActions.listFormChoicesAction()
+      } finally {
+        actor = null
+      }
+    }
+    const nobody = await choices(null)
+    ok(!nobody.ok, 'nobody signed in gets no list')
+    for (const role of ROLES) {
+      const result = await choices(role)
+      ok(result.ok && result.data.some((entry) => entry.value === form.id && entry.label === 'Block check form') && result.data.every((entry) => typeof entry.value === 'number' && typeof entry.label === 'string'), `${role} (who can open the page builder) gets the forms by name`)
+    }
+    await forms.updateForm(other.id, { isOpen: false })
+    const closed = await choices('editor')
+    ok(closed.ok && closed.data.find((entry) => entry.value === other.id)?.note === 'closed' && closed.data.find((entry) => entry.value === form.id)?.note === undefined, 'a closed form is marked')
+    await archivePage(page.id)
+    await deletePage(page.id)
+    await forms.deleteForm(other.id)
+  } finally {
+    provideHost(realHost)
+    if (!hadReact) delete globals.React
+    await updateSettings({ privacyPageId: null })
+    await unpublishPage(privacyPage.id).catch(() => undefined)
+    await archivePage(privacyPage.id).catch(() => undefined)
+    await deletePage(privacyPage.id).catch(() => undefined)
+    await forms.deleteForm(form.id)
+  }
+})
+
 
 await check('small rules from the security review: an archived page cannot be unpublished, an image in an email template is in use, form responses are routed only by people who may see them', async () => {
   const placeholder = () => s3Settings({ S3_BUCKET: 'b', S3_ACCESS_KEY_ID: 'your-access-key-id', S3_SECRET_ACCESS_KEY: 'your-secret-access-key' } as unknown as NodeJS.ProcessEnv)
