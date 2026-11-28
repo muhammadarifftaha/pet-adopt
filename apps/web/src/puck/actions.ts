@@ -5,7 +5,10 @@ import { listForms } from '@pet-adopt/plugin-form-builder/server'
 import { desc } from 'drizzle-orm'
 
 import { getDatabase } from '@/db/client'
+import { getPluginBlock } from '@/plugins/registry'
 import { requirePermission } from '@/server/session'
+
+import { fetchPluginBlockData } from './plugin-block-data'
 
 // Server actions used by block fields in the page builder (signed in only).
 
@@ -35,4 +38,15 @@ export async function listFormChoicesAction(): Promise<FormChoice[]> {
   await requirePermission('pages:view')
   const forms = await listForms()
   return forms.map((form) => ({ id: form.id, name: form.name, note: form.isOpen ? null : 'closed' }))
+}
+
+/**
+ * What a plugin's block shows, for the page builder's preview: the same loader the public site
+ * runs, so the same public data. Signed in only, like the builder itself. An unknown block, options
+ * that are not one flat object of plain values (or are too large) and a loader that fails all give null.
+ */
+export async function loadPluginBlockAction(name: string, props: Record<string, unknown>): Promise<unknown> {
+  await requirePermission('pages:view')
+  if (typeof name !== 'string' || name.length > 60 || !getPluginBlock(name)) return null
+  return fetchPluginBlockData(name, props)
 }

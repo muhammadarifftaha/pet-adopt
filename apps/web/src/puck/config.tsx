@@ -3,6 +3,8 @@ import Link from 'next/link'
 import React from 'react'
 import type { Config, Fields } from '@puckeditor/core'
 import { withPadding } from './padding'
+import { withPluginBlocks } from './plugin-blocks'
+import pluginBlocks from '../../pet-adopt.blocks'
 import { classToken } from './sanitize'
 
 import { PetCard } from '@/components/site/PetCard'
@@ -1746,5 +1748,9 @@ const blocks: Config<PuckComponents> = {
   },
 }
 
-/** Every block, with the Padding option added to each (src/puck/padding.tsx). */
-export const config: Config<PuckComponents> = withPadding(blocks)
+/**
+ * Every block, with the Padding option added to each (src/puck/padding.tsx). Blocks that plugins
+ * add (pet-adopt.blocks.ts) join first, under "Plugins", so they get the Padding option too. The
+ * Pet page template offers the ones that set `petPage`; the email builder offers none.
+ */
+export const config: Config<PuckComponents> = withPadding(withPluginBlocks(blocks, pluginBlocks))

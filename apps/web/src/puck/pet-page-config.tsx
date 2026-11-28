@@ -2,7 +2,8 @@
 // draws every pet's page at /pets/<slug>. Its own block set: the pet blocks below only make sense
 // where there is a pet, and they read it from Puck's metadata (`metadata.pet`: the pet in the
 // address on the site, the "Preview with" pet in the editor). Around them, a curated few of the
-// ordinary blocks (Text, Adoption steps, FAQ, Cost table, Call to action, Form, Divider, Spacer).
+// ordinary blocks (Text, Adoption steps, FAQ, Cost table, Call to action, Form, Divider, Spacer), and
+// the plugin blocks that ask to be offered here (`petPage` in pet-adopt.blocks.ts), under "Plugins".
 //
 // Same rules as src/puck/config.tsx: no hooks or browser-only code (blocks render on the server and
 // in the editor), headings through the heading helpers, and resolved props listed in
@@ -24,6 +25,8 @@ import { fillMessage } from '@/lib/whatsapp'
 import { config as siteConfig, headingClass, headingStyleField, Section, type HeadingStyle, type Level, type PuckComponents } from './config'
 import { classToken } from './sanitize'
 import { withPadding } from './padding'
+import { withPluginBlocks } from './plugin-blocks'
+import pluginBlocks from '../../pet-adopt.blocks'
 import type { PuckSiteMetadata } from './types'
 
 type Meta = { metadata: Record<string, unknown>; isEditing?: boolean }
@@ -501,5 +504,8 @@ const petBlocks: Config<PetPageComponents> = {
   },
 }
 
-/** The pet blocks get the Padding option too (the shared ones already have it). */
-export const petPageConfig: Config<PetPageComponents> = withPadding(petBlocks)
+/**
+ * The pet blocks get the Padding option too (the shared ones already have it), and so do the plugin
+ * blocks offered here: only those that set `petPage`, under "Plugins".
+ */
+export const petPageConfig: Config<PetPageComponents> = withPadding(withPluginBlocks(petBlocks, pluginBlocks.filter((block) => block.petPage === true)))

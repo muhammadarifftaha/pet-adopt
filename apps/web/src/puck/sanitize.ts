@@ -14,6 +14,8 @@ type Json = Record<string, unknown>
 type Field = {
   type?: string
   options?: ReadonlyArray<{ value: unknown }>
+  /** A custom field whose value is one plain id (a plugin block's `choice` option): never an object. */
+  plainValue?: boolean
   arrayFields?: Record<string, Field>
   objectFields?: Record<string, Field>
 }
@@ -60,6 +62,7 @@ function cleanValue(value: unknown, field: Field, config: Config): unknown {
       return Array.isArray(value) ? value.filter(isBlock).map((block) => cleanBlock(block, config)) : undefined
     case 'custom':
     case 'external':
+      if (field.plainValue) return (typeof value === 'string' && value.length <= 200) || (typeof value === 'number' && Number.isFinite(value)) ? value : undefined
       return cleanPicked(value)
     default:
       return value

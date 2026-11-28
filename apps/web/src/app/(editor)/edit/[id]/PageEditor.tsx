@@ -7,7 +7,7 @@ import { FiExternalLink, FiLoader, FiMoon, FiSun } from 'react-icons/fi'
 import { Switch } from '@pet-adopt/ui/components/switch'
 import { useEditorToast } from '../../EditorToast'
 import type { PetPageData } from '@/lib/queries'
-import type { PetChoice } from '@/puck/actions'
+import { loadPluginBlockAction, type PetChoice } from '@/puck/actions'
 import { config } from '@/puck/config'
 import { stripTransient } from '@/puck/data'
 import { petPageConfig } from '@/puck/pet-page-config'
@@ -512,6 +512,7 @@ export function PageEditor({ pageId, title, slug, status: initialStatus, version
       fetchPetProfiles: fetchPetProfilesAction,
       fetchCatalog: () => fetchCatalogAction(),
       fetchForm: fetchFormAction,
+      fetchPluginBlock: loadPluginBlockAction,
       ...(isPetPage ? { pet, fetchSimilarPets: fetchSimilarPetsAction } : {}),
     }),
     [site, isPetPage, pet],

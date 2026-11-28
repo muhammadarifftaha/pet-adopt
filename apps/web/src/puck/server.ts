@@ -2,6 +2,7 @@ import { getPetSpotlight, getPrivacyPolicy, getSettings, queryCatalog, queryPetC
 import type { SiteSetting } from '@/server/types'
 
 import { fetchPublicForm } from './forms'
+import { fetchPluginBlockData } from './plugin-block-data'
 import type { PuckSiteMetadata } from './types'
 
 export function toSiteMeta(settings: SiteSetting, privacy: { title: string; href: string } | null = null): PuckSiteMetadata['site'] {
@@ -26,6 +27,7 @@ export async function buildSiteMetadata(searchParams?: CatalogParams, pet?: PetP
     fetchPetProfiles: (filters) => queryPetProfiles(filters),
     fetchCatalog: (params) => queryCatalog(params),
     fetchForm: (id) => fetchPublicForm(id),
+    fetchPluginBlock: (name, props) => fetchPluginBlockData(name, props),
     searchParams,
     pet,
     fetchSimilarPets: (current, limit) => similarPets(current, limit),

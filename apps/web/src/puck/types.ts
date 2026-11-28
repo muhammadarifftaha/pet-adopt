@@ -29,6 +29,11 @@ export type PuckSiteMetadata = {
   fetchCatalog: (params: CatalogParams) => Promise<CatalogData>
   /** One form from the form builder for the Form block; null when it is gone (or the plugin is not set up). */
   fetchForm?: (id: number) => Promise<PublicForm | null>
+  /**
+   * What a plugin's block shows (its loader's result, as plain JSON); null when the block has no
+   * loader, it returned nothing, or it failed. `props` are the block's own options.
+   */
+  fetchPluginBlock?: (name: string, props: Record<string, unknown>) => Promise<unknown>
   /** The page's query string (filters, page number), on the live site only. */
   searchParams?: CatalogParams
   /**
