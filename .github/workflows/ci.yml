@@ -53,3 +53,135 @@ jobs:
       - run: pnpm --filter @pet-adopt/web storage:check
       - run: pnpm check:backend
       - run: pnpm build
+
+  packages:
+    name: Pack the npm packages
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: pnpm
+
+      # Packing compiles the packages, which needs the workspace's own dependencies.
+      - run: pnpm install --frozen-lockfile
+
+      # The three packages publish-packages.yml can send to npm, packed as they would be
+      # published (each package's `prepack` builds dist/), outside the checkout.
+      - name: Pack
+        run: |
+          mkdir -p "$RUNNER_TEMP/pack"
+          for dir in packages/plugin-sdk plugins/form-builder plugins/instagram-feed; do
+            (cd "$dir" && pnpm pack --pack-destination "$RUNNER_TEMP/pack")
+          done
+          ls -l "$RUNNER_TEMP/pack"
+          test "$(find "$RUNNER_TEMP/pack" -maxdepth 1 -name '*.tgz' | wc -l)" -eq 3
+
+      # The same checks as the "Check the tarball" step in publish-packages.yml; keep the two in
+      # step. For each package: no .env file or node_modules in the tarball, no `workspace:` range
+      # left, not private, every address in "exports" a compiled file in dist/, and every source
+      # file that starts with 'use client' or 'use server' still starting with it once compiled.
+      - name: Check each tarball
+        run: |
+          status=0
+          for dir in packages/plugin-sdk plugins/form-builder plugins/instagram-feed; do
+            name=$(node -p "require('./' + process.argv[1] + '/package.json').name" "$dir")
+            # @pet-adopt/plugin-sdk@0.1.0 is packed as pet-adopt-plugin-sdk-0.1.0.tgz.
+            file="$(echo "$name" | sed 's|^@||; s|/|-|')-$(node -p "require('./' + process.argv[1] + '/package.json').version" "$dir").tgz"
+            tarball="$RUNNER_TEMP/pack/$file"
+            try="$RUNNER_TEMP/try/$(basename "$dir")"
+            if [ ! -f "$tarball" ]; then
+              echo "::error::$name: no tarball at $tarball."
+              status=1
+              continue
+            fi
+            mkdir -p "$try"
+            tar -xzf "$tarball" -C "$try"
+            if tar -tzf "$tarball" | grep -E '(^|/)\.env$|(^|/)\.env\.[^/]*local$|(^|/)node_modules/'; then
+              echo "::error::$name: the tarball holds a .env file or a node_modules folder (listed above)."
+              status=1
+            fi
+            if grep -n 'workspace:' "$try/package/package.json"; then
+              echo "::error::$name: the packed package.json still has a workspace: range (listed above)."
+              status=1
+            fi
+            node - "$dir" "$try/package" "$name" <<'NODE' || status=1
+          const fs = require('node:fs')
+          const path = require('node:path')
+          const [sourceRoot, packedRoot, expectedName] = process.argv.slice(2)
+          const problems = []
+
+          const manifest = JSON.parse(fs.readFileSync(path.join(packedRoot, 'package.json'), 'utf8'))
+          if (manifest.name !== expectedName) problems.push(`the packed package is named ${manifest.name}, expected ${expectedName}`)
+          if (manifest.private) problems.push('the packed package.json says "private": npm would refuse it')
+          if (!/^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/.test(manifest.version ?? '')) problems.push(`not a version: ${manifest.version}`)
+          if (!fs.existsSync(path.join(packedRoot, 'dist'))) problems.push('the tarball has no dist folder')
+
+          // Every address in "exports" is a compiled file inside the package.
+          const targets = []
+          const collect = (value) => {
+            if (typeof value === 'string') targets.push(value)
+            else if (value && typeof value === 'object') Object.values(value).forEach(collect)
+          }
+          collect(manifest.exports)
+          if (targets.length === 0) problems.push('package.json has no exports')
+          for (const target of targets) {
+            if (!target.startsWith('./dist/')) problems.push(`exports points outside dist: ${target}`)
+            else if (!fs.existsSync(path.join(packedRoot, target))) problems.push(`exports names a file that is not in the tarball: ${target}`)
+          }
+
+          // The directive a file opens with, comments and blank lines aside.
+          const directiveOf = (file) => {
+            let text = fs.readFileSync(file, 'utf8').replace(/^﻿/, '')
+            for (;;) {
+              const before = text
+              text = text.replace(/^\s+/, '').replace(/^\/\/[^\n]*\n?/, '').replace(/^\/\*[\s\S]*?\*\//, '')
+              if (text === before) break
+            }
+            const match = /^(['"])(use client|use server)\1/.exec(text)
+            return match ? match[2] : null
+          }
+
+          const SKIP = new Set(['node_modules', 'dist', 'drizzle'])
+          const sources = []
+          const walk = (dir) => {
+            for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+              if (entry.name.startsWith('.') || SKIP.has(entry.name)) continue
+              const full = path.join(dir, entry.name)
+              if (entry.isDirectory()) walk(full)
+              else if (/\.tsx?$/.test(entry.name) && !entry.name.endsWith('.d.ts')) sources.push(full)
+            }
+          }
+          walk(sourceRoot)
+
+          let marked = 0
+          for (const source of sources) {
+            const directive = directiveOf(source)
+            if (!directive) continue
+            marked += 1
+            const relative = path.relative(sourceRoot, source).replace(/\.tsx?$/, '.js')
+            // dist/src/x.js when the build keeps the folder, dist/x.js when it compiles from src.
+            const candidates = [path.join(packedRoot, 'dist', relative)]
+            if (relative.startsWith(`src${path.sep}`)) candidates.push(path.join(packedRoot, 'dist', relative.slice(4)))
+            const compiled = candidates.find((file) => fs.existsSync(file))
+            if (!compiled) problems.push(`${relative}: starts with '${directive}' in the source, but its compiled file is not in the tarball`)
+            else if (directiveOf(compiled) !== directive) problems.push(`${path.relative(packedRoot, compiled)}: lost its '${directive}' line`)
+          }
+
+          if (problems.length > 0) {
+            for (const problem of problems) console.error(`::error::${expectedName}: ${problem}`)
+            process.exit(1)
+          }
+          console.log(`${expectedName}@${manifest.version}: ${targets.length} export addresses are in dist; ${marked} of ${sources.length} source files carry 'use client' or 'use server' and kept it.`)
+          NODE
+          done
+          # The SDK has no runtime dependencies (its imports are types only): it must load alone.
+          node --input-type=module -e "const sdk = await import(process.argv[1]); if (typeof sdk.definePlugin !== 'function' || typeof sdk.host !== 'function') { console.error('::error::@pet-adopt/plugin-sdk: definePlugin or host is missing from dist/index.js'); process.exit(1) }" "$RUNNER_TEMP/try/plugin-sdk/package/dist/index.js" || status=1
+          exit "$status"
