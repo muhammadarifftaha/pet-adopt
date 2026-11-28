@@ -161,6 +161,7 @@ pnpm pack --pack-destination <a scratch folder>
 npm publish <a scratch folder>/<the tarball>.tgz --access public
 ```
 
+- **Give npm a path it can recognise as a file:** an absolute one, or one starting with `./`. A bare `folder/name.tgz` is read as a GitHub repository (`owner/repo`), and npm tries to clone it.
 - **Pack with pnpm, publish the tarball with npm.** pnpm builds the package (`prepack`), writes the compiled `exports` from `publishConfig`, and turns `workspace:` ranges into real ones. Running `npm publish` in the folder itself would skip all three.
 - **Sign in first** with `npm login`. npm asks for a two-factor code when it publishes.
 - **`--access public` is required** the first time: a scoped package is private by default.

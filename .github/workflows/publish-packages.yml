@@ -300,7 +300,9 @@ jobs:
             echo "::error::Expected one tarball from the pack job, found $count."
             exit 1
           fi
-          tarball=$(find package -maxdepth 1 -name '*.tgz')
+          # The ./ matters: npm reads a bare "package/<name>.tgz" as a GitHub repository
+          # ("owner/repo") and tries to clone it instead of publishing the file.
+          tarball=$(find ./package -maxdepth 1 -name '*.tgz')
           sha256sum "$tarball" | tee -a "$GITHUB_STEP_SUMMARY"
           npm publish "$tarball" --provenance --access public
           echo "Published $(basename "$tarball") to npm." >> "$GITHUB_STEP_SUMMARY"
