@@ -73,8 +73,8 @@ export async function startAuthorizationAction(): Promise<ActionResult<{ url: st
 export async function completeAuthorizationAction(input: { code: string; state: string }): Promise<ActionResult<ConnectionView>> {
   return host().run(async () => {
     const user = await host().requirePermission(accessPermission('admin', 'edit'))
-    await host().consumeAttempt(`instagram-feed:connect:${user.id}`, CONNECT_RULE)
-    const view = await completeAuthorization(user, input as unknown)
+    // Counted only once the sign-in's state matched: a made-up callback link spends no attempt.
+    const view = await completeAuthorization(user, input as unknown, () => host().consumeAttempt(`instagram-feed:connect:${user.id}`, CONNECT_RULE))
     host().revalidateSite()
     await host().recordActivity({ action: 'instagram-feed.account.connect', summary: `Connected the Instagram account ${handle(view)}`, fields: ['account', 'access token'] })
     return view

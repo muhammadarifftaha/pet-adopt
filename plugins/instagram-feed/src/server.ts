@@ -358,7 +358,11 @@ async function claimState(user: PluginUser, state: string): Promise<boolean> {
 }
 
 /** Finishes Instagram's sign-in with the `code` and `state` it sent back to the callback screen. */
-export async function completeAuthorization(user: PluginUser, raw: unknown): Promise<ConnectionView> {
+/**
+ * Finishes a sign-in. `afterClaim` runs only once the stored state matched (the action counts a
+ * connect attempt there), so a made-up link costs nobody an attempt.
+ */
+export async function completeAuthorization(user: PluginUser, raw: unknown, afterClaim?: () => Promise<void>): Promise<ConnectionView> {
   const input = asRecord(raw)
   const state = typeof input.state === 'string' ? input.state : ''
   // Instagram ends the address with "#_"; a browser keeps that out, a copied address may not.
@@ -366,6 +370,7 @@ export async function completeAuthorization(user: PluginUser, raw: unknown): Pro
   // The stored state is spent before anything else is looked at: a second try needs a new sign-in.
   const claimed = await claimState(user, state)
   if (!claimed || !code || code.length > 2000) throw new UserError(SIGN_IN_REFUSED)
+  await afterClaim?.()
 
   const row = await readSettings()
   const secret = row?.appSecretEncrypted ? host().secrets.open(row.appSecretEncrypted, SECRET_PURPOSE) : null

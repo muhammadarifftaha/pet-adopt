@@ -186,9 +186,9 @@ The builder:
 | Pets | Pet catalogue, Pet grid, Pet spotlight |
 | Media | Image grid, Image carousel, Video (YouTube, Vimeo) |
 | Adoption | Adoption steps, Numbers, Adopter stories, Team, Ways to help, Cost table, FAQ |
-| Contact | Form, Contact & map, Social links |
+| Contact | Contact & map, Social links |
 | Layout | Spacer, Divider |
-| Plugins | Blocks that plugins add, such as **Instagram feed** |
+| Plugins | Blocks that plugins add: **Form** (form builder) and **Instagram feed** |
 
 Every block except Spacer has a **Padding** option for the space above and below it.
 
