@@ -56,8 +56,11 @@ const CALLED = ['token_endpoint', 'userinfo_endpoint', 'jwks_uri'] as const
  * problem too, so a provider is never used unchecked; without it (when saving, where the provider
  * may simply be offline) it is not.
  */
+/** discoveryProblem's answer, with `strict`, for a document that could not be read (worth another try later). */
+export const DISCOVERY_UNREADABLE = 'Its discovery document could not be read, so its addresses could not be checked.'
+
 export async function discoveryProblem(discoveryUrl: string, { strict = false } = {}): Promise<string | null> {
-  const unread = strict ? 'Its discovery document could not be read, so its addresses could not be checked.' : null
+  const unread = strict ? DISCOVERY_UNREADABLE : null
   if (privateProvidersAllowed()) return null
   const own = await endpointProblem(discoveryUrl)
   if (own) return own
