@@ -24,8 +24,12 @@ The site itself keeps no files, so the server can be replaced at any time. Every
 git clone <your-fork-url> pet-adopt
 cd pet-adopt
 pnpm install --frozen-lockfile
-cp apps/web/.env.example apps/web/.env
+pnpm setup:env --production
 ```
+
+**`pnpm setup:env --production`** copies `apps/web/.env.example` to `apps/web/.env` and fills in a new random `BETTER_AUTH_SECRET`. It leaves the storage keys for you to fill in, and the file is readable by its owner only. It never overwrites or reads a file that is already there: if `apps/web/.env` exists, it stops and changes nothing. `--file <path>` writes somewhere else, for example to prepare the settings for your host's environment screen. To do it by hand instead, copy the example file and set the secret yourself.
+
+On your own machine, for development, run `pnpm setup:env` without `--production`: it also fills in the keys of the local storage server from `docker-compose.yml`. Those keys only work for that local server, and production refuses them.
 
 Every setting below goes in `apps/web/.env`, or in your host's environment settings. `apps/web/.env.example` documents each one.
 
@@ -33,7 +37,7 @@ Every setting below goes in `apps/web/.env`, or in your host's environment setti
 
 ```bash
 # apps/web/.env
-BETTER_AUTH_SECRET=<output of: openssl rand -hex 32>
+BETTER_AUTH_SECRET=<already filled in by setup:env; otherwise the output of: openssl rand -hex 32>
 NEXT_PUBLIC_SERVER_URL=https://adopt.example.com
 ```
 
@@ -308,6 +312,25 @@ pnpm build        # migrates PostgreSQL and hosted libSQL, then builds
 - **Back up first.** Migrations change the database and are not reversed by going back to older code.
 - **Read the release notes** for changed settings.
 - With more than one server, build once, then restart them one after another. The build's migration runs before any of them starts the new code.
+
+`git pull` brings the site and the plugins kept in the repository's `plugins/` folder. Plugins you installed from npm are updated separately, below.
+
+### Plugins installed from npm
+
+A plugin added with `pnpm --filter @pet-adopt/web add <name>` comes from npm, and `git pull` does not move it. Update it on your own machine, test, and commit the result:
+
+```bash
+pnpm update -r "@pet-adopt/plugin-*"            # stays inside the ranges in apps/web/package.json
+pnpm update -r --latest "@pet-adopt/plugin-*"   # or: move to the newest release
+pnpm typecheck
+pnpm build
+```
+
+- **A plain `pnpm update` stays inside the version range** written in `apps/web/package.json`. An exact version (`0.1.0`) does not move at all, and `^0.1.0` takes only patch releases while the version starts with 0. A new minor release (0.2.0) can need action from you, so read the plugin's changelog before you use `--latest`.
+- **Plugins from other authors** have their own names: put each one in place of the pattern, as in `pnpm update -r --latest acme-pet-adopt-gallery`.
+- **Check `apps/web/package.json` afterwards.** Plugins kept in the repository's `plugins/` folder must still say `workspace:*`. If one now names a version from npm, put `workspace:*` back and run `pnpm install`.
+- **A plugin needs a recent enough site.** Plugins depend on the SDK (`@pet-adopt/plugin-sdk`), which comes with the site. If pnpm warns about an unmet peer dependency on `@pet-adopt/plugin-sdk`, the new plugin version needs a newer site: update the site first (`git pull`, as above), or stay on the plugin version you have.
+- **Commit** the changed `apps/web/package.json` and `pnpm-lock.yaml`, then deploy as above. A plugin update can bring migrations for its own tables: `pnpm build` applies them on PostgreSQL and hosted libSQL, and a local SQLite file applies them when the server starts.
 
 ## More than one server
 

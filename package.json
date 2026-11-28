@@ -18,6 +18,7 @@
     "db:generate": "pnpm --filter @pet-adopt/web db:generate",
     "migrate": "pnpm --filter @pet-adopt/web migrate",
     "seed": "pnpm --filter @pet-adopt/web seed",
+    "setup:env": "pnpm --filter @pet-adopt/web setup:env",
     "admin:reset-password": "pnpm --filter @pet-adopt/web admin:reset-password",
     "plugin:generate": "pnpm --filter @pet-adopt/web plugin:generate"
   },

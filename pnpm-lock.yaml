@@ -475,17 +475,16 @@ importers:
         version: 5.7.3
 
   plugins/form-builder:
-    dependencies:
+    devDependencies:
+      '@libsql/client':
+        specifier: 0.18.0
+        version: 0.18.0
       '@pet-adopt/plugin-sdk':
         specifier: workspace:*
         version: link:../../packages/plugin-sdk
       '@pet-adopt/ui':
         specifier: workspace:*
         version: link:../../packages/ui
-    devDependencies:
-      '@libsql/client':
-        specifier: 0.18.0
-        version: 0.18.0
       '@types/node':
         specifier: 22.19.9
         version: 22.19.9
@@ -518,17 +517,16 @@ importers:
         version: 5.7.3
 
   plugins/instagram-feed:
-    dependencies:
+    devDependencies:
+      '@libsql/client':
+        specifier: 0.18.0
+        version: 0.18.0
       '@pet-adopt/plugin-sdk':
         specifier: workspace:*
         version: link:../../packages/plugin-sdk
       '@pet-adopt/ui':
         specifier: workspace:*
         version: link:../../packages/ui
-    devDependencies:
-      '@libsql/client':
-        specifier: 0.18.0
-        version: 0.18.0
       '@types/node':
         specifier: 22.19.9
         version: 22.19.9

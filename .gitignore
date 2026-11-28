@@ -36,3 +36,7 @@ COMPONENTS.md
 # Local tool output and notes, not part of the project
 .playwright-mcp/
 apps/web/AGENTS.md
+
+# compiled packages (built when a package is packed for npm)
+/packages/*/dist
+/plugins/*/dist

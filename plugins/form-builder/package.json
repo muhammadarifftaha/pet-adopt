@@ -1,9 +1,22 @@
 {
   "name": "@pet-adopt/plugin-form-builder",
   "version": "0.1.0",
-  "private": true,
   "description": "Build forms for the site and read the responses.",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/muhammadarifftaha/pet-adopt.git",
+    "directory": "plugins/form-builder"
+  },
+  "homepage": "https://github.com/muhammadarifftaha/pet-adopt/tree/main/plugins/form-builder#readme",
+  "bugs": "https://github.com/muhammadarifftaha/pet-adopt/issues",
+  "keywords": [
+    "pet-adopt",
+    "pet-adopt-plugin",
+    "plugin",
+    "forms",
+    "form-builder"
+  ],
   "type": "module",
   "exports": {
     ".": "./src/index.tsx",
@@ -13,23 +26,56 @@
     "./actions": "./src/actions.ts",
     "./captcha": "./src/captcha-widget.tsx"
   },
+  "files": [
+    "dist"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "exports": {
+      ".": {
+        "types": "./dist/src/index.d.ts",
+        "default": "./dist/src/index.js"
+      },
+      "./block": {
+        "types": "./dist/src/block.d.ts",
+        "default": "./dist/src/block.js"
+      },
+      "./fields": {
+        "types": "./dist/src/fields.d.ts",
+        "default": "./dist/src/fields.js"
+      },
+      "./server": {
+        "types": "./dist/src/server.d.ts",
+        "default": "./dist/src/server.js"
+      },
+      "./actions": {
+        "types": "./dist/src/actions.d.ts",
+        "default": "./dist/src/actions.js"
+      },
+      "./captcha": {
+        "types": "./dist/src/captcha-widget.d.ts",
+        "default": "./dist/src/captcha-widget.js"
+      }
+    }
+  },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "lint": "eslint ."
-  },
-  "dependencies": {
-    "@pet-adopt/plugin-sdk": "workspace:*",
-    "@pet-adopt/ui": "workspace:*"
+    "lint": "eslint .",
+    "build:package": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.build.json",
+    "prepack": "pnpm run build:package"
   },
   "peerDependencies": {
+    "@pet-adopt/plugin-sdk": "workspace:^",
+    "@pet-adopt/ui": ">=0.1.0",
     "drizzle-orm": "^0.45.4",
     "next": "^16.3.0",
     "react": "^19.2.0",
-    "react-dom": "^19.2.0",
     "react-icons": "^5.7.0"
   },
   "devDependencies": {
     "@libsql/client": "0.18.0",
+    "@pet-adopt/plugin-sdk": "workspace:*",
+    "@pet-adopt/ui": "workspace:*",
     "@types/node": "22.19.9",
     "@types/react": "19.2.14",
     "@types/react-dom": "19.2.3",
@@ -40,5 +86,10 @@
     "react-dom": "19.2.6",
     "react-icons": "^5.7.0",
     "typescript": "5.7.3"
+  },
+  "peerDependenciesMeta": {
+    "@pet-adopt/ui": {
+      "optional": true
+    }
   }
 }

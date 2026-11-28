@@ -1,0 +1,306 @@
+name: Publish packages
+
+# Publishes one of the three npm packages this repository holds. Started by hand, from `main` only.
+#
+#   plugin-sdk              packages/plugin-sdk        @pet-adopt/plugin-sdk
+#   plugin-form-builder     plugins/form-builder       @pet-adopt/plugin-form-builder
+#   plugin-instagram-feed   plugins/instagram-feed     @pet-adopt/plugin-instagram-feed
+#
+# The example plugin (plugins/adoption-tips) and @pet-adopt/ui are never published: the first is
+# for plugin authors to copy, the second is kept by each site as its own copy.
+#
+# "Dry run" is on unless you switch it off: the package is built, packed and checked, and nothing
+# is published. The version comes from the package's own package.json.
+#
+# Publishing uses npm's trusted publishing (OpenID Connect): no npm token is stored in this
+# repository. Two things npm needs before it works:
+#   1. The very first version of each package is published by hand. npm can only attach a
+#      trusted publisher to a package that already exists. From a machine signed in to npm
+#      (`npm login`, an account with two-factor that may publish under @pet-adopt):
+#        cd <package folder> && pnpm pack        # builds dist/ and writes the .tgz
+#        npm publish ./<the .tgz> --access public
+#      Publish the tarball pnpm wrote, never the folder: only pnpm turns `workspace:` ranges into
+#      versions and swaps in the compiled exports from publishConfig.
+#   2. Then, on npmjs.com, each package's Settings > Trusted publishing names this repository's
+#      GitHub owner and name, this workflow file, publish-packages.yml, and the environment
+#      `release`. Renaming this file or the environment breaks publishing until all three packages
+#      are updated. Once it works, the package's publishing access can be set to require two-factor
+#      and disallow tokens.
+#
+# The publish job runs in the GitHub environment `release` (Settings > Environments), which needs
+# a maintainer's approval and accepts only `main`. A real publish waits for that approval after
+# the pack job has passed; a dry run never reaches it.
+#
+# Order for a release: the SDK first, then the plugins (they take the SDK as a peer dependency).
+on:
+  workflow_dispatch:
+    inputs:
+      package:
+        description: Which package to publish
+        type: choice
+        required: true
+        options:
+          - plugin-sdk
+          - plugin-form-builder
+          - plugin-instagram-feed
+      dry_run:
+        description: Pack and check only; publish nothing
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+# One run per package at a time; a second one waits instead of cancelling a publish half way.
+concurrency:
+  group: publish-${{ inputs.package }}
+  cancel-in-progress: false
+
+jobs:
+  # Two jobs on purpose. Everything that runs code from the repository or its dependencies
+  # (install, typecheck, build, pack) happens here, in a job that cannot ask for the token npm
+  # trusts. The publish job below can, and it runs nothing but `npm publish` on the checked tarball.
+  pack:
+    name: Pack and check
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # The choice becomes a folder and an npm name. Everything after this reads them from the
+      # environment; the input itself is never pasted into a script.
+      - name: Work out the package
+        env:
+          PACKAGE: ${{ inputs.package }}
+        run: |
+          case "$PACKAGE" in
+            plugin-sdk)             dir=packages/plugin-sdk;     name=@pet-adopt/plugin-sdk ;;
+            plugin-form-builder)    dir=plugins/form-builder;    name=@pet-adopt/plugin-form-builder ;;
+            plugin-instagram-feed)  dir=plugins/instagram-feed;  name=@pet-adopt/plugin-instagram-feed ;;
+            *) echo "::error::Unknown package choice."; exit 1 ;;
+          esac
+          found=$(node -p "require('./' + process.argv[1] + '/package.json').name" "$dir")
+          if [ "$found" != "$name" ]; then
+            echo "::error::$dir/package.json is named $found, expected $name."
+            exit 1
+          fi
+          {
+            echo "PKG_DIR=$dir"
+            echo "PKG_NAME=$name"
+            echo "PACK_DIR=$RUNNER_TEMP/pack"
+            echo "TRY_DIR=$RUNNER_TEMP/try"
+          } >> "$GITHUB_ENV"
+
+      # The pnpm version comes from "packageManager" in the root package.json.
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Typecheck the package
+        run: pnpm --filter "$PKG_NAME" typecheck
+
+      # pnpm runs the package's `prepack` (which builds dist/) and writes the package as it will be
+      # published: the exports from publishConfig, `workspace:` ranges turned into versions.
+      - name: Pack
+        run: |
+          mkdir -p "$PACK_DIR" "$TRY_DIR"
+          (cd "$PKG_DIR" && pnpm pack --pack-destination "$PACK_DIR")
+          count=$(find "$PACK_DIR" -maxdepth 1 -name '*.tgz' | wc -l)
+          if [ "$count" -ne 1 ]; then
+            echo "::error::Expected one tarball in the pack folder, found $count."
+            exit 1
+          fi
+          tarball=$(find "$PACK_DIR" -maxdepth 1 -name '*.tgz')
+          tar -tzf "$tarball"
+          tar -xzf "$tarball" -C "$TRY_DIR"
+          echo "TARBALL=$tarball" >> "$GITHUB_ENV"
+
+      # The same checks as the "Pack the npm packages" job in ci.yml; keep the two in step.
+      # The packed manifest is the right one, is not private, has a version and no `workspace:`
+      # range; the tarball carries no .env file and no node_modules; every address in "exports"
+      # is a compiled file in dist/ inside the tarball; and a file that starts with 'use client'
+      # or 'use server' in the source still starts with it once compiled (without the line, Next
+      # treats a client component as a server one, and a server action as plain code).
+      - name: Check the tarball
+        run: |
+          if tar -tzf "$TARBALL" | grep -E '(^|/)\.env$|(^|/)\.env\.[^/]*local$|(^|/)node_modules/'; then
+            echo "::error::The tarball holds a .env file or a node_modules folder (listed above)."
+            exit 1
+          fi
+          if grep -n 'workspace:' "$TRY_DIR/package/package.json"; then
+            echo "::error::The packed package.json still has a workspace: range (listed above)."
+            exit 1
+          fi
+          node - "$PKG_DIR" "$TRY_DIR/package" "$PKG_NAME" <<'NODE'
+          const fs = require('node:fs')
+          const path = require('node:path')
+          const [sourceRoot, packedRoot, expectedName] = process.argv.slice(2)
+          const problems = []
+
+          const manifest = JSON.parse(fs.readFileSync(path.join(packedRoot, 'package.json'), 'utf8'))
+          if (manifest.name !== expectedName) problems.push(`the packed package is named ${manifest.name}, expected ${expectedName}`)
+          if (manifest.private) problems.push('the packed package.json says "private": npm would refuse it')
+          if (!/^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/.test(manifest.version ?? '')) problems.push(`not a version: ${manifest.version}`)
+          if (!fs.existsSync(path.join(packedRoot, 'dist'))) problems.push('the tarball has no dist folder')
+
+          // Every address in "exports" is a compiled file inside the package.
+          const targets = []
+          const collect = (value) => {
+            if (typeof value === 'string') targets.push(value)
+            else if (value && typeof value === 'object') Object.values(value).forEach(collect)
+          }
+          collect(manifest.exports)
+          if (targets.length === 0) problems.push('package.json has no exports')
+          for (const target of targets) {
+            if (!target.startsWith('./dist/')) problems.push(`exports points outside dist: ${target}`)
+            else if (!fs.existsSync(path.join(packedRoot, target))) problems.push(`exports names a file that is not in the tarball: ${target}`)
+          }
+
+          // The directive a file opens with, comments and blank lines aside.
+          const directiveOf = (file) => {
+            let text = fs.readFileSync(file, 'utf8').replace(/^﻿/, '')
+            for (;;) {
+              const before = text
+              text = text.replace(/^\s+/, '').replace(/^\/\/[^\n]*\n?/, '').replace(/^\/\*[\s\S]*?\*\//, '')
+              if (text === before) break
+            }
+            const match = /^(['"])(use client|use server)\1/.exec(text)
+            return match ? match[2] : null
+          }
+
+          const SKIP = new Set(['node_modules', 'dist', 'drizzle'])
+          const sources = []
+          const walk = (dir) => {
+            for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+              if (entry.name.startsWith('.') || SKIP.has(entry.name)) continue
+              const full = path.join(dir, entry.name)
+              if (entry.isDirectory()) walk(full)
+              else if (/\.tsx?$/.test(entry.name) && !entry.name.endsWith('.d.ts')) sources.push(full)
+            }
+          }
+          walk(sourceRoot)
+
+          let marked = 0
+          for (const source of sources) {
+            const directive = directiveOf(source)
+            if (!directive) continue
+            marked += 1
+            const relative = path.relative(sourceRoot, source).replace(/\.tsx?$/, '.js')
+            // dist/src/x.js when the build keeps the folder, dist/x.js when it compiles from src.
+            const candidates = [path.join(packedRoot, 'dist', relative)]
+            if (relative.startsWith(`src${path.sep}`)) candidates.push(path.join(packedRoot, 'dist', relative.slice(4)))
+            const compiled = candidates.find((file) => fs.existsSync(file))
+            if (!compiled) problems.push(`${relative}: starts with '${directive}' in the source, but its compiled file is not in the tarball`)
+            else if (directiveOf(compiled) !== directive) problems.push(`${path.relative(packedRoot, compiled)}: lost its '${directive}' line`)
+          }
+
+          if (problems.length > 0) {
+            for (const problem of problems) console.error(`::error::${expectedName}: ${problem}`)
+            process.exit(1)
+          }
+          console.log(`${expectedName}@${manifest.version}: ${targets.length} export addresses are in dist; ${marked} of ${sources.length} source files carry 'use client' or 'use server' and kept it.`)
+          NODE
+          version=$(node -p "require(process.argv[1]).version" "$TRY_DIR/package/package.json")
+          echo "PKG_VERSION=$version" >> "$GITHUB_ENV"
+
+      # The SDK has no runtime dependencies (its imports of react, react-icons and drizzle-orm are
+      # types only), so its compiled entry must load on its own.
+      - name: Check the packed SDK loads
+        if: env.PKG_NAME == '@pet-adopt/plugin-sdk'
+        run: |
+          node --input-type=module -e "const sdk = await import(process.argv[1]); if (typeof sdk.definePlugin !== 'function' || typeof sdk.host !== 'function') { console.error('::error::definePlugin or host is missing from dist/index.js'); process.exit(1) }" "$TRY_DIR/package/dist/index.js"
+
+      # Asked of the public registry without any login. 200: the version exists, so publishing
+      # would fail; 404: free. Anything else is left for npm to decide.
+      - name: Check the version is not on npm yet
+        env:
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          status=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 "https://registry.npmjs.org/$PKG_NAME/$PKG_VERSION" || true)
+          case "$status" in
+            200)
+              if [ "$DRY_RUN" = "false" ]; then
+                echo "::error::$PKG_NAME@$PKG_VERSION is already on npm. Raise the version in $PKG_DIR/package.json, merge that, and run this again."
+                exit 1
+              fi
+              echo "::warning::$PKG_NAME@$PKG_VERSION is already on npm. A real run would stop here: raise the version first."
+              ;;
+            404) echo "$PKG_NAME@$PKG_VERSION is not on npm yet." ;;
+            *) echo "::warning::Could not ask npm about $PKG_NAME@$PKG_VERSION (answer: ${status:-none}). npm itself refuses a version that exists." ;;
+          esac
+
+      # The digest is printed here and again before publishing, so a maintainer can see that the
+      # file published is the file this job checked.
+      - name: Tarball digest
+        run: sha256sum "$TARBALL" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Keep the checked tarball for the publish job
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: package
+          path: ${{ env.TARBALL }}
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Summary
+        env:
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          if [ "$DRY_RUN" = "false" ]; then
+            echo "**$PKG_NAME@$PKG_VERSION** was packed and checked. The publish job sends it to npm." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Dry run: **$PKG_NAME@$PKG_VERSION** was packed and checked. Nothing was published." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  publish:
+    name: Publish to npm
+    needs: pack
+    if: ${{ github.ref == 'refs/heads/main' && !inputs.dry_run }}
+    # Waits for a maintainer's approval. npm's trusted publisher names this environment too, so a
+    # token from a run outside it is refused.
+    environment: release
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      id-token: write # lets npm verify that this workflow is the one publishing
+    steps:
+      # No checkout, no install, no cache: nothing from the repository runs in this job.
+      # Node 24 ships an npm new enough for trusted publishing (11.5.1 or later); the step below
+      # checks that rather than trusting it.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+
+      - name: Check npm supports trusted publishing
+        run: |
+          version=$(npm --version)
+          node -e "const [a, b, c] = process.argv[1].split('.').map(Number); if (a < 11 || (a === 11 && (b < 5 || (b === 5 && c < 1)))) { console.error('::error::npm ' + process.argv[1] + ' is too old for trusted publishing (11.5.1 or later).'); process.exit(1) }" "$version"
+          echo "npm $version"
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: package
+          path: package
+
+      - name: Publish
+        run: |
+          count=$(find package -maxdepth 1 -name '*.tgz' | wc -l)
+          if [ "$count" -ne 1 ]; then
+            echo "::error::Expected one tarball from the pack job, found $count."
+            exit 1
+          fi
+          tarball=$(find package -maxdepth 1 -name '*.tgz')
+          sha256sum "$tarball" | tee -a "$GITHUB_STEP_SUMMARY"
+          npm publish "$tarball" --provenance --access public
+          echo "Published $(basename "$tarball") to npm." >> "$GITHUB_STEP_SUMMARY"

@@ -1,20 +1,51 @@
 {
   "name": "@pet-adopt/plugin-sdk",
   "version": "0.1.0",
-  "private": true,
   "description": "Types and helpers for writing Pet Adopt plugins: definePlugin, defineConfig, screens, widgets, email.",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/muhammadarifftaha/pet-adopt.git",
+    "directory": "packages/plugin-sdk"
+  },
+  "homepage": "https://github.com/muhammadarifftaha/pet-adopt/tree/main/packages/plugin-sdk#readme",
+  "bugs": "https://github.com/muhammadarifftaha/pet-adopt/issues",
+  "keywords": [
+    "pet-adopt",
+    "plugin",
+    "sdk"
+  ],
   "type": "module",
+  "sideEffects": false,
   "exports": {
     ".": "./src/index.ts"
   },
+  "files": [
+    "dist"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      }
+    }
+  },
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "build:package": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.build.json",
+    "prepack": "pnpm run build:package"
   },
   "peerDependencies": {
     "drizzle-orm": "^0.45.4",
     "react": "^19.2.0",
     "react-icons": "^5.7.0"
+  },
+  "peerDependenciesMeta": {
+    "drizzle-orm": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@libsql/client": "0.18.0",
@@ -23,10 +54,5 @@
     "react": "19.2.6",
     "react-icons": "^5.7.0",
     "typescript": "5.7.3"
-  },
-  "peerDependenciesMeta": {
-    "drizzle-orm": {
-      "optional": true
-    }
   }
 }
