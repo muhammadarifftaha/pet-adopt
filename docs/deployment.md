@@ -336,6 +336,7 @@ The full list, with explanations, is in `apps/web/.env.example`. The ones that m
 | `SEED_ADMIN_EMAIL`, `SEED_ADMIN_PASSWORD` | No | Create the first admin without the setup link |
 | `DB_POOL_MAX`, `DB_STATEMENT_TIMEOUT_MS` | No | PostgreSQL connection limits |
 | `SEARCH_INDEXING=off` | On staging | Keeps search engines away |
+| `CSP_IMG_SRC` | For a plugin that shows pictures from another service | Other https hosts pictures may load from, separated by spaces. Empty by default; the plugin's README says what to enter |
 | `SKIP_BUILD_MIGRATE`, `MIGRATE_ON_PREVIEW` | No | When the build migrates |
 | `ACTIVITY_LOG_DAYS` | No | How long the activity log is kept (default 365) |
 

@@ -8,6 +8,7 @@ Visitors browse a catalogue and contact you on **WhatsApp** or social media. The
 - **WhatsApp-first:** each pet page has a click-to-chat button with a prefilled message.
 - **Page builder:** the homepage and any other page (About, FAQ, Events...) are built from 20+ blocks with [Puck](https://puckeditor.com). It autosaves, previews phone and tablet widths, keeps version history, and lets you set padding on every block.
 - **Forms:** adoption applications, volunteer sign-ups or questions, with email notifications, an optional confirmation to the visitor, a spam trap and optional captcha. Responses stay in your admin.
+- **Instagram feed (optional):** a plugin that shows your Instagram profile and latest posts as a block, for Business and Creator accounts.
 - **A team admin at `/admin`:** four roles (admin, editor, developer, audit), email invites, optional two-factor sign-in, sign-in with your own OAuth/OpenID Connect provider, and an activity log of who changed what.
 - **Email built in:** any SMTP server, with templates you design in a drag-and-drop email builder.
 - **Search and sharing:** server-rendered, cached pages with canonical addresses, share cards for WhatsApp, Facebook and X, `sitemap.xml`, `robots.txt` and structured data.
@@ -71,7 +72,7 @@ The sidebar has three sections, each showing only what your role can see:
 | Section | Screens |
 | --- | --- |
 | **Content** | **Pets**, **Pages** (with the page builder) and **Media** (the image library) |
-| **Plugins** | **Forms** (the form builder) and any other plugin you add |
+| **Plugins** | **Forms** (the form builder), **Instagram** (the Instagram feed plugin) and any other plugin you add |
 | **Settings** | **Email** (sending and templates), **Theme**, **Users**, **Authentication** (two-factor, sign-in providers, archived accounts), **Activity** and **Site settings** |
 
 The **Dashboard** shows recent activity and a card from each plugin.
@@ -122,6 +123,7 @@ apps/web/                 The Next.js app, backend included
 packages/ui/              shadcn/ui components (Base UI), shared by the app and plugins
 packages/plugin-sdk/      What plugins import (definePlugin, host(), types). Imports nothing from the app
 plugins/form-builder/     The form builder plugin
+plugins/instagram-feed/   The Instagram feed plugin (optional)
 plugins/adoption-tips/    A small example plugin
 ```
 
@@ -136,7 +138,7 @@ plugins/adoption-tips/    A small example plugin
   - Sign-in attempts are rate limited in a table of our own.
 - **Uploads** are checked, stripped of metadata without recompressing, and stored under random names in S3-compatible storage.
 - **Theming** is data: a preset plus optional customisations produce CSS variables, and both the public CSS and the shadcn components read those variables.
-- **Plugins** add admin screens, dashboard cards, their own database tables and email templates. They reach the app only through `host()` from the plugin SDK. The form builder is one.
+- **Plugins** add admin screens, dashboard cards, their own database tables and email templates. They reach the app only through `host()` from the plugin SDK. The form builder and the Instagram feed are two.
 
 ## Using it
 
@@ -184,8 +186,9 @@ The builder:
 | Pets | Pet catalogue, Pet grid, Pet spotlight |
 | Media | Image grid, Image carousel, Video (YouTube, Vimeo) |
 | Adoption | Adoption steps, Numbers, Adopter stories, Team, Ways to help, Cost table, FAQ |
-| Contact | Form, Contact & map, Social links |
+| Contact | Contact & map, Social links |
 | Layout | Spacer, Divider |
+| Plugins | Blocks that plugins add: **Form** (form builder) and **Instagram feed** |
 
 Every block except Spacer has a **Padding** option for the space above and below it.
 
@@ -222,6 +225,17 @@ Every block except Spacer has a **Padding** option for the space above and below
   - **Keys must pass a check first.** Saved keys only protect forms after **Check these keys** verifies them.
   - **If the service can't be reached,** forms are refused with an explanation.
   - Mention the service in your privacy policy.
+
+### Instagram feed
+
+**Instagram** (an optional plugin, [`plugins/instagram-feed`](plugins/instagram-feed)) shows an Instagram profile and its latest posts in the **Instagram feed** block. This repository has it installed. It is not on npm yet; [its README](plugins/instagram-feed#installing) says how it is added to a site, or taken out.
+
+- **Accounts:** Business and Creator accounts only. Instagram's API does not serve personal accounts.
+- **Connecting:** with your own Meta app's keys and Instagram's sign-in, or with a pasted access token. Admins and developers connect; keys and tokens are stored encrypted.
+- **The block:** the profile photo, handle, numbers and biography, then a grid of 5 to 10 square posts and a **Show more** button. Each part can be hidden, and it follows the site's theme.
+- **Pinned posts:** the team pins up to 3 posts on the plugin's screen. They lead the feed and count towards the block's number of posts.
+- **Freshness:** the feed is kept in the database and read again about once an hour. **Refresh now** reads it at once.
+- **Pictures:** visitors' browsers load them from Instagram's servers, which the site's content security policy blocks until you allow them: set `CSP_IMG_SRC="https://*.cdninstagram.com https://*.fbcdn.net"` and restart. Instagram then sees visitors' addresses, so say so in your privacy policy.
 
 ### Users and roles
 
@@ -331,7 +345,7 @@ A plugin is an npm package or a local folder that depends only on `@pet-adopt/pl
 - **What it can add:** admin screens, dashboard cards, page builder blocks, its own database tables (with migrations), and default email templates.
 - **How it reaches the site:** through `host()`, for permissions, rate limits, email, the activity log, encrypted secrets and the privacy policy.
 
-To add a workspace plugin, run `pnpm --filter @pet-adopt/web add <name>@workspace:*` and list it in `apps/web/pet-adopt.config.ts`. After changing a plugin's tables, run `pnpm plugin:generate <folder> <change_name>`. [`plugins/adoption-tips`](plugins/adoption-tips) is a small example, and [`plugins/form-builder`](plugins/form-builder) a full one.
+To add a workspace plugin, run `pnpm --filter @pet-adopt/web add <name>@workspace:*` and list it in `apps/web/pet-adopt.config.ts`. After changing a plugin's tables, run `pnpm plugin:generate <folder> <change_name>`. [`plugins/adoption-tips`](plugins/adoption-tips) is a small example, [`plugins/form-builder`](plugins/form-builder) a full one, and [`plugins/instagram-feed`](plugins/instagram-feed) another that brings a block.
 
 #### Page builder blocks
 
@@ -410,7 +424,7 @@ This is the short version. **[docs/deployment.md](docs/deployment.md)** goes ste
 - **Encrypted secrets:** the SMTP password, sign-in provider secrets, captcha secret keys and two-factor secrets are stored encrypted. Password reset, invite and email change links are stored only as hashes and work once.
 - **The activity log** records changes, sign-ins and failed sign-ins, naming fields but never their values. It is kept for 365 days (`ACTIVITY_LOG_DAYS`).
 - **Headers** are set in `apps/web/next.config.ts`: `nosniff`, no framing by other sites, a strict referrer policy, a Content-Security-Policy, and HSTS (one year) when the site's address is https.
-  - **What the policy allows:** your own site, plus Google Maps, YouTube (no-cookie) and Vimeo embeds, and the four captcha services.
+  - **What the policy allows:** your own site, plus Google Maps, YouTube (no-cookie) and Vimeo embeds, and the four captcha services. Pictures load only from your own site unless you list other hosts in `CSP_IMG_SRC` (the Instagram feed plugin needs two; its README names them).
   - **Inline scripts** stay allowed because Next.js needs them, and a nonce would end page caching.
   - **Adding an embed or script:** extend the policy. Set `CSP_REPORT_ONLY=1` first to see what it would block.
 

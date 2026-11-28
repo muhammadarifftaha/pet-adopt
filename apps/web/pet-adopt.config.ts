@@ -1,6 +1,7 @@
 import { defineConfig } from "@pet-adopt/plugin-sdk";
 import { adoptionTips } from "@pet-adopt/plugin-adoption-tips";
 import { formBuilder } from "@pet-adopt/plugin-form-builder";
+import { instagramFeed } from "@pet-adopt/plugin-instagram-feed";
 
 // Plugins are registered here. Each one can add screens (menu entry plus page under
 // /admin/plugins/<name>/...) and dashboard widgets to the admin, with no other wiring.
@@ -10,5 +11,5 @@ import { formBuilder } from "@pet-adopt/plugin-form-builder";
 // Email is built in (SMTP, set up in Settings > Email). A plugin with `email: { send }` can replace it,
 // for example to send through a provider's HTTP API where SMTP ports are blocked; at most one may.
 export default defineConfig({
-  plugins: [adoptionTips(), formBuilder()],
+  plugins: [adoptionTips(), formBuilder(), instagramFeed()],
 });

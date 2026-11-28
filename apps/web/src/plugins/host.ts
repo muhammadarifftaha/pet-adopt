@@ -6,6 +6,7 @@ import { provideHost } from '@pet-adopt/plugin-sdk'
 import { headers } from 'next/headers'
 
 import { PetStatus } from '@/lib/options'
+import { safeRevalidate } from '@/lib/revalidate'
 import { SITE_URL } from '@/lib/seo'
 import { toE164, validatePhone } from '@/lib/phone'
 import { recordActivity } from '@/server/activity'
@@ -66,6 +67,14 @@ provideHost({
   },
   timeZone: async () => (await getSettings()).timeZone,
   siteUrl: () => SITE_URL,
+  // Every public page: a plugin's block can be on any of them.
+  revalidateSite: () => {
+    try {
+      safeRevalidate([['/', 'layout']])
+    } catch {
+      // Never a plugin's problem: pages then refresh on their own timer.
+    }
+  },
   emailTemplates: async (purpose) => (await listEmailTemplates(purpose)).map(({ id, name, seedKey }) => ({ id, name, seedKey })),
   logError,
   // Plugins log changes made by the signed-in person, under the area `plugins`. An action must start
