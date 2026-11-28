@@ -1,6 +1,6 @@
 # Adoption tips (example plugin)
 
-`@pet-adopt/plugin-adoption-tips`: a small example of a Pet Adopt plugin. It adds a **Tips** screen to the admin and a tip card to the dashboard. It is not published to npm: it stays in this repository as an example. Copy it as a starting point for your own plugin (the [plugin guide](../../apps/docs/content/docs/developers/plugins/index.mdx) explains how); for a full one, with its own database tables, server actions and email, see [`plugins/form-builder`](../form-builder).
+`@pet-adopt/plugin-adoption-tips`: a small example of a Pet Adopt plugin. It adds a **Tips** screen to the admin and a tip card to the dashboard. It is not published to npm: it stays in this repository as an example. Copy it as a starting point for your own plugin (the [plugin guide](https://pet-adopt.dev/docs/developers/plugins) explains how); for a full one, with its own database tables, server actions and email, see [`plugins/form-builder`](../form-builder).
 
 ## What it adds
 

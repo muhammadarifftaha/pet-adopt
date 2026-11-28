@@ -4,7 +4,7 @@ Types and helpers for writing plugins for [Pet Adopt](https://github.com/muhamma
 
 A plugin can add admin screens, dashboard cards, page builder blocks, its own database tables, default email templates and an email sender. This package is everything a plugin imports: it contains no part of the site itself.
 
-**The full guide to writing a plugin is [in the docs](https://github.com/muhammadarifftaha/pet-adopt/blob/main/apps/docs/content/docs/developers/plugins/index.mdx).**
+**The full guide to writing a plugin is [in the docs](https://pet-adopt.dev/docs/developers/plugins).**
 
 ## Install
 
