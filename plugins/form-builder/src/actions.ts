@@ -3,7 +3,7 @@
 // The form builder's server actions: what its admin screens (and, for `submitFormAction`, the site's
 // Form block) call. Each one checks who is calling through `host()`, takes untrusted input, and
 // returns an ActionResult. The rules live in ./server.ts.
-import { accessPermission, can, host, UserError, type ActionResult } from '@pet-adopt/plugin-sdk'
+import { accessPermission, can, host, UserError, type ActionResult, type PluginBlockChoice } from '@pet-adopt/plugin-sdk'
 import { after } from 'next/server'
 
 import {
@@ -43,6 +43,20 @@ export async function listFormsAction(): Promise<ActionResult<FormSummary[]>> {
   return host().run(async () => {
     await host().requirePermission(accessPermission('all', 'view'))
     return listForms()
+  })
+}
+
+/**
+ * The page builder's Form block lists the forms to pick from (its `choice` option). The page
+ * builder's own permission (`pages:view`: admins, editors, developers and audit), not this plugin's
+ * screens' level: whoever can open the page builder must see what a Form block is set to. Names
+ * and open or closed only, nothing visitors sent. A read: no activity is recorded.
+ */
+export async function listFormChoicesAction(): Promise<ActionResult<PluginBlockChoice[]>> {
+  return host().run(async () => {
+    await host().requirePermission('pages:view')
+    const forms = await listForms()
+    return forms.map((form) => ({ label: form.name, value: form.id, ...(form.isOpen ? {} : { note: 'closed' }) }))
   })
 }
 

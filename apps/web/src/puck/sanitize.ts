@@ -10,10 +10,15 @@ import type { Config, Data } from '@puckeditor/core'
 // Pure, and used twice: when a layout is saved (src/server/pages.ts) and again when it is drawn
 // (BuilderContent), so a layout stored before this check existed cannot break a page either.
 
+/** The longest text a plugin block's `choice` option may save (MAX_CHOICE_LENGTH in plugin-blocks.tsx). */
+const MAX_CHOICE_TEXT = 200
+
 type Json = Record<string, unknown>
 type Field = {
   type?: string
   options?: ReadonlyArray<{ value: unknown }>
+  /** A custom field whose value is one plain id (a plugin block's `choice` option): never an object. */
+  plainValue?: boolean
   arrayFields?: Record<string, Field>
   objectFields?: Record<string, Field>
 }
@@ -60,6 +65,7 @@ function cleanValue(value: unknown, field: Field, config: Config): unknown {
       return Array.isArray(value) ? value.filter(isBlock).map((block) => cleanBlock(block, config)) : undefined
     case 'custom':
     case 'external':
+      if (field.plainValue) return (typeof value === 'string' && value.length <= MAX_CHOICE_TEXT) || (typeof value === 'number' && Number.isFinite(value)) ? value : undefined
       return cleanPicked(value)
     default:
       return value

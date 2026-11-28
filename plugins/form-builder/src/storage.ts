@@ -8,7 +8,7 @@ import { migrations } from '../migrations'
 import * as pg from '../schema/pg'
 import * as sqlite from '../schema/sqlite'
 
-export const FORM_BUILDER = 'form-builder'
+export { FORM_BUILDER } from './names'
 
 export const formBuilderStorage = definePluginStorage({ tables: { sqlite, pg }, migrations })
 

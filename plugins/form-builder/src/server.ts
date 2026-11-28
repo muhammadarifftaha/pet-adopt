@@ -170,6 +170,43 @@ export async function getPublicForm(id: number): Promise<PublicForm | null> {
   }
 }
 
+/** What the page builder's Form block shows (its loader's result): the form and the live privacy policy. */
+export type FormBlockData = {
+  form: PublicForm
+  /** The site's privacy policy while it is live, linked under the form's button; null otherwise. */
+  privacy: { title: string; href: string } | null
+}
+
+/**
+ * The Form block's loader (public: it runs for every visitor, with nobody signed in). Reads
+ * `formId` from the block's saved, unchecked options: a whole number, or its digits as text (pages
+ * saved before the block moved into the plugin hold a number). Never throws: null for no form, a
+ * deleted one, the plugin's tables not set up yet, or a failure (logged without the error object).
+ */
+export async function loadFormBlock(props: Record<string, unknown>): Promise<FormBlockData | null> {
+  const raw = isRecord(props) ? props.formId : undefined
+  const id = typeof raw === 'number' ? raw : typeof raw === 'string' && /^\d{1,10}$/.test(raw.trim()) ? Number(raw) : NaN
+  if (!Number.isSafeInteger(id) || id < 1 || id > MAX_ID) return null
+  try {
+    const form = await getPublicForm(id)
+    if (!form) return null
+    // The privacy line is extra: if it cannot be read, the form is still shown, without it.
+    let privacy: FormBlockData['privacy'] = null
+    try {
+      const { policy } = await host().privacyPolicy()
+      privacy = policy ? { title: policy.title, href: policy.href } : null
+    } catch (error) {
+      if (process.env.NEXT_PHASE !== 'phase-production-build') host().logError(error, 'form-builder: reading the privacy policy for a form')
+    }
+    return { form, privacy }
+  } catch (error) {
+    // A UserError here is "the plugin's tables are not set up": the admin screens say so already.
+    // While the site is being built there is often no database: nothing worth logging.
+    if (!(error instanceof UserError) && process.env.NEXT_PHASE !== 'phase-production-build') host().logError(error, 'form-builder: loading a form for a page')
+    return null
+  }
+}
+
 type FormInput = { name?: string; description?: string | null; fields?: FormField[]; settings?: FormSettings; isOpen?: boolean }
 
 /** Reads the keys that are present; a missing key means "leave it alone". Throws every problem at once. */

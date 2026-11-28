@@ -122,7 +122,7 @@ p { margin: 0 0 1em; }
 .prose ul, .prose ol { padding-left: 1.4em; margin: 0 0 1em; }
 /* Bullets and numbers for lists of content. The live site loads Tailwind, whose reset removes them
    (ul, ol { list-style: none }); the page builder does not, so without this they showed only there. */
-.prose ul, .pet-profile-list ul, .form-summary ul { list-style: disc; }
+.prose ul, .pet-profile-list ul { list-style: disc; }
 .prose ol, .pet-profile-list ol { list-style: decimal; }
 .prose ul ul, .pet-profile-list ul ul { list-style: circle; }
 .prose li > p { margin: 0; }
@@ -399,37 +399,6 @@ p { margin: 0 0 1em; }
   .hero-stacked-image, .hero-stacked-lg { aspect-ratio: 4 / 3; }
 }
 
-/* --- Form block (form builder plugin) ----------------------------------------------------- */
-/* Plain CSS on the theme variables: the page builder's canvas has no Tailwind. */
-.form-section { max-width: 42rem; }
-.form-intro { color: var(--muted); }
-.form-block { display: grid; gap: calc(18px * var(--density)); margin-top: calc(20px * var(--density)); }
-.form-field { display: grid; gap: 6px; margin: 0; padding: 0; border: 0; min-width: 0; }
-.form-label { font-weight: 600; color: var(--ink); padding: 0; }
-.form-required { font-weight: 400; color: var(--muted); }
-.form-hint { margin: 0; font-size: 0.9rem; color: var(--muted); }
-.form-field input:not([type="checkbox"]):not([type="radio"]), .form-field select, .form-field textarea {
-  width: 100%; padding: 10px 12px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm);
-  font: inherit; color: var(--ink); background: var(--surface);
-}
-.form-field textarea { resize: vertical; min-height: 7rem; }
-.form-field.has-error input:not([type="checkbox"]):not([type="radio"]), .form-field.has-error select, .form-field.has-error textarea { border-color: var(--warn-ink); }
-.form-options { display: grid; gap: 8px; }
-.form-option { display: flex; align-items: flex-start; gap: 10px; cursor: pointer; color: var(--ink); }
-.form-option input { margin-top: 0.25em; width: 1.1em; height: 1.1em; accent-color: var(--primary); flex: none; }
-.form-error { margin: 0; font-size: 0.9rem; font-weight: 600; color: var(--warn-ink); }
-.form-summary { padding: 14px 16px; border-radius: var(--radius-sm); background: var(--warn-bg); color: var(--warn-ink); }
-.form-summary p { margin: 0 0 6px; font-weight: 600; }
-.form-summary ul { margin: 0; padding-left: 1.2em; }
-.form-privacy { margin: 12px 0 0; font-size: 0.875rem; color: var(--muted); }
-.form-privacy a { color: inherit; }
-.form-summary a { color: inherit; text-decoration: underline; }
-.form-success { padding: 16px 18px; border-radius: var(--radius-sm); background: var(--ok-bg); color: var(--ok-ink); font-weight: 600; }
-.form-closed, .form-note { padding: 12px 14px; border-radius: var(--radius-sm); background: var(--surface-alt); color: var(--muted); }
-.form-actions .btn[aria-disabled="true"] { opacity: 0.6; cursor: not-allowed; }
-/* The honeypot: off screen, not display:none (some bots skip hidden inputs). aria-hidden in the markup. */
-.form-hp { position: absolute; left: -10000px; width: 1px; height: 1px; overflow: hidden; }
-
 /* Pet page template (src/puck/pet-page-config.tsx): the details block's lists and the adopt button. */
 .pet-page-lists { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0 calc(24px * var(--density)); }
 .pet-page-lists-rows { grid-template-columns: minmax(0, 1fr); }
@@ -546,6 +515,3 @@ p { margin: 0 0 1em; }
 
 .pet-page-top { display: flex; flex-direction: column; gap: 12px; padding-top: 24px; }
 
-/* The form builder's spam check (captcha widget) above a form's button. */
-.form-captcha { margin: 8px 0 4px; min-height: 65px; }
-.form-captcha-error { margin: 8px 0; padding: 10px 12px; border-radius: var(--radius-sm); background: var(--warn-bg); color: var(--warn-ink); }

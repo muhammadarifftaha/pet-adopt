@@ -8,7 +8,8 @@ import { FormsWidget } from './screens/FormsWidget'
 import { Responses } from './screens/Responses'
 import { SpamProtection } from './screens/SpamProtection'
 import { FORM_EMAIL_TEMPLATES } from './email-templates'
-import { emailTemplateUsage } from './server'
+import { FORM_BLOCK } from './names'
+import { emailTemplateUsage, loadFormBlock } from './server'
 import { FORM_BUILDER, formBuilderStorage } from './storage'
 
 export { FORM_BUILDER, formBuilderStorage, openFormsDatabase } from './storage'
@@ -22,7 +23,10 @@ export * from './fields'
 // Storage: src/storage.ts. Rules: src/server.ts (forms, responses, CSV, public submit with a honeypot
 // and per-visitor and per-form limits). Server actions: src/actions.ts. Field model: src/fields.ts.
 // Admin screens: src/screens (built on @pet-adopt/ui). On the site, forms are shown by the page
-// builder's Form block (apps/web/src/puck/config.tsx, drawn by apps/web/src/components/site/PublicForm.tsx).
+// builder's Form block: src/block.tsx (the visitor's form is src/public-form.tsx, its CSS
+// src/block-css.ts) and its loader `loadFormBlock` in src/server.ts. The block is loaded by the
+// browser, so it is NOT exported from here: a site lists it in `pet-adopt.blocks.ts` from
+// `@pet-adopt/plugin-form-builder/block`.
 
 export const formBuilder = definePlugin<{ title?: string } | void>((options) => ({
   name: FORM_BUILDER,
@@ -33,6 +37,8 @@ export const formBuilder = definePlugin<{ title?: string } | void>((options) => 
   // use which template (the "Used by" column of Email > Templates).
   emailTemplates: FORM_EMAIL_TEMPLATES,
   emailTemplateUsage,
+  // What the Form block shows (the form and the live privacy policy), loaded on the server wherever it is drawn.
+  blockLoaders: { [FORM_BLOCK]: loadFormBlock },
   screens: [
     {
       path: '',

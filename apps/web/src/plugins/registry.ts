@@ -3,7 +3,8 @@ import { FiMail } from 'react-icons/fi'
 import type { AdminNavItem, NavIcon } from '@/components/admin/nav-items'
 
 import config from '../../pet-adopt.config'
-import { accessOf, accessPermission, type EmailSender, type EmailTemplateUse, type Plugin, type PluginEmailTemplate, type PluginAccess, type PluginMigration, type PluginScreen, type PluginStorage, type PluginWidget } from '@pet-adopt/plugin-sdk'
+import siteBlocks from '../../pet-adopt.blocks'
+import { accessOf, accessPermission, type EmailSender, type EmailTemplateUse, type AnyPluginBlock, type Plugin, type PluginBlockLoader, type PluginEmailTemplate, type PluginAccess, type PluginMigration, type PluginScreen, type PluginStorage, type PluginWidget } from '@pet-adopt/plugin-sdk'
 import { IconError, toNavIcon } from './icon'
 import { storageProblems } from './storage-rules'
 import { logError } from '@/server/result'
@@ -53,6 +54,8 @@ type Registry = {
   templateUsage: Array<{ plugin: string; usage: () => Promise<EmailTemplateUse[]> }>
   /** Plugin default templates, keyed `<plugin>:<key>`. */
   templateSeeds: Array<PluginEmailTemplate & { seedKey: string; plugin: string }>
+  /** The server half of plugin blocks, by block name. */
+  blockLoaders: Map<string, { plugin: string; load: PluginBlockLoader }>
 }
 
 /** "resend-email" -> "Resend email". */
@@ -62,6 +65,8 @@ const MAIL_ICON = toNavIcon(FiMail)
 const NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 const LITERAL_SEGMENT = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 const PARAM_SEGMENT = /^:[a-zA-Z][a-zA-Z0-9]*$/
+/** A page builder block's name, as saved in pages (the same pattern as src/puck/plugin-blocks.tsx). */
+const BLOCK_NAME = /^[A-Z][A-Za-z0-9]{0,59}$/
 
 export const PLUGIN_BASE = '/admin/plugins'
 
@@ -71,6 +76,48 @@ function flatten(list: Plugin[], out: Plugin[] = []): Plugin[] {
     out.push(plugin)
   }
   return out
+}
+
+/**
+ * The loaders of every plugin's page builder blocks, checked against the site's list of blocks
+ * (pet-adopt.blocks.ts). A loader's name must be a block name and belong to one plugin; a listed
+ * block must name a configured plugin, and its loader (it may have none) must be that plugin's.
+ * A loader whose block the site does not list is fine: it is simply never asked.
+ */
+export function collectBlockLoaders(plugins: Plugin[], blocks: readonly AnyPluginBlock[]): Registry['blockLoaders'] {
+  const loaders: Registry['blockLoaders'] = new Map()
+  for (const plugin of plugins) {
+    if (plugin.blockLoaders === undefined) continue
+    const who = `Plugin "${plugin.name}"`
+    if (typeof plugin.blockLoaders !== 'object' || plugin.blockLoaders === null || Array.isArray(plugin.blockLoaders)) {
+      throw new Error(`${who}: blockLoaders must be an object of functions, keyed by block name.`)
+    }
+    for (const [name, load] of Object.entries(plugin.blockLoaders)) {
+      if (!BLOCK_NAME.test(name)) throw new Error(`${who}: the block name "${name}" must be letters and digits starting with a capital, such as "AcmeGallery".`)
+      if (typeof load !== 'function') throw new Error(`${who}: the loader of the block "${name}" must be a function.`)
+      const other = loaders.get(name)
+      if (other) throw new Error(`${who} has a loader for the block "${name}", but "${other.plugin}" already does. Block names must be unique.`)
+      loaders.set(name, { plugin: plugin.name, load })
+    }
+  }
+  // A plugin's block that the site does not list never appears in the page builder, and pages that
+  // hold it lose it silently: say so once, at start.
+  for (const [name, loader] of loaders) {
+    if (!blocks.some((block) => block.name === name)) {
+      console.warn(`Plugin "${loader.plugin}" has a page builder block "${name}" that apps/web/pet-adopt.blocks.ts does not list. Pages that use it will not show it until it is added there (see the plugin's README).`)
+    }
+  }
+  for (const block of blocks) {
+    const who = `pet-adopt.blocks.ts: the block "${block.name}"`
+    if (!plugins.some((plugin) => plugin.name === block.plugin)) {
+      throw new Error(`${who} belongs to the plugin "${block.plugin}", which is not in pet-adopt.config.ts. Add the plugin there too.`)
+    }
+    const loader = loaders.get(block.name)
+    if (loader && loader.plugin !== block.plugin) {
+      throw new Error(`${who} says it belongs to "${block.plugin}", but its loader comes from "${loader.plugin}".`)
+    }
+  }
+  return loaders
 }
 
 function build(): Registry {
@@ -180,7 +227,7 @@ function build(): Registry {
     })
   }
 
-  return { plugins, infos, screens, widgets, email, templateUsage, templateSeeds }
+  return { plugins, infos, screens, widgets, email, templateUsage, templateSeeds, blockLoaders: collectBlockLoaders(plugins, siteBlocks) }
 }
 
 let cached: Registry | undefined
@@ -246,6 +293,16 @@ export async function getEmailTemplateUsage(): Promise<Map<number | string, Arra
 /** Every plugin's default email templates (`seedKey` is `<plugin>:<key>`). */
 export function getPluginEmailTemplates(): Registry['templateSeeds'] {
   return registry().templateSeeds
+}
+
+/**
+ * The server half of a plugin's page builder block: `load` is its loader, or null when the block
+ * shows nothing loaded. Undefined when the site lists no block of that name (pet-adopt.blocks.ts).
+ */
+export function getPluginBlock(name: string): { plugin: string; block: AnyPluginBlock; load: PluginBlockLoader | null } | undefined {
+  const block = siteBlocks.find((entry) => entry.name === name)
+  if (!block) return undefined
+  return { plugin: block.plugin, block, load: registry().blockLoaders.get(name)?.load ?? null }
 }
 
 export function getPluginWidgets(): ResolvedWidget[] {

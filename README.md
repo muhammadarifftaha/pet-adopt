@@ -328,10 +328,35 @@ The Padding option is added to every block automatically.
 
 A plugin is an npm package or a local folder that depends only on `@pet-adopt/plugin-sdk`.
 
-- **What it can add:** admin screens, dashboard cards, its own database tables (with migrations), and default email templates.
+- **What it can add:** admin screens, dashboard cards, page builder blocks, its own database tables (with migrations), and default email templates.
 - **How it reaches the site:** through `host()`, for permissions, rate limits, email, the activity log, encrypted secrets and the privacy policy.
 
 To add a workspace plugin, run `pnpm --filter @pet-adopt/web add <name>@workspace:*` and list it in `apps/web/pet-adopt.config.ts`. After changing a plugin's tables, run `pnpm plugin:generate <folder> <change_name>`. [`plugins/adoption-tips`](plugins/adoption-tips) is a small example, and [`plugins/form-builder`](plugins/form-builder) a full one.
+
+#### Page builder blocks
+
+A plugin can add blocks to the page builder; they appear under **Plugins**. The form builder's **Form** block is one (`plugins/form-builder/src/block.tsx`). A block has two halves, because the page builder runs in the browser and a plugin's rules run on the server:
+
+1. **The block** (`definePluginBlock` from the SDK): its `name`, `label`, `plugin`, options (`fields`), `defaultProps`, `render` and optional `css`. It is loaded by the browser, so its module imports nothing server-only (no storage, no `host()`, no secrets). It may import a `'use client'` component and a `'use server'` actions file. The plugin exports it from its own entry point (`<plugin>/block`), and the site lists it in **`apps/web/pet-adopt.blocks.ts`** (`defineBlocks([...])`).
+2. **Its loader** (`blockLoaders: { [name]: loader }` on the plugin): a server function that returns what the block shows. It runs for every visitor and for the editor's preview, so it returns only public data, as plain JSON. `render` gets it as `data`; it is never saved with the page. The plugin itself stays in **`apps/web/pet-adopt.config.ts`** as usual.
+
+Both files are needed: the config gives the screens and the loader, the blocks file puts the block in the page builder. The site refuses to start when a block's name clashes with a built-in block or another plugin's (give it a prefix of your own, such as `AcmeGallery`), or when its plugin is not configured.
+
+**Options a block can set:**
+
+- **`needsData`:** the block draws nothing without data. While it has none, its `heading` does not count as the page's heading, so the page still gets an `<h1>`.
+- **`headingFromData`:** the block always draws a heading when it has data, even with a blank `heading` option (the Form block falls back to the form's name), so it can be the page's `<h1>`. Draw it with the tag `headingLevel` asks for.
+- **`dataOptions`:** the options the loader reads. The editor then reloads only when one of them changes, not on every keystroke in other options.
+- **`petPage`:** also offer the block in the Pet page template. The loader is not told which pet is shown.
+- **A `choice` option:** a dropdown filled by a server action of the plugin (`load`), such as the list of forms. The action checks a permission first (`host().requirePermission('pages:view')`) and records no activity. The saved value is an id (text or a number).
+
+**Rules for `render` and `css`:**
+
+- `render` is a plain function of its props: no hooks or browser-only code, because it draws the block on the server for visitors. For anything interactive, return a `'use client'` component. In the editor (`editing` is true), a block with nothing to show should say why instead of vanishing.
+- Style it with plain CSS in `css`, using the site's theme variables (`var(--primary)`, `var(--surface)`, `var(--radius)` and so on): the public site and the editor's canvas do not load Tailwind. The CSS is not scoped, so start every selector with a class of your own.
+- Option names `id`, `puck`, `editMode`, `padding`, `spacing`, `headingLevel`, `data`, `editing` and `pluginData` are reserved. A text option named `heading` is the block's heading.
+- **Saved options are untrusted.** The site checks them against the block's fields before `render` sees them (wrong kinds and made-up choices fall back to the defaults), but a loader must treat its `props` as untrusted (the editor's preview sends them from the browser), and a `choice` may name a record that no longer exists.
+- **A number that cannot be typed:** the page builder's number box refuses every keystroke that lands outside `min` and `max`. With `min: 5, max: 10` nobody can type `10` (its first digit is under the minimum), so a range with two-digit values only works with the arrows. Use a `select` with numeric values instead (`options: [{ label: '5', value: 5 }, …]`).
 
 ## Production
 

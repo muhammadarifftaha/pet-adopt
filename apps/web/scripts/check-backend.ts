@@ -79,7 +79,17 @@ import { accessOf, accessPermission, asRole, can, host, pluginTablePrefix, provi
 import { formBuilderStorage, openFormsDatabase } from '@pet-adopt/plugin-form-builder'
 import * as forms from '@pet-adopt/plugin-form-builder/server'
 import * as formFields from '@pet-adopt/plugin-form-builder/fields'
+import * as formActions from '@pet-adopt/plugin-form-builder/actions'
 import { classToken, sanitizeLayout } from '../src/puck/sanitize'
+import { definePluginBlock, type ActionResult, type Plugin as SdkPlugin, type PluginUser } from '@pet-adopt/plugin-sdk'
+import * as ReactForChecks from 'react'
+import { createElement } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
+import { stripTransient, assignHeadingLevels } from '../src/puck/data'
+import { pluginBlockOptions, pluginBlockProblems, toPuckComponent, withPluginBlocks } from '../src/puck/plugin-blocks'
+import { fetchPluginBlockData, plainBlockProps, runPluginBlockLoader } from '../src/puck/plugin-block-data'
+import { collectBlockLoaders } from '../src/plugins/registry'
+import siteBlocks from '../pet-adopt.blocks'
 import { discoveryProblem, endpointProblem } from '../src/server/provider-endpoints'
 import { guarded } from '../src/server/provider-guard'
 import { DEFAULT_HOME_DATA, DEFAULT_PET_PAGE_DATA, DEFAULT_PETS_DATA } from '../src/puck/data'
@@ -2269,7 +2279,7 @@ await check('roles: the permission table is as agreed, every action checks a per
     'requestAccountDeletionAction', 'requestEmailVerificationAction',
     'createFirstAdminAction', 'finishSetupAction',
     'requestPasswordResetAction', 'resetPasswordWithTokenAction', 'acceptInviteAction', 'submitFormAction',
-    'fetchPetSpotlightAction', 'fetchCatalogAction', 'fetchPetProfilesAction', 'fetchPetsAction', 'fetchFormAction', 'fetchSimilarPetsAction',
+    'fetchPetSpotlightAction', 'fetchCatalogAction', 'fetchPetProfilesAction', 'fetchPetsAction', 'fetchSimilarPetsAction',
   ])
   const { readFileSync, readdirSync } = await import('node:fs')
   const files = [
@@ -2299,7 +2309,8 @@ await check('roles: the permission table is as agreed, every action checks a per
     for (const part of source.split(/^export async function /m).slice(1)) {
       const name = part.match(/^(\w+)/)?.[1] ?? '?'
       const body = part.split(/^export /m)[0]
-      if (unlogged.has(name) || !/requirePermission\([^)]*(:edit|:export)/.test(body)) continue
+      // Plugins name the level instead: requirePermission(accessPermission('all', 'edit')).
+      if (unlogged.has(name) || !/requirePermission\([^)]*(:edit|:export|'edit'\))/.test(body)) continue
       if (!/record\w*\(/.test(body)) silent.push(`${file}: ${name}`)
     }
   }
@@ -3446,6 +3457,326 @@ await check('layouts are checked against each block\'s fields: wrong kinds of va
   await archivePage(page.id)
   await deletePage(page.id)
 })
+
+await check('plugin blocks: a plugin\'s block becomes a page builder block under "Plugins", its options are checked, what it loads is never saved, a failing loader or render gives nothing, names cannot clash', async () => {
+  type Shown = { greeting: string }
+  const testBlock = definePluginBlock<{ heading: string; note: string; count: number; layout: string; flag: boolean }, Shown>({
+    name: 'CheckGreeting',
+    label: 'Check greeting',
+    plugin: 'check-plugin',
+    fields: {
+      heading: { type: 'text', label: 'Heading' },
+      note: { type: 'textarea', label: 'Note' },
+      count: { type: 'number', label: 'How many', min: 1, max: 10 },
+      layout: { type: 'select', label: 'Layout', options: [{ label: 'Grid', value: 'grid' }, { label: 'List', value: 'list' }] },
+    },
+    defaultProps: { heading: 'Hello', note: '', count: 6, layout: 'grid', flag: true },
+    css: '.check-greeting > p{color:var(--primary)}',
+    render: ({ heading, count, layout, flag, data, editing, headingLevel }) => {
+      if (heading === 'throw') throw new Error('render failed')
+      return createElement('section', { className: 'check-greeting', 'data-count': count, 'data-layout': layout, 'data-flag': String(flag), 'data-editing': String(editing) },
+        createElement(headingLevel === 1 ? 'h1' : 'h2', null, heading),
+        createElement('p', null, data ? data.greeting : 'nothing loaded'))
+    },
+  })
+  type Loose = {
+    label: string
+    fields: Record<string, { type: string; min?: number; max?: number; options?: unknown[] }>
+    defaultProps: Record<string, unknown>
+    resolveData: (data: { props: Record<string, unknown> }, params: { metadata?: unknown; lastData?: { props: Record<string, unknown> } | null; trigger?: string }) => Promise<{ props: Record<string, unknown> }>
+    render: (props: Record<string, unknown>) => Parameters<typeof renderToStaticMarkup>[0]
+  }
+
+  // Into the page builder's config: a "Plugins" category that exists only with at least one block.
+  const base = { root: { fields: {} }, categories: { layout: { title: 'Sections', components: ['Hero'] } }, components: { Hero: pageBlocks.components.Hero } } as unknown as Parameters<typeof sanitizeLayout>[1]
+  ok(withPluginBlocks(base, []) === base, 'no plugin blocks: the config is as it was, with no Plugins category')
+  const merged = withPluginBlocks(base, [testBlock]) as unknown as { categories: Record<string, { title: string; components: string[] }>; components: Record<string, Loose> }
+  ok(merged.categories.plugins?.title === 'Plugins' && isEqual(merged.categories.plugins.components, ['CheckGreeting']) && merged.categories.layout, 'a Plugins category lists the block')
+  const pageCategories = (pageBlocks as unknown as { categories: Record<string, { components: string[] }> }).categories
+  ok(Boolean(pageCategories.plugins) === siteBlocks.length > 0, 'the site\'s own config has the category exactly when pet-adopt.blocks.ts lists a block')
+  ok(siteBlocks.every((block) => block.name in pageBlocks.components && (block.name in petPageBlocks.components) === (block.petPage === true)), 'listed blocks are in the page builder, and in the Pet page template only when they ask (petPage)')
+  for (const block of siteBlocks) {
+    ok('padding' in ((pageBlocks.components as unknown as Record<string, Loose>)[block.name].fields), `${block.name} has the Padding option`)
+  }
+
+  // As a Puck block: fields, defaults.
+  const puck = merged.components.CheckGreeting
+  ok(puck === (toPuckComponent(testBlock) as unknown as Loose) || puck.label === 'Check greeting', 'label')
+  ok(puck.fields.heading.type === 'text' && puck.fields.note.type === 'textarea' && puck.fields.count.type === 'number' && puck.fields.count.min === 1 && puck.fields.count.max === 10, `fields: ${JSON.stringify(puck.fields)}`)
+  ok(puck.fields.layout.type === 'select' && isEqual(puck.fields.layout.options, [{ label: 'Grid', value: 'grid' }, { label: 'List', value: 'list' }]) && !('flag' in puck.fields), 'choices are copied; an option without a field has none')
+  ok(isEqual(puck.defaultProps, testBlock.defaultProps) && puck.defaultProps !== testBlock.defaultProps, 'defaults are copied')
+
+  // Loading: through the metadata, with checked options only; a failure or no way to ask gives null.
+  let asked: unknown[] = []
+  const metadata = { fetchPluginBlock: async (name: string, props: Record<string, unknown>) => { asked = [name, props]; return { greeting: 'hi' } } }
+  const resolved = await puck.resolveData({ props: { id: 'g1', heading: 'Hi', count: 99, layout: 'grid fixed', padding: { top: 'lg' }, pluginData: { old: true }, extra: { x: 1 } } }, { metadata })
+  ok(isEqual(resolved.props.pluginData, { greeting: 'hi' }) && resolved.props.id === 'g1' && resolved.props.count === 99, 'the result lands in pluginData; saved options are not rewritten')
+  ok(asked[0] === 'CheckGreeting' && isEqual(asked[1], { heading: 'Hi', note: '', count: 10, layout: 'grid', flag: true }), `the loader is sent the block's own options, checked: ${JSON.stringify(asked[1])}`)
+  ok((await puck.resolveData({ props: { id: 'g1' } }, { metadata: { fetchPluginBlock: async () => { throw new Error('down') } } })).props.pluginData === null, 'a failing fetch gives null')
+  ok((await puck.resolveData({ props: { id: 'g1' } }, { metadata: {} })).props.pluginData === null && (await puck.resolveData({ props: { id: 'g1' } }, {})).props.pluginData === null, 'no way to ask gives null')
+
+  // In the editor Puck resolves a block again after every change to it. A block that names the
+  // options its loader reads keeps what it loaded while those are the same.
+  const lazy = toPuckComponent({ ...testBlock, dataOptions: ['count', 'layout'] }) as unknown as Loose
+  let loads = 0
+  const counting = { fetchPluginBlock: async () => ({ greeting: `load ${++loads}` }) }
+  const shown = { id: 'g5', heading: 'Hi', count: 3, layout: 'grid' }
+  const first = await lazy.resolveData({ props: shown }, { metadata: counting, lastData: null, trigger: 'load' })
+  ok(loads === 1 && isEqual(first.props.pluginData, { greeting: 'load 1' }), 'the first time a block is shown its loader runs')
+  const retitled = await lazy.resolveData({ props: { ...first.props, heading: 'Hi there', note: 'x', flag: false } }, { metadata: counting, lastData: { props: shown }, trigger: 'replace' })
+  ok(loads === 1 && isEqual(retitled.props.pluginData, { greeting: 'load 1' }) && retitled.props.heading === 'Hi there', 'a change to an option the loader does not read keeps what was loaded')
+  ok(loads === 1 && (await lazy.resolveData({ props: { ...first.props, count: 3.0, layout: 'made up' } }, { metadata: counting, lastData: { props: shown }, trigger: 'replace' })).props.pluginData !== null && loads === 1, 'and so does a value that is checked into the same option')
+  const recounted = await lazy.resolveData({ props: { ...first.props, count: 4 } }, { metadata: counting, lastData: { props: shown }, trigger: 'replace' })
+  ok(loads === 2 && isEqual(recounted.props.pluginData, { greeting: 'load 2' }), 'a change to an option the loader reads runs it again')
+  await lazy.resolveData({ props: { ...first.props } }, { metadata: counting, lastData: { props: shown }, trigger: 'force' })
+  ok(loads === 3, 'a forced run always loads')
+  await lazy.resolveData({ props: { ...shown, pluginData: null } }, { metadata: counting, lastData: { props: shown }, trigger: 'replace' })
+  await lazy.resolveData({ props: shown }, { metadata: counting, lastData: { props: shown }, trigger: 'replace' })
+  ok(loads === 5, 'a block with nothing loaded asks again')
+  await lazy.resolveData({ props: { ...first.props } }, { metadata: counting })
+  ok(loads === 6, 'without a last run (the public site) the loader always runs')
+  await puck.resolveData({ props: { ...first.props, heading: 'x' } }, { metadata: counting, lastData: { props: shown }, trigger: 'replace' })
+  ok(loads === 7, 'a block that names no options loads on every change, as before')
+  ok((await lazy.resolveData({ props: { ...first.props } }, { metadata: {}, lastData: { props: shown }, trigger: 'replace' })).props.pluginData === null, 'no way to ask still gives null')
+
+  // Options: wrong kinds and made-up choices fall back to the defaults, numbers stay in their limits.
+  ok(isEqual(pluginBlockOptions(testBlock, { heading: { evil: true }, note: 7, count: -4, layout: 'list', flag: 'yes', puck: {}, other: 1 }), { heading: 'Hello', note: '7', count: 1, layout: 'list', flag: true }), 'options are checked one by one')
+  ok(isEqual(pluginBlockOptions(testBlock, { count: Number.NaN, layout: null, flag: false }), { heading: 'Hello', note: '', count: 6, layout: 'grid', flag: false }), 'missing values are the defaults')
+
+  // Drawing: the CSS as it was written, the heading level, the data, and whether it is the editor.
+  const html = renderToStaticMarkup(puck.render({ id: 'g1', heading: 'Cats', count: 3, layout: 'list', headingLevel: 1, pluginData: { greeting: 'hi <b>' }, puck: { isEditing: false } }))
+  ok(html.includes('<style>.check-greeting > p{color:var(--primary)}</style>'), `the block's CSS is drawn untouched: ${html}`)
+  ok(html.includes('<h1>Cats</h1>') && html.includes('hi &lt;b&gt;') && html.includes('data-count="3"') && html.includes('data-layout="list"') && html.includes('data-editing="false"'), `drawn: ${html}`)
+  const inEditor = renderToStaticMarkup(puck.render({ id: 'g1', heading: 'Cats', layout: 'made up', count: 'x', puck: { isEditing: true } }))
+  ok(inEditor.includes('<h2>Cats</h2>') && inEditor.includes('nothing loaded') && inEditor.includes('data-editing="true"') && inEditor.includes('data-layout="grid"') && inEditor.includes('data-count="6"'), `in the editor, with no data and bad options: ${inEditor}`)
+  const quietConsole = console.error
+  let complained = ''
+  console.error = (message: unknown) => { complained = String(message) }
+  let broken = '', brokenInEditor = ''
+  try {
+    broken = renderToStaticMarkup(puck.render({ id: 'g1', heading: 'throw', puck: { isEditing: false } }))
+    brokenInEditor = renderToStaticMarkup(puck.render({ id: 'g1', heading: 'throw', puck: { isEditing: true } }))
+  } finally {
+    console.error = quietConsole
+  }
+  ok(broken === '' && /CheckGreeting/.test(complained), `a render that throws draws nothing on the site, not even the block's CSS: ${broken}`)
+  const hidden = toPuckComponent({ ...testBlock, render: ({ editing }) => (editing ? createElement('p', null, 'nothing yet') : null) }) as unknown as Loose
+  ok(renderToStaticMarkup(hidden.render({ id: 'g6', puck: { isEditing: false } })) === '' && renderToStaticMarkup(hidden.render({ id: 'g6', puck: { isEditing: true } })).startsWith('<style>'), 'a block that draws nothing adds no CSS to the page; in the editor its note is styled')
+  ok(brokenInEditor.includes('could not be drawn'), 'and says so in the editor')
+
+  // Saved options are untrusted: the layout check covers plugin blocks because they are in the config.
+  const withBlock = { components: { ...pageBlocks.components, CheckGreeting: toPuckComponent(testBlock) } } as unknown as Parameters<typeof sanitizeLayout>[1]
+  const hostile = { root: { props: {} }, zones: {}, content: [{ type: 'CheckGreeting', props: { id: 'g1', heading: { evil: true }, note: ['x'], count: '12', layout: 'grid fixed inset-0', flag: { no: 1 }, pluginData: { greeting: 'forged' } } }] }
+  const cleaned = sanitizeLayout(stripTransient(hostile as unknown as Parameters<typeof stripTransient>[0]), withBlock).content[0].props as Record<string, unknown>
+  ok(isEqual(cleaned, { id: 'g1' }), `wrong kinds of value, a made-up choice and forged data are removed: ${JSON.stringify(cleaned)}`)
+  ok(isEqual(sanitizeLayout(hostile as unknown as Parameters<typeof sanitizeLayout>[0], withBlock).content[0].props, { id: 'g1' }), 'forged data does not survive the check even without the strip')
+  const fine = { root: { props: {} }, zones: {}, content: [{ type: 'CheckGreeting', props: { id: 'g2', ...testBlock.defaultProps, layout: 'list' } }] }
+  ok(isEqual(sanitizeLayout(fine as unknown as Parameters<typeof sanitizeLayout>[0], withBlock), fine), 'a correct block is untouched')
+  const stripped = stripTransient({ ...fine, content: [{ type: 'CheckGreeting', props: { ...fine.content[0].props, pluginData: { greeting: 'hi' }, headingLevel: 1 } }] } as unknown as Parameters<typeof stripTransient>[0])
+  ok(isEqual(stripped, fine), 'what a block loaded is never saved with the page')
+  const leveled = assignHeadingLevels({ ...fine, content: [fine.content[0], { type: 'CheckGreeting', props: { id: 'g3', heading: 'Second' } }, { type: 'CheckGreeting', props: { id: 'g4', heading: '' } }] } as unknown as Parameters<typeof assignHeadingLevels>[0])
+  ok(leveled.hasH1 && isEqual(leveled.data.content.map((item) => (item.props as { headingLevel?: number }).headingLevel), [1, 2, 2]), 'a heading option makes the first block the page heading')
+
+  // The list of blocks is checked when the config loads.
+  const problems = (blocks: unknown[], builtIn = ['Hero']) => pluginBlockProblems(blocks as Parameters<typeof pluginBlockProblems>[0], builtIn).join(' ')
+  ok(problems([testBlock]) === '', `a good block has no problems: ${problems([testBlock])}`)
+  ok(/built-in/.test(problems([{ ...testBlock, name: 'Hero' }])), 'a built-in block\'s name is refused')
+  ok(/twice/.test(problems([testBlock, testBlock])), 'the same name twice is refused')
+  ok(/capital/.test(problems([{ ...testBlock, name: 'check-greeting' }])) && /capital/.test(problems([{ ...testBlock, name: '' }])), 'names are letters and digits starting with a capital')
+  ok(/cannot be named "pluginData"/.test(problems([{ ...testBlock, defaultProps: { ...testBlock.defaultProps, pluginData: 1 } }])) && /cannot be named "id"/.test(problems([{ ...testBlock, fields: { id: { type: 'text', label: 'Id' } } }])), 'reserved option names are refused')
+  ok(/unknown type/.test(problems([{ ...testBlock, fields: { heading: { type: 'custom', label: 'x' } } }])) && /choices/.test(problems([{ ...testBlock, fields: { layout: { type: 'select', label: 'x', options: [] } } }])), 'only the field kinds the SDK offers')
+  ok(problems([{ ...testBlock, dataOptions: ['count', 'flag'] }]) === '' && /dataOptions/.test(problems([{ ...testBlock, dataOptions: ['nope'] }])) && /dataOptions/.test(problems([{ ...testBlock, dataOptions: 'count' }])), 'dataOptions names the block\'s own options')
+  ok(/default of "heading"/.test(problems([{ ...testBlock, defaultProps: { heading: { a: 1 } } }])) && /render/.test(problems([{ ...testBlock, render: null }])), 'defaults are plain values and a block draws itself')
+  let clash = ''
+  try {
+    withPluginBlocks(base, [{ ...testBlock, name: 'Hero' }])
+  } catch (error) {
+    clash = String(error)
+  }
+  ok(/pet-adopt\.blocks\.ts/.test(clash) && /built-in/.test(clash), `a clash stops the config from loading: ${clash}`)
+
+  // Loaders: checked in the registry against the plugins and the list of blocks.
+  const plugin = (name: string, blockLoaders: unknown): SdkPlugin => ({ name, blockLoaders }) as SdkPlugin
+  const load = async () => ({ greeting: 'hi' })
+  const refused = (plugins: SdkPlugin[], blocks: unknown[] = []) => {
+    try {
+      collectBlockLoaders(plugins, blocks as Parameters<typeof collectBlockLoaders>[1])
+      return ''
+    } catch (error) {
+      return String(error)
+    }
+  }
+  const loaders = collectBlockLoaders([plugin('check-plugin', { CheckGreeting: load }), plugin('other', undefined)], [testBlock])
+  ok(loaders.get('CheckGreeting')?.plugin === 'check-plugin' && loaders.get('CheckGreeting')?.load === load, 'a loader is found by its block\'s name')
+  ok(refused([plugin('check-plugin', {})], [testBlock]) === '', 'a block needs no loader')
+  ok(refused([plugin('check-plugin', { CheckGreeting: load })]) === '', 'a loader whose block the site does not list is fine')
+  ok(/capital/.test(refused([plugin('check-plugin', { 'check-greeting': load })])), 'a loader\'s name must be a block name')
+  ok(/must be a function/.test(refused([plugin('check-plugin', { CheckGreeting: 'nope' })])) && /must be an object/.test(refused([plugin('check-plugin', [load])])), 'a loader must be a function')
+  ok(/already does/.test(refused([plugin('check-plugin', { CheckGreeting: load }), plugin('other', { CheckGreeting: load })])), 'two plugins cannot load the same block')
+  ok(/not in pet-adopt\.config\.ts/.test(refused([plugin('other', {})], [testBlock])), 'a listed block must belong to a configured plugin')
+  ok(/its loader comes from "other"/.test(refused([plugin('check-plugin', {}), plugin('other', { CheckGreeting: load })], [testBlock])), 'and its loader must be that plugin\'s')
+
+  // Running a loader: plain JSON out, null on any failure, and the error object is never logged.
+  ok(isEqual(await runPluginBlockLoader('CheckGreeting', async (props) => ({ greeting: `hi ${String(props.count)}`, when: new Date(0), skip: undefined, fn: () => 1 }), { count: 3 }), { greeting: 'hi 3', when: '1970-01-01T00:00:00.000Z' }), 'the result is plain JSON')
+  ok((await runPluginBlockLoader('CheckGreeting', async () => undefined, {})) === null && (await runPluginBlockLoader('CheckGreeting', async () => null, {})) === null, 'nothing is null')
+  const logged: unknown[][] = []
+  console.error = (...args: unknown[]) => { logged.push(args) }
+  let failed: unknown, circular: unknown, huge: unknown
+  try {
+    const secret = Object.assign(new Error('Failed query: select 1\nparams: hunter2-secret'), { query: 'select 1', params: ['hunter2-secret'] })
+    failed = await runPluginBlockLoader('CheckGreeting', async () => { throw secret }, {})
+    const loop: Record<string, unknown> = {}
+    loop.self = loop
+    circular = await runPluginBlockLoader('CheckGreeting', async () => loop, {})
+    huge = await runPluginBlockLoader('CheckGreeting', async () => ({ text: 'x'.repeat(1_000_001) }), {})
+  } finally {
+    console.error = quietConsole
+  }
+  ok(failed === null && circular === null && huge === null, 'a loader that throws, a result that is not JSON and a huge result all give null')
+  ok(logged.length === 3 && logged.every((args) => args.every((arg) => typeof arg === 'string')) && !JSON.stringify(logged).includes('hunter2-secret') && /CheckGreeting/.test(JSON.stringify(logged)), `failures are logged without the error object or its parameters: ${JSON.stringify(logged).slice(0, 300)}`)
+
+  // What a browser may send as options, and blocks the site does not list.
+  ok(isEqual(plainBlockProps({ a: 'x', b: 2, c: true, d: null, e: { deep: 1 }, f: [1], g: Number.NaN }), { a: 'x', b: 2, c: true, d: null }), 'options are one flat object of plain values')
+  ok(plainBlockProps('x') === null && plainBlockProps([1]) === null && plainBlockProps(null) === null && plainBlockProps({ big: 'x'.repeat(30_000) }) === null, 'anything else, or too much, is refused')
+  ok((await fetchPluginBlockData('NoSuchBlock', {})) === null && (await fetchPluginBlockData({ name: 'x' }, {})) === null && (await fetchPluginBlockData('CheckGreeting', 'props')) === null, 'an unknown block and bad input give null')
+
+  // A `choice` option (choices from a server action): an id as text or a number, never an object.
+  const listChoices = async (): Promise<ActionResult<Array<{ label: string; value: string | number }>>> => ({ ok: true, data: [{ label: 'One', value: 1 }] })
+  const picking = definePluginBlock<{ pick: number | string | null }>({ name: 'CheckPick', label: 'Check pick', plugin: 'check-plugin', fields: { pick: { type: 'choice', label: 'Pick', load: listChoices } }, defaultProps: { pick: null }, render: () => null })
+  ok(problems([picking]) === '' && /load function/.test(problems([{ ...picking, fields: { pick: { type: 'choice', label: 'Pick' } } }])) && /empty must be text/.test(problems([{ ...picking, fields: { pick: { type: 'choice', label: 'Pick', load: listChoices, empty: 3 } } }])), 'a choice option needs a load function')
+  ok(/headingFromData must be true or false/.test(problems([{ ...picking, headingFromData: 'yes' }])) && /petPage must be true or false/.test(problems([{ ...picking, petPage: 1 }])), 'the block\'s flags are true or false')
+  ok(pluginBlockOptions(picking, { pick: 7 }).pick === 7 && pluginBlockOptions(picking, { pick: '7' }).pick === '7' && pluginBlockOptions(picking, { pick: { id: 7 } }).pick === null && pluginBlockOptions(picking, { pick: [7] }).pick === null && pluginBlockOptions(picking, { pick: true }).pick === null && pluginBlockOptions(picking, { pick: 'x'.repeat(201) }).pick === null, 'a choice keeps an id as text or a number; an object, a list, true or a long text falls back')
+  const pickConfig = { components: { CheckPick: toPuckComponent(picking) } } as unknown as Parameters<typeof sanitizeLayout>[1]
+  const pickField = (pickConfig.components as unknown as Record<string, Loose>).CheckPick.fields.pick
+  ok(pickField.type === 'custom', 'a choice option is drawn by the site (a custom field)')
+  const pickSaved = (pick: unknown) => sanitizeLayout({ root: { props: {} }, zones: {}, content: [{ type: 'CheckPick', props: { id: 'p1', pick } }] } as unknown as Parameters<typeof sanitizeLayout>[0], pickConfig).content[0].props as Record<string, unknown>
+  ok(pickSaved(3).pick === 3 && pickSaved('3').pick === '3' && !('pick' in pickSaved({ id: 3, url: 'x' })) && !('pick' in pickSaved([3])) && !('pick' in pickSaved(false)), 'a saved choice keeps an id and loses an object, on save and when drawn')
+
+  // A real plugin block (the form builder's Form block) is checked end to end in its own check.
+})
+
+await check('Form block (form builder plugin): pages saved with the built-in block draw the form through the plugin block, the loader gives public data or null, the heading falls back to the form, the picker lists forms for the page builder, and the Pet page template offers it', async () => {
+  type Loose = {
+    label: string
+    fields: Record<string, { type: string }>
+    resolveData: (data: { props: Record<string, unknown> }, params: { metadata?: unknown; lastData?: { props: Record<string, unknown> } | null; trigger?: string }) => Promise<{ props: Record<string, unknown> }>
+    render: (props: Record<string, unknown>) => Parameters<typeof renderToStaticMarkup>[0]
+  }
+  const block = siteBlocks.find((entry) => entry.name === 'FormBlock')
+  ok(block?.plugin === 'form-builder' && block.needsData === true && block.headingFromData === true && block.petPage === true && isEqual(block.dataOptions, ['formId']), 'pet-adopt.blocks.ts lists the form builder\'s Form block, with its data rules')
+  ok(isEqual(Object.keys(block!.fields).sort(), ['background', 'formId', 'heading', 'showDescription']) && isEqual(block!.defaultProps, { formId: null, heading: '', showDescription: true, background: 'none' }), 'the options pages were saved with, and their defaults')
+  const pageForm = (pageBlocks.components as unknown as Record<string, Loose>).FormBlock
+  const petForm = (petPageBlocks.components as unknown as Record<string, Loose>).FormBlock
+  ok(Boolean(pageForm) && Boolean(petForm) && 'padding' in pageForm.fields && 'padding' in petForm.fields, 'in the page builder and in the Pet page template, with the Padding option')
+  const petCategories = (petPageBlocks as unknown as { categories: Record<string, { title: string; components: string[] }> }).categories
+  ok(isEqual(petCategories.plugins?.components, ['FormBlock']) && petCategories.plugins?.title === 'Plugins' && !petCategories.sections.components.includes('FormBlock'), 'the Pet page template offers it under Plugins, and only the blocks that ask')
+
+  const realHost = host()
+  const globals = globalThis as { React?: unknown }
+  const hadReact = 'React' in globals
+  if (!hadReact) globals.React = ReactForChecks
+  const form = await forms.createForm({ name: 'Block check form', description: 'First paragraph.\n\nSecond one.', fields: [{ id: 'name', type: 'text', label: 'Your name', required: true }, { id: 'mail', type: 'email', label: 'Email' }] })
+  const privacyPage = await savePageDetails(null, { title: 'Privacy for forms', slug: 'privacy-form-check' })
+  try {
+    // The loader: through the site's path, as the page builder and the public site call it.
+    const loaded = (await fetchPluginBlockData('FormBlock', { formId: form.id })) as { form: { id: number; name: string; fields: unknown[]; spamTrap: boolean }; privacy: unknown } | null
+    ok(loaded?.form.id === form.id && loaded.form.name === 'Block check form' && loaded.form.fields.length === 2 && loaded.form.spamTrap === true && loaded.privacy === null, `a saved number loads that form, with no privacy policy yet: ${JSON.stringify(loaded)?.slice(0, 200)}`)
+    ok(!JSON.stringify(loaded).includes('notifyEmail') && !('settings' in (loaded?.form ?? {})), 'public data only')
+    ok(((await fetchPluginBlockData('FormBlock', { formId: String(form.id) })) as { form?: { id: number } } | null)?.form?.id === form.id, 'its digits as text load it too')
+    ok((await fetchPluginBlockData('FormBlock', { formId: 2_000_000 })) === null && (await fetchPluginBlockData('FormBlock', { formId: null })) === null && (await fetchPluginBlockData('FormBlock', { formId: -1 })) === null && (await fetchPluginBlockData('FormBlock', { formId: '1; drop' })) === null && (await fetchPluginBlockData('FormBlock', { formId: { id: form.id } })) === null, 'a missing form, none, a bad id or an object give null')
+    await saveDraft(privacyPage.id, { root: { props: {} }, zones: {}, content: [{ type: 'TextSection', props: { id: 'p', heading: 'Your data' } }] })
+    await updateSettings({ privacyPageId: privacyPage.id })
+    await publishPage(privacyPage.id)
+    const withPolicy = (await fetchPluginBlockData('FormBlock', { formId: form.id })) as { privacy: { title: string; href: string } | null } | null
+    ok(isEqual(withPolicy?.privacy, { title: 'Privacy for forms', href: '/privacy-form-check' }), `the live privacy policy comes with it: ${JSON.stringify(withPolicy?.privacy)}`)
+
+    // A page saved with the built-in block, in its old shape, draws the form through the plugin block.
+    const old = { root: { props: {} }, zones: {}, content: [{ type: 'FormBlock', props: { id: 'FormBlock-1', formId: form.id, heading: '', showDescription: true, background: 'none' } }] }
+    const blocks = { components: { ...pageBlocks.components, ...petPageBlocks.components } } as unknown as Parameters<typeof sanitizeLayout>[1]
+    ok(isEqual(sanitizeLayout(old as unknown as Parameters<typeof sanitizeLayout>[0], blocks), old), 'the saved block passes the layout check untouched')
+    const page = await savePageDetails(null, { title: 'Form block check', slug: 'form-block-check' })
+    await publishPage(page.id, old)
+    const stored = (await getPageById(page.id))?.puckPublished as typeof old | undefined
+    ok(isEqual(stored?.content[0], old.content[0]), `saved and published unchanged: ${JSON.stringify(stored?.content[0])}`)
+    const metadata = { fetchPluginBlock: fetchPluginBlockData }
+    const resolved = await pageForm.resolveData({ props: old.content[0].props }, { metadata })
+    const leveled = assignHeadingLevels({ ...old, content: [{ type: 'FormBlock', props: resolved.props }] } as unknown as Parameters<typeof assignHeadingLevels>[0])
+    ok(leveled.hasH1 && (leveled.data.content[0].props as { headingLevel?: number }).headingLevel === 1, 'with a blank heading and a form, the block is the page heading (its heading is the form\'s name)')
+    const html = renderToStaticMarkup(pageForm.render({ ...leveled.data.content[0].props, puck: { isEditing: false } }))
+    ok(html.includes('<h1 class="block-heading">Block check form</h1>') && html.includes('<p class="fb-form-intro">First paragraph.</p>') && html.includes('<p class="fb-form-intro">Second one.</p>'), `the heading falls back to the form's name, with its description: ${html.slice(0, 400)}`)
+    ok(html.includes('class="section section-none spacing-md align-left"') && html.includes('<style>') && html.includes('.fb-form-hp'), 'the site\'s section band, and the block\'s own CSS')
+    ok(/<input type="text" name="website" tabindex="-1" autoComplete="off" value=""\/>|name="website"/.test(html) && html.includes('class="fb-form-hp" aria-hidden="true"'), 'the spam trap is drawn, hidden from people')
+    ok(html.includes('We use your answers as described in our <a href="/privacy-form-check">Privacy for forms</a>.'), 'the privacy line sits under the button')
+    ok(html.includes('Your name') && html.includes('(required)') && html.includes('type="email"') && !html.includes('Preview: the form works'), 'the questions, and no preview note on the site')
+    const titled = renderToStaticMarkup(pageForm.render({ ...resolved.props, heading: '  Apply here ', showDescription: false, background: 'tint', headingLevel: 2, puck: { isEditing: false } }))
+    ok(titled.includes('<h2 class="block-heading">Apply here</h2>') && !titled.includes('class="fb-form-intro"') && titled.includes('section-tint'), 'a heading of its own, no description, another background')
+    const preview = renderToStaticMarkup(pageForm.render({ ...resolved.props, puck: { isEditing: true } }))
+    ok(preview.includes('Preview: the form works on the live page.') && preview.includes('aria-disabled="true"'), 'in the page builder it is a preview that never sends')
+
+    // Gone or not chosen: nothing on the site; a note in the page builder. No heading then.
+    const gone = await pageForm.resolveData({ props: { ...old.content[0].props, formId: 2_000_000 } }, { metadata })
+    ok(gone.props.pluginData === null && renderToStaticMarkup(pageForm.render({ ...gone.props, puck: { isEditing: false } })) === '', 'a deleted form hides the block on the site')
+    ok(renderToStaticMarkup(pageForm.render({ ...gone.props, puck: { isEditing: true } })).includes('This form was deleted') && renderToStaticMarkup(pageForm.render({ id: 'x', formId: null, puck: { isEditing: true } })).includes('Choose a form'), 'and says why in the page builder')
+    const noHeading = assignHeadingLevels({ ...old, content: [{ type: 'FormBlock', props: gone.props }, { type: 'TextSection', props: { id: 't', heading: 'About us' } }] } as unknown as Parameters<typeof assignHeadingLevels>[0])
+    ok(isEqual(noHeading.data.content.map((item) => (item.props as { headingLevel?: number }).headingLevel), [2, 1]), 'without its form the block has no heading, so the next block is the page heading')
+    const hostile = sanitizeLayout({ ...old, content: [{ type: 'FormBlock', props: { id: 'f', formId: { id: form.id }, heading: { evil: 1 }, background: 'dark fixed', showDescription: 'yes' } }] } as unknown as Parameters<typeof sanitizeLayout>[0], blocks)
+    ok(isEqual(hostile.content[0].props, { id: 'f' }), `an object for the form, and other wrong values, are removed: ${JSON.stringify(hostile.content[0].props)}`)
+
+    // dataOptions: a new heading or background redraws with what was loaded; a new form loads again.
+    let loads = 0
+    const counting = { fetchPluginBlock: async (name: string, props: Record<string, unknown>) => { loads++; return fetchPluginBlockData(name, props) } }
+    const first = await pageForm.resolveData({ props: old.content[0].props }, { metadata: counting, lastData: null, trigger: 'load' })
+    await pageForm.resolveData({ props: { ...first.props, heading: 'New heading', background: 'dark' } }, { metadata: counting, lastData: { props: old.content[0].props }, trigger: 'replace' })
+    ok(loads === 1, `changing the heading does not load the form again (${loads} loads)`)
+    const other = await forms.createForm({ name: 'Second block form' })
+    const switched = await pageForm.resolveData({ props: { ...first.props, formId: other.id } }, { metadata: counting, lastData: { props: old.content[0].props }, trigger: 'replace' })
+    ok(loads === 2 && (switched.props.pluginData as { form?: { name: string } }).form?.name === 'Second block form', 'picking another form loads it')
+
+    // The Pet page template draws it too (one of its saved layouts holds the old block).
+    const petHtml = renderToStaticMarkup(petForm.render({ ...resolved.props, puck: { isEditing: false } }))
+    ok(petHtml.includes('Block check form') && petHtml.includes('fb-form'), 'the Pet page template draws the Form block')
+
+    // The picker's list: a server action for the page builder (pages:view), names only.
+    let actor: PluginUser | null = null
+    provideHost({
+      ...realHost,
+      requirePermission: async (permission) => {
+        if (!actor) throw new UserError('You need to be signed in.')
+        if (!can(actor.role, permission)) throw new UserError(`Your role does not have access to this (${permission}).`)
+        return actor
+      },
+    })
+    const choices = async (role: Role | null) => {
+      actor = role ? { id: `form-check-${role}`, email: `form-${role}@example.test`, name: 'Form check', role } : null
+      try {
+        return await formActions.listFormChoicesAction()
+      } finally {
+        actor = null
+      }
+    }
+    const nobody = await choices(null)
+    ok(!nobody.ok, 'nobody signed in gets no list')
+    for (const role of ROLES) {
+      const result = await choices(role)
+      ok(result.ok && result.data.some((entry) => entry.value === form.id && entry.label === 'Block check form') && result.data.every((entry) => typeof entry.value === 'number' && typeof entry.label === 'string'), `${role} (who can open the page builder) gets the forms by name`)
+    }
+    await forms.updateForm(other.id, { isOpen: false })
+    const closed = await choices('editor')
+    ok(closed.ok && closed.data.find((entry) => entry.value === other.id)?.note === 'closed' && closed.data.find((entry) => entry.value === form.id)?.note === undefined, 'a closed form is marked')
+    await archivePage(page.id)
+    await deletePage(page.id)
+    await forms.deleteForm(other.id)
+  } finally {
+    provideHost(realHost)
+    if (!hadReact) delete globals.React
+    await updateSettings({ privacyPageId: null })
+    await unpublishPage(privacyPage.id).catch(() => undefined)
+    await archivePage(privacyPage.id).catch(() => undefined)
+    await deletePage(privacyPage.id).catch(() => undefined)
+    await forms.deleteForm(form.id)
+  }
+})
+
 
 await check('small rules from the security review: an archived page cannot be unpublished, an image in an email template is in use, form responses are routed only by people who may see them', async () => {
   const placeholder = () => s3Settings({ S3_BUCKET: 'b', S3_ACCESS_KEY_ID: 'your-access-key-id', S3_SECRET_ACCESS_KEY: 'your-secret-access-key' } as unknown as NodeJS.ProcessEnv)

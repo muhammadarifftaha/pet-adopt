@@ -145,10 +145,10 @@ export function CaptchaWidget({ captcha, ref }: { captcha: PublicCaptcha; ref?: 
 
   if (failed) {
     return (
-      <p className="form-captcha-error" role="alert">
+      <p className="fb-form-captcha-error" role="alert">
         The spam check could not load (an ad or script blocker can stop it), so this form cannot be sent. Please allow it and reload the page, or contact us another way.
       </p>
     )
   }
-  return invisible ? null : <div ref={box} className="form-captcha" />
+  return invisible ? null : <div ref={box} className="fb-form-captcha" />
 }
