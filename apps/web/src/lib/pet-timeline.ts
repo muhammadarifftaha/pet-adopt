@@ -15,7 +15,7 @@ export const TIMELINE_MAX_PHOTOS = 6
 export const TIMELINE_MAX_ENTRIES = 200
 
 /** One photo as the page draws it. */
-export type TimelinePhoto = { url: string; alt: string; thumbnailUrl?: string | null }
+export type TimelinePhoto = { url: string; alt: string; thumbnailUrl?: string | null; /** The media library id (the admin's editor uses it). */ id?: number }
 
 /** One entry, as the admin and the block read it. */
 export type TimelineEntry = {

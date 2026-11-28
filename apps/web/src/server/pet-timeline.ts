@@ -35,7 +35,7 @@ async function toEntries(rows: Array<{ entry: EntryRow; createdByName: string | 
       for (const id of photoIds) {
         const item = media.get(id)
         // A deleted image is left out; its id stays until the entry is saved again.
-        if (item) photos.push({ url: item.url, alt: item.alt || '', thumbnailUrl: item.thumbnailUrl })
+        if (item) photos.push({ id, url: item.url, alt: item.alt || '', thumbnailUrl: item.thumbnailUrl })
       }
       return {
         id: entry.id,
