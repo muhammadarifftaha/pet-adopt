@@ -18,7 +18,7 @@ import {
 } from '@/lib/queries'
 import { recordedRecently, recordPageActivity } from '@/server/activity'
 import { publishPage, saveDraft } from '@/server/pages'
-import { assertId, toFailure } from '@/server/result'
+import { assertId, run, toFailure, type ActionResult } from '@/server/result'
 import { requirePermission } from '@/server/session'
 
 // `version` is the page's `updatedAt` in milliseconds. The builder sends the last one it received
@@ -94,13 +94,16 @@ export async function fetchPetsAction(filters: PetFilters): Promise<PetCardData[
 
 /**
  * The "Preview with" pet of the Pet page template. Any pet, hidden ones included (an adopted pet's
- * page is worth previewing), so it needs `pages:view` like the builder itself.
+ * page is worth previewing), so it needs `pages:view` like the builder itself. Returns a result
+ * instead of throwing (an ended session, for one), so the builder keeps the current pet and says why.
  */
-export async function fetchPetPagePreviewAction(id: number): Promise<PetPageData | null> {
-  await requirePermission('pages:view')
-  const petId = Number(id)
-  if (!Number.isSafeInteger(petId) || petId < 1) return null
-  return getPetPagePreview(petId)
+export async function fetchPetPagePreviewAction(id: number): Promise<ActionResult<PetPageData | null>> {
+  return run(async () => {
+    await requirePermission('pages:view')
+    const petId = Number(id)
+    if (!Number.isSafeInteger(petId) || petId < 1) return null
+    return getPetPagePreview(petId)
+  })
 }
 
 /** "More pets like this" in the editor. Public data (available, listed pets); inputs are checked. */
