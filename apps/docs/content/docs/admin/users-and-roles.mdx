@@ -1,0 +1,151 @@
+---
+title: Users and roles
+description: Who can sign in, what each role may do, and how people are added, removed and deleted.
+---
+
+**Users** (under **Settings** in the admin) lists the people who can sign in. There is no public sign-up: every account is added by an admin. Only admins manage users; audit can view the screen.
+
+Signing in itself (passwords, two-factor, sign-in providers, changing your email) is on [Signing in](./signing-in.mdx).
+
+## Roles
+
+Each person has one role:
+
+| Role | Can do |
+| --- | --- |
+| **Admin** | Everything, including users, sign-in settings and the whole activity log |
+| **Editor** | Pets, pages, media, plugin content, and form responses (with CSV download) |
+| **Developer** | Pets, pages, media, plugin content, theme, site settings, email and plugins. No users and no form responses |
+| **Audit** | Sees everything, changes nothing, cannot download form responses |
+
+A role nobody recognises (for example one written straight into the database) is treated as audit, which changes nothing.
+
+### The full permission table
+
+Every screen and every server action checks one of these permissions, and the admin's menus and buttons follow the same table. A screen a role can view but not change opens read-only, with a notice at the top.
+
+| Area | What it covers | Admin | Editor | Developer | Audit |
+| --- | --- | --- | --- | --- | --- |
+| Pets | Pets and their timeline updates | Change | Change | Change | View |
+| Pages | Pages, the page builder, the Pet page template | Change | Change | Change | View |
+| Media | The image library | Change | Change | Change | View |
+| Theme | Themes and presets | Change | No | Change | View |
+| Settings | Site settings, **Email** (sending and templates) | Change | No | Change | View |
+| Plugins | Plugin setup screens, such as Instagram's connection or Forms' spam protection | Change | No | Change | View |
+| Users | **Users** and **Authentication** (two-factor rules, sign-in providers, archived accounts) | Change | No | No | View |
+| Plugin content | What the team makes in plugins, such as forms and Instagram pins | Change | Change | Change | View |
+| Personal data | What visitors send, such as form responses | Change | Change | No | View |
+| Download personal data | CSV downloads of form responses | Yes | Yes | No | No |
+| Activity log: own entries | Your own entries, and failed sign-ins on your account | Yes | Yes | Yes | Yes |
+| Activity log: everyone's | Every entry, with the person filter and client addresses | Yes | No | No | Yes |
+| Activity log: download | The CSV download | Yes | No | No | Yes |
+
+Everyone, whatever their role, manages their own account on the **Account** page.
+
+Plugins use the same table. A plugin screen is for the whole team (plugin content), for setup (plugins), or for personal data; see [Access levels](../developers/plugins/screens-and-cards.mdx#access-levels) if you write one.
+
+Two more rules can stop someone from changing things even when their role allows it:
+
+- **An unconfirmed email:** see [Confirmed emails](#confirmed-emails).
+- **Required two-factor not set up:** see [Signing in](./signing-in.mdx#required-roles).
+
+### Safeguards
+
+- **The first account is always an admin,** whatever role it is given.
+- **The last active admin** can't be demoted, archived or deleted, so someone can always manage the site. Archived admins don't count. The check and the change happen together under a lock, so two admins demoting or archiving each other at the same moment can't both succeed.
+- **Warnings about yourself:** the Users screen warns before you change your own role (you would lose access to Users) or set a new password for yourself (you would be signed out everywhere).
+
+## Adding people
+
+In **Users**, choose **Add user**, and give a name, an email address and a role. The screen offers two ways:
+
+- **Email an invite** (the default): the account is made without a password, and the person gets a one-time link to choose their own.
+- **Set a password now:** you type or **Generate** a password, and share it with them yourself.
+
+**Invites:**
+
+- **The link** works once, for 7 days. **Resend invite** (in place of **Reset link** while someone is invited) makes a new one and cancels the older one.
+- **The email** is the system email **Invitation**, which you can edit in **Email → Templates** (see [Email](./email.mdx#email-templates)).
+- **When the site can't send email,** or sending fails, the account is still made and you get the link with a **Copy** button, to send yourself.
+- **Accepting** sets the password; it doesn't sign the person in. They sign in next, which also runs the two-factor rules.
+- **On the Users screen,** an invited person shows as **Invited**, or **Invite expired** once the link has run out.
+- **Cancelled invites:** setting a password for the person (**New password**) or archiving the account cancels a waiting invite.
+
+An email that already belongs to an account can't be used again, archived accounts included: restore the archived one instead.
+
+## Changing people
+
+From the Users screen, an admin can:
+
+- **Edit** someone's name, role and email address. A new address takes effect at once; see [Changing an email as an admin](./signing-in.mdx#as-an-admin).
+- **Reset link:** make a one-time password reset link to share however you like. See [Password reset links](./signing-in.mdx#password-reset-links).
+- **New password:** set a password for them. It signs them out everywhere, and cancels a waiting invite, a pending email change and earlier reset links.
+- **Turn off 2FA:** for someone who lost their phone and backup codes. Not for yourself.
+- **Remove a profile picture** (see [Profile pictures](#profile-pictures)).
+- **Archive** the account (see below).
+
+An archived account can't be changed until it is restored.
+
+## Archive, then delete
+
+Removing someone works like pages: **archive** first, then **delete**.
+
+### Archiving
+
+- **What it does:** the person is signed out everywhere and can't sign in. Waiting reset links, invites and email changes are cancelled. Their name stays on what they made and in the history.
+- **Signing in to an archived account:** the right password gets "This account is archived. Ask an admin to restore it." and is recorded in the activity log. A wrong password looks like any wrong password.
+- **Rules:** nobody archives themselves, and the last active admin can't be archived.
+- **Where they go:** archived accounts are listed on **Authentication → Archived accounts** (the Users screen's count links there), with **Restore** and **Delete**. Audit can view the list.
+
+**Restore** brings an archived account back as it was: the same role, password and two-factor.
+
+### Deleting
+
+**Delete** is only possible for an archived account, and removes everything about the person, for good:
+
+- the account, its sessions, password, two-factor and sign-in provider connections;
+- every waiting link (reset, invite, email change);
+- their sign-in attempt counters;
+- their profile picture.
+
+**The activity log is anonymised, not deleted:** what was done and when stays, and who did it doesn't. See [Anonymising deleted accounts](./activity-log.mdx#anonymising-deleted-accounts).
+
+Page versions and email templates they made show no creator afterwards.
+
+## Deleting your own account
+
+Anyone can choose **Delete my account** on their **Account** page, and confirm with their password.
+
+- **At once:** the account is archived. They are signed out everywhere, can't sign in, and waiting reset, invite and email change links are cancelled.
+- **After 30 days:** the account is deleted, as above. The site checks for accounts that are due when it starts, and at most once an hour after that. An account that can't be deleted is named in the server log and tried again next time, without holding up the others.
+- **The email:** they get the system email **Account deletion**, with the date. The sign-in page explains that the account is closed.
+- **Until then:** an admin sees "Asked to be deleted" with the date on **Authentication → Archived accounts**, and can **Restore** the account (which cancels the deletion) or **Delete now**.
+- **The last active admin** can't delete their own account: the Account page explains why instead. Make someone else an admin first.
+
+Only a person's own request starts the 30 days. Accounts an admin archives stay archived until someone deletes them.
+
+## Confirmed emails
+
+While the site can send email, **every account must confirm its email address before it can change anything.**
+
+- **Until they confirm,** people can look around the admin but every change and download is refused. A banner in the admin offers **Send confirmation link**.
+- **The link** is the system email **Confirm your email**. It works for 24 hours, and the change happens when they press **Confirm** on the page it opens (a button, so a mail scanner opening the link changes nothing).
+- **What confirms an address:** the confirmation link, accepting an invite, and confirming a change of email.
+- **New accounts start unconfirmed,** and an admin's change of someone's address makes it unconfirmed again. The Users screen shows "Email not confirmed".
+- **Email settings stay open:** saving **Email → Sending** and sending a test email work for unconfirmed accounts, so a wrong mail setting can't lock everyone out.
+- **Without email on the site,** the rule is paused, since nobody could confirm.
+
+Accounts made before this rule existed stayed confirmed.
+
+## Profile pictures
+
+Each person uploads their own picture on the **Account** page.
+
+- **Cropping:** a crop tool picks the square to keep. Drag the picture, zoom with the slider, or use the arrow keys.
+- **What is kept:** only the chosen square, as a 256 px WebP image with no metadata. The original isn't kept.
+- **What is accepted:** the same as any upload: JPEG, PNG, WebP or GIF, up to 10 MB, 40 megapixels and 12000 px on a side.
+- **Where it shows:** the user menu, Users and Account. Pictures aren't part of the Media library.
+- **Admins** can remove someone's picture (from Users), but not upload one for them.
+- **From a sign-in provider:** someone with no picture who connects an OpenID Connect provider gets the provider's picture, cropped to the centre and stored the same way. Plain OAuth 2 providers are skipped.
+
+Replacing or removing a picture deletes the old file, and so does deleting the account.

@@ -40,3 +40,6 @@ apps/web/AGENTS.md
 # compiled packages (built when a package is packed for npm)
 /packages/*/dist
 /plugins/*/dist
+
+# the docs site's generated content
+apps/docs/.source

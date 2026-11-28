@@ -1,0 +1,4 @@
+{
+  "title": "Deploy",
+  "pages": ["index", "reverse-proxy", "hosting-for-others", "backups-and-updates", "settings", "security", "troubleshooting"]
+}

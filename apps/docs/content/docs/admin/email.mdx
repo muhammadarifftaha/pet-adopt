@@ -1,0 +1,249 @@
+---
+title: Email
+description: Connect an SMTP server, test it, and design the emails the site sends in the email builder.
+---
+
+Email is built in. The site sends through any SMTP server (the standard way mail servers accept messages, which every email provider offers), and every email it sends comes from a template you can design in a drag-and-drop email builder.
+
+Both live on the **Email** screen, under **Settings** in the admin:
+
+- **Sending:** the SMTP server and the sender.
+- **Templates:** the system emails and your own templates.
+
+Admins and developers change them; audit can view them.
+
+## What uses email
+
+| Feature | With email | Without email |
+| --- | --- | --- |
+| [Invites](./users-and-roles.mdx#adding-people) | The invite link is emailed | The admin gets the link to copy |
+| [Password reset](./signing-in.mdx#password-reset-links) | People ask for a link on the reset page | Only an admin's reset link |
+| [Confirmed emails](./users-and-roles.mdx#confirmed-emails) | Every account must confirm its address before changing anything | The rule is paused |
+| [Changing your email](./signing-in.mdx#changing-your-sign-in-email) | Yourself, with a confirmation link | Only an admin can change it |
+| [Account deletion](./users-and-roles.mdx#deleting-your-own-account) | The person gets the date by email | Nothing is sent |
+| [Forms](./forms.mdx#notifications-and-confirmations) | Team notifications and visitor confirmations | Responses are stored; no emails |
+
+Most of the account features depend on it, so set it up early.
+
+## Setting up sending
+
+On **Email → Sending**, fill in your provider's SMTP details:
+
+| Field | What to enter |
+| --- | --- |
+| Server | The host name, such as `smtp.example.com`, without `https://` or a port |
+| Port | The port your provider gives. Left empty, the usual port for the security choice is used |
+| Security | **STARTTLS** (usually port 587, the default), **SSL/TLS** (usually port 465), or **None** (not encrypted; local test servers only) |
+| User name and password | From your provider. The password is stored encrypted and never sent back to a browser: leave the box empty to keep the saved one, or remove it |
+| Sender name and address | Who the emails come from. The address is required |
+| Reply-to | Optional: where replies go |
+
+Then press **Send a test email** (see [Test emails](#test-emails)).
+
+- **Saving is recorded** in the [activity log](./activity-log.mdx), naming the fields that changed but never their values.
+- **The password is encrypted** with a key made from `BETTER_AUTH_SECRET`. If that secret changes, the screen asks for the password again.
+- **Unconfirmed accounts** can still save these settings and send a test, so a wrong setting can't lock everyone out.
+
+### A saved password belongs to its server
+
+Changing the server needs the password typed again, or removed. Otherwise someone who can edit the settings, but never saw the password, could have it sent to a server of their own. When the password comes from `SMTP_PASSWORD`, the server can only change through `SMTP_HOST`.
+
+### The mail server must be public
+
+A server typed on the screen must be on the public internet: the site looks the name up, refuses private network addresses, and connects to the address it checked. This matters when a site's admin isn't the person who runs the server (see [Hosting a site for someone else](../developers/deployment/hosting-for-others.mdx)).
+
+Not checked:
+
+- a server set with `SMTP_HOST` (set by whoever runs the server);
+- any server, when `SMTP_PRIVATE_ADDRESSES=1` is set;
+- a server on the same machine (`localhost`) outside production, such as Mailpit.
+
+**In production, a mail server on the same machine typed on the screen is refused:** set it with `SMTP_HOST`, or set `SMTP_PRIVATE_ADDRESSES=1`.
+
+## Environment variables
+
+Environment variables can set or override any field. Fields they set show read-only on the screen with the variable's name, and saving ignores them.
+
+| Variable | Sets |
+| --- | --- |
+| `SMTP_HOST` | The server |
+| `SMTP_PORT` | The port, 1 to 65535 |
+| `SMTP_SECURITY` | `starttls`, `tls` or `none` |
+| `SMTP_USER` | The user name |
+| `SMTP_PASSWORD` | The password, taken exactly as written (spaces included) |
+| `EMAIL_FROM` | The sender: an address, or a name and an address, such as `Pet Adopt <no-reply@example.com>` |
+| `EMAIL_REPLY_TO` | The reply-to address |
+| `SMTP_PRIVATE_ADDRESSES` | `1` lets a server typed on the screen be on a private network |
+
+A value that isn't valid (a port that isn't a number, say) is listed as a problem on the screen.
+
+```dotenv
+SMTP_HOST=smtp.example.com
+SMTP_PORT=587
+SMTP_SECURITY=starttls
+SMTP_USER=your-user-name
+SMTP_PASSWORD=your-smtp-password
+EMAIL_FROM="Pet Adopt <no-reply@example.com>"
+```
+
+### Sending through a plugin instead
+
+Some hosts block SMTP ports. A plugin can provide its own sender (for example through an email provider's web API), and when it is ready it is used instead of SMTP. A site has at most one. See [Email senders](../developers/plugins/email.mdx) if you write one.
+
+## Test emails
+
+**Send a test email** on **Email → Sending** sends the **Test email** system email to any address you type.
+
+- **Who:** admins and developers.
+- **Limit:** 5 per 15 minutes per person, shared with the email builder's **Send test**.
+- **No limit with a local server:** when the SMTP server is on the same machine (such as Mailpit), nothing leaves it, so tests aren't limited. The limit stays whenever a plugin does the sending.
+- **When it fails,** the screen shows the mail server's own explanation, such as an unverified domain or a wrong password.
+
+Test emails aren't recorded in the activity log.
+
+## Mailpit for development
+
+In development, use [Mailpit](https://mailpit.axllent.org/): a mail server that delivers nothing, so every email the site sends lands in its inbox instead.
+
+```bash
+docker compose up -d mailpit
+```
+
+- **The inbox** is at `http://localhost:8025`.
+- **The server** accepts any mail, and any user name and password, on port 1025.
+- **Point the site at it** on **Email → Sending** (server `localhost`, port `1025`, security **None**), or with:
+
+  ```dotenv
+  SMTP_HOST=localhost
+  SMTP_PORT=1025
+  SMTP_SECURITY=none
+  EMAIL_FROM="Pet Adopt <no-reply@pet-adopt.test>"
+  ```
+
+- **Messages are kept on disk,** so restarts and `docker compose down` / `up` keep the inbox; the oldest go once there are more than 500. `docker compose down -v` wipes them.
+
+Both ports listen on `127.0.0.1` only.
+
+## Email templates
+
+**Email → Templates** lists every email the site can send, in one table: the system emails first, then your templates in name order.
+
+### Purposes and placeholders
+
+Every email has a **purpose**, which decides the placeholders it can use. A placeholder is a word in double curly brackets, such as `{{name}}`, that is replaced with the real value when the email is sent. Every email can use `{{siteName}}` and `{{siteUrl}}`; the builder lists the rest under **Placeholders**.
+
+### System emails
+
+The site's own emails. Each is edited in place (there is one of each), and **Restore default** brings back the built-in version. **Last edited** shows **Never** for one that was never changed.
+
+| Email | Sent when | Placeholders |
+| --- | --- | --- |
+| Password reset | Someone asks for a reset link on the reset page | `{{name}}`, `{{resetLink}}` (required), `{{minutes}}` |
+| Invitation | An admin adds someone with "Email an invite" | `{{name}}`, `{{inviteLink}}` (required), `{{inviterName}}`, `{{role}}`, `{{days}}` |
+| Confirm your email | Someone asks to confirm their email from the banner | `{{name}}`, `{{confirmLink}}` (required), `{{hours}}` |
+| Confirm new email | Someone changes their own email; goes to the new address | `{{name}}`, `{{confirmLink}}` (required), `{{newEmail}}`, `{{hours}}` |
+| Email change notice | Goes to the old address when someone asks to change their email, and to both when an admin changes it | `{{name}}`, `{{oldEmail}}`, `{{newEmail}}`, `{{changedBy}}` |
+| Account deletion | Someone asks to delete their own account | `{{name}}`, `{{date}}`, `{{days}}` |
+| Test email | **Send a test email** on Email → Sending | `{{senderName}}` |
+
+An email with a required placeholder can't be saved without it, so a reset email always carries its link.
+
+### Your own templates
+
+Make as many as you like. **New template** asks for a name and a type:
+
+- **Team notification:** sent to your team when something comes in, such as a form response. It can list the details, with the **Details** block.
+- **Message to a visitor:** sent to someone outside the team, such as a confirmation after they fill in a form. It never repeats what they typed, and has no Details block: anyone can type any address into a public form, so it must not echo their text.
+
+Both can use `{{title}}`: what the email is about, such as the form's name.
+
+**A template is used only where something picks it,** for example a form's notification. So unused templates are fine. From the table you can **Edit**, **Rename**, **Copy** and **Delete** a template. Deleting one never stops an email: whatever picked it falls back to the plugin's default, or the built-in template.
+
+**The table shows,** for each template:
+
+- its type;
+- **Used by:** which forms (or other plugin features) pick it, with links;
+- **Created by:** the person who made it (blank for system emails and plugin defaults);
+- when it was last edited.
+
+### Plugin defaults
+
+Plugins can bring templates of their own, marked **Default**. The form builder brings **Form response** and **Form confirmation**. A plugin's emails use its defaults whenever nothing else is picked.
+
+- **You can** edit and rename them.
+- **You can't** delete them.
+- **Restore default** brings back the plugin's layout once you have changed it.
+
+## The email builder
+
+**Edit** on a template opens the email builder, a drag-and-drop editor like the page builder.
+
+**Blocks:**
+
+| Block | What it is |
+| --- | --- |
+| Heading | Large or medium text |
+| Text | Paragraphs; a blank line starts a new one. Normal or small |
+| Button | A link styled as a button, solid or outline |
+| Image | An image from the media library, full or half width, with an optional link and a description for people who can't see images |
+| Two columns | Left and right, each holding other blocks (no columns inside columns). They stack on phones |
+| Divider | A line |
+| Space | Small, medium or large |
+| Details | Team notifications only: the label and value pairs the plugin sends, such as a form's answers |
+
+Most blocks have an alignment (left, centre, right). A template holds up to 60 blocks.
+
+**Links** in buttons and images can be:
+
+- a web address (`https://…` or `http://…`);
+- a path on the site (`/about`);
+- `{{siteUrl}}`, with or without a path after it;
+- the email's own one-time link (`{{resetLink}}`, `{{inviteLink}}` or `{{confirmLink}}`), where its purpose has one.
+
+**The email's settings** (with no block selected):
+
+- **Subject.**
+- **Preview text:** shown after the subject in most inboxes.
+- **Footer.**
+- **The logo** (see below).
+
+**Saving and testing:**
+
+- **Save** checks the layout and lists anything to fix at the top right. There is no autosave: leaving the builder (or closing the tab) with unsaved changes asks first.
+- **Send test** sends the unsaved layout to the address in **Send test to** (yours to start with), filled with sample values. It counts towards the test email limit.
+- **Audit** can open the builder read-only.
+- **Changes are recorded** in the activity log.
+
+### The logo
+
+Every email can start with the site's logo, from **Site settings** (or the site's name, when there is no logo).
+
+| Option | Choices |
+| --- | --- |
+| Logo at the top | Show or hide |
+| Logo size | Small (32 px high), medium (48 px) or large (64 px) |
+| Logo alignment | Left, centre or right |
+| Logo links to the site | Yes or no |
+| Site's name with the logo | Show or hide |
+| Name and logo layout | Logo then name, name then logo, logo above name, or name above logo |
+
+A template saved before these options existed keeps its look: logo shown, medium, centred, no link and no name.
+
+### How emails are sent
+
+What you design is what is sent: the builder's canvas shows the same HTML.
+
+- **Email-safe HTML:** tables and inline styles in a 600 px layout, in the theme's colours, plus a plain text copy.
+- **Phones:** two columns stack on small screens.
+- **Classic Outlook** gets a fixed-width layout and buttons that work there; rounded corners and stacking are lost in it.
+- **Everything typed is escaped,** so text can't turn into HTML.
+
+There is no phone-width preview in the builder; the fixed 600 px layout stacks its columns on small screens.
+
+### WebP images in email
+
+Classic Outlook and some older email apps can't show WebP images. So a WebP image in an email (the logo or an Image block) is linked as a PNG copy at `/media/email/<name>.png`, instead of the original.
+
+- **Lossless:** the copy loses nothing from the picture. An animated image keeps its first frame.
+- **Made once:** on the first request, then kept in upload storage beside the original, and deleted with it.
+- **Other formats** (JPEG, PNG, GIF), and the builder's canvas, use the original.

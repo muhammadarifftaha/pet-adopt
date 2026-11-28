@@ -1,0 +1,141 @@
+---
+title: Packaging and local development
+description: Publishing a plugin to npm, what a site does to install it, developing a plugin in a site, and the checklist before publishing.
+---
+
+## Packaging for npm
+
+A plugin on npm ships compiled JavaScript. The site does not compile packages installed from npm.
+
+### Compile file by file with tsc
+
+Use `tsc`, not a bundler. `tsc` writes one `.js` file for each source file, so a file that starts with `'use client'` or `'use server'` still starts with it after the build. Next.js needs that line first in the file. A bundler merges files, and the lines are lost.
+
+`tsconfig.build.json`, beside the plugin's `tsconfig.json`:
+
+```json
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "outDir": "dist",
+    "rootDir": "src",
+    "declaration": true,
+    "sourceMap": false
+  }
+}
+```
+
+A plugin with tables includes `schema` and `migrations.ts` as well, with `"rootDir": "."` and `"include": ["src", "schema", "migrations.ts"]`. Its files then land in `dist/src/`. The form builder and the Instagram feed are built this way (see the form builder's [`tsconfig.build.json`](https://github.com/muhammadarifftaha/pet-adopt/blob/main/plugins/form-builder/tsconfig.build.json)).
+
+### package.json
+
+```json
+{
+  "name": "pet-adopt-plugin-hello",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.tsx",
+    "./block": "./src/block.tsx"
+  },
+  "files": ["dist"],
+  "publishConfig": {
+    "access": "public",
+    "exports": {
+      ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" },
+      "./block": { "types": "./dist/block.d.ts", "default": "./dist/block.js" }
+    }
+  },
+  "scripts": {
+    "build:package": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.build.json",
+    "prepack": "pnpm run build:package"
+  },
+  "peerDependencies": {
+    "@pet-adopt/plugin-sdk": "^0.1.0",
+    "@pet-adopt/ui": ">=0.1.0",
+    "react": "^19.2.0",
+    "react-icons": "^5.7.0"
+  }
+}
+```
+
+- **`exports` and `publishConfig.exports`:** in a workspace, `exports` points at the TypeScript source, so the site compiles it and changes show at once. `publishConfig.exports` points at `dist`, and pnpm writes it into the package when it packs or publishes. So pack and publish with pnpm. A plugin that is never used from a workspace can point `exports` at `dist` directly.
+- **A block has its own entry point** (`./block` above), because the browser loads it. Keep it out of the main entry's exports. See [The two halves](./blocks.mdx#the-two-halves).
+- **Clear `dist` first.** `build:package` deletes `dist` before `tsc` runs, as the packages in the repository do, so a file removed from the source is not shipped from an older build.
+- **Peer dependencies:** the SDK and `@pet-adopt/ui` must be peer dependencies, so the plugin uses the site's copies. Add `drizzle-orm` when the plugin has tables, and `next` when it imports from `next/...`. List the same packages under `devDependencies` to build against. Inside the repository the SDK peer is written `workspace:^`, which pnpm turns into `^<version>` when it packs.
+- **`@pet-adopt/ui`** is only needed by a plugin whose screens use it. It is not on npm: it is a workspace package inside every site (`packages/ui`). So a plugin that uses it must be built inside a workspace that has it, which means a site or the Pet Adopt repository (see [Local development](#local-development)). Write its version as a wide range (`>=0.1.0`), not the current release: each site keeps the copy it started with, so a narrow range would warn on every older site. Also mark it optional (`"peerDependenciesMeta": { "@pet-adopt/ui": { "optional": true } }`): it is never on npm, so a required peer would warn on every install.
+- **README and LICENSE:** npm adds them to the package whatever `files` says. Say in the README how a site installs the plugin (next section).
+- **Check the result:** `pnpm pack --pack-destination <folder>` writes the tarball without publishing it. Look inside for `dist/`, for every address in `exports`, and for `'use client'` and `'use server'` on the first line of the files that had them.
+
+### What the site adds
+
+A site that installs an npm plugin does up to five things. Your README should list the ones your plugin needs:
+
+1. **Install it** into the web app, from the site's root folder: `pnpm --filter @pet-adopt/web add <package>`.
+2. **List the plugin** in `apps/web/pet-adopt.config.ts`.
+3. **List its blocks,** if it has any, in `apps/web/pet-adopt.blocks.ts`, imported from the block entry point.
+4. **Tell Tailwind to read it,** if it has admin screens. Tailwind does not look in `node_modules` by itself. `packages/ui/src/styles/globals.css` lists what it reads, as `@source` lines.
+   - **A package named `@pet-adopt/plugin-*`** is covered already, by this line:
+
+     ```css
+     @source "../../../../apps/web/node_modules/@pet-adopt/plugin-*/dist";
+     ```
+
+   - **A plugin with any other name** needs a line of its own beside it:
+
+     ```css
+     @source "../../../../apps/web/node_modules/<package>/dist";
+     ```
+
+   Without it, the plugin's screens lose every class that nothing else on the site uses.
+5. **Create its tables,** if it has any: `pnpm migrate` on PostgreSQL or hosted libSQL (`pnpm build` runs it too). A local SQLite file needs nothing. See [When migrations run](./storage.mdx#when-migrations-run).
+
+Anything else the plugin needs belongs in its README as well. The Instagram feed, for example, needs the site to allow Instagram's picture hosts with `CSP_IMG_SRC`, because the site's content security policy allows pictures only from itself.
+
+## Local development
+
+A plugin kept as a folder works the same as one from npm, and needs no build. The site's Next.js compiles any dependency installed with `workspace:`, `link:` or `file:`.
+
+### In the repository, or in a site
+
+A site starts as a clone of the Pet Adopt repository, so both have a `plugins/` folder that is already in `pnpm-workspace.yaml` and in the Tailwind `@source` lines.
+
+1. Make a folder under `plugins/`, with a `package.json` whose `exports` points at the source (`"./src/index.tsx"`, plus `"./block": "./src/block.tsx"` for a block). Copy [`plugins/adoption-tips`](https://github.com/muhammadarifftaha/pet-adopt/tree/main/plugins/adoption-tips) to start.
+2. Run `pnpm install` at the root, so the new package gets its dependencies.
+3. Add it to the web app, from the root:
+
+   ```bash
+   pnpm --filter @pet-adopt/web add <package name>@workspace:*
+   ```
+
+   Never run `pnpm add` at the root.
+4. List it in `apps/web/pet-adopt.config.ts`, and its blocks in `apps/web/pet-adopt.blocks.ts`.
+5. Run `pnpm dev`.
+
+`pnpm typecheck` and `pnpm lint` cover a plugin that has those two scripts (`"typecheck": "tsc --noEmit"` and `"lint": "eslint ."`, as in the example plugin); copy `eslint.config.mjs` from the example plugin too.
+
+**After changing the plugin's tables,** run `pnpm plugin:generate plugins/<folder> <change_name>`, then restart `pnpm dev`. A local SQLite file applies the new migration when it opens. See [Generating migrations](./storage.mdx#generating-migrations).
+
+### Trying a packed plugin
+
+To try a plugin as a site would get it from npm, before publishing it:
+
+1. `pnpm pack --pack-destination <a scratch folder>` in the plugin's folder.
+2. In a site, `pnpm --filter @pet-adopt/web add <path to the .tgz>`.
+
+A plugin installed from a tarball is compiled JavaScript, so it also needs an `@source` line for its `dist`, unless its name starts with `@pet-adopt/plugin-`.
+
+## Checklist before publishing a plugin
+
+- It imports `@pet-adopt/plugin-sdk` and, for screens, `@pet-adopt/ui`. Nothing from the site.
+- Every server action is wrapped in `host().run` and checks a permission first.
+- Every change is recorded with `host().recordActivity`, naming fields and never values.
+- Errors are logged with `host().logError` only.
+- Table and index names start with the plugin's prefix, and both schema files match.
+- `drizzle/` and `migrations.ts` are committed, and no shipped migration was edited.
+- Each block lives in a module the browser can load, exported from its own entry point, with a name that starts with something of your own.
+- Each loader returns only public data, as plain JSON, and copes with options that name nothing.
+- Block CSS uses the site's theme variables, and every selector starts with a class of your own. The block was checked on every preset, in light and dark (see [Checking your block](./theming.mdx#checking-your-block)).
+- The packed tarball holds `dist/`, and client and server files keep their first line.
+- The README tells a site how to install it: the config, the blocks file, the `@source` line when its name needs one, and `pnpm migrate`.

@@ -1,0 +1,113 @@
+---
+title: The reverse proxy
+description: Why the site needs a proxy you control, how it reads each visitor's address, and how to check it.
+---
+
+The site must run behind a reverse proxy that you control. A reverse proxy is a web server (Caddy, nginx and the like) that receives every request from the internet and passes it on to the site. It does two jobs:
+
+1. **HTTPS.** The site speaks plain HTTP to the proxy; the proxy holds the certificate.
+2. **The visitor's address.** Every limit on sign-in guessing, password resets and form sending counts per visitor address. The site learns that address from a header the proxy sets.
+
+Put the proxy in place before you create the first account.
+
+## Why the header matters
+
+A visitor can send any `X-Forwarded-For` header they like. The site therefore trusts only the part of the header that **your proxy** wrote, counted from the end:
+
+- `CLIENT_IP_HEADER` names the header (default `x-forwarded-for`).
+- `TRUSTED_PROXY_HOPS` says how many of your own proxies add to it (default `1`).
+
+With one proxy, the last entry is the visitor. With a CDN (a content delivery network: a service that sits in front of your server and answers visitors from nearby) in front of your own proxy, the visitor is the second entry from the end, so the value is `2`.
+
+| Setup | `CLIENT_IP_HEADER` | `TRUSTED_PROXY_HOPS` |
+|---|---|---|
+| One reverse proxy on the server | *(default)* | `1` *(default)* |
+| A CDN, then your reverse proxy | *(default)* | `2` |
+| A CDN that sends its own header with the visitor's address, and the site is reachable **only** through it | that header's name | `1` |
+
+Cloudflare, for example, sends the visitor's address in `cf-connecting-ip`.
+
+**If these are wrong:**
+
+- **Too low:** the site sees the address of your CDN or proxy for every visitor. All visitors then share one set of limits, so a few wrong passwords from anyone lock everyone out for a while.
+- **Too high:** the site reads a value the visitor wrote, so someone can dodge the limits by changing the header.
+- **The port is reachable without the proxy:** the same as too high. The visitor's own header is believed.
+- **`CLIENT_IP_HEADER` names a header nothing sets:** the site cannot tell visitors apart. It then counts every attempt on an email address together, so anyone can lock an owner out of sign-in for ten minutes at a time.
+
+## Examples
+
+**Caddy** (gets and renews the certificate by itself):
+
+```text
+adopt.example.com {
+	reverse_proxy 127.0.0.1:3000
+}
+```
+
+**nginx:**
+
+```nginx
+server {
+    listen 443 ssl;
+    server_name adopt.example.com;
+    # ssl_certificate and ssl_certificate_key go here
+
+    client_max_body_size 11m;   # uploads are up to 10 MB
+
+    location / {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
+
+As the only proxy, both leave the defaults (`x-forwarded-for`, one hop) correct.
+
+### Behind a CDN
+
+The two proxies behave differently:
+
+- **nginx** with the line above adds the CDN's address to the header it received. Set `TRUSTED_PROXY_HOPS=2` and nothing else.
+- **Caddy** discards the header it received unless it trusts the sender, and writes only the CDN's address. Without the setting below, every visitor looks like the CDN whatever `TRUSTED_PROXY_HOPS` says. Tell Caddy which addresses are your CDN's, then set `TRUSTED_PROXY_HOPS=2`:
+
+```text
+{
+	servers {
+		trusted_proxies static 198.51.100.0/24   # your CDN's address ranges
+	}
+}
+
+adopt.example.com {
+	reverse_proxy 127.0.0.1:3000
+}
+```
+
+Use the ranges your CDN publishes, and keep them current. Also make sure the server accepts connections only from the CDN, or a visitor can skip it.
+
+### Upload size
+
+Whatever proxy you use, allow request bodies of at least 11 MB, or image uploads near the 10 MB limit will fail at the proxy.
+
+## Check the client address
+
+After the proxy is in place, sign in and open **Activity** in the admin. Your sign-in entry shows the address the site saw.
+
+- **It is your own public address:** the settings are right.
+- **It is the proxy's or the CDN's address:** `TRUSTED_PROXY_HOPS` is too low.
+- **It is `127.0.0.1` or another address on your own network:** the request did not come through the proxy, or the proxy does not set the header.
+- **It is blank**, and the server log says `Sign-in throttling cannot tell clients apart`: `CLIENT_IP_HEADER` names a header that nothing sets.
+
+To be sure a visitor cannot choose the address, send a request with a made-up header and a wrong password, then look at the failed sign-in in **Activity**:
+
+```bash
+curl -X POST https://adopt.example.com/api/auth/sign-in/email \
+  -H 'Content-Type: application/json' -H 'Origin: https://adopt.example.com' \
+  -H 'X-Forwarded-For: 203.0.113.99' \
+  -d '{"email":"you@example.com","password":"not-the-password"}'
+```
+
+The entry must show your own address. If it shows `203.0.113.99`, `TRUSTED_PROXY_HOPS` is too high or the port is reachable without the proxy.
+
+If you run a setup the project has not tested (see [What has been tested](./troubleshooting.mdx#what-has-been-tested)), this check is the first thing to confirm.

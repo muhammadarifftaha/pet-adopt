@@ -41,7 +41,7 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      # Each runs through turbo across the workspace (apps/web, packages/*, plugins/*).
+      # Each runs through turbo across the workspace (apps/web, apps/docs, packages/*, plugins/*).
       - run: pnpm typecheck
       - run: pnpm lint
       - run: pnpm check:schemas

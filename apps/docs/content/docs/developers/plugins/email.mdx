@@ -1,0 +1,50 @@
+---
+title: Email
+description: Default email templates a plugin ships, sending email through them, and a plugin that sends all of the site's email.
+---
+
+A site sends email through its built-in SMTP sender, set up on its **Email** screen, or through an [email sender plugin](#an-email-sender). Every email is drawn from a template that the team can edit in **Email → Templates**. A plugin can add templates of its own and send with them.
+
+## Default templates
+
+```ts
+emailTemplates: [
+  { key: 'notification', name: 'Order received', purpose: 'team-notification' },
+]
+```
+
+- The site creates each one in **Email → Templates** when it starts. Owners can edit, rename and restore it, but not delete it.
+- `key` is lowercase letters, digits and dashes. The template's full key is `<plugin name>:<key>`.
+- `purpose` is `'team-notification'` (to the team) or `'visitor-message'` (to someone outside the team).
+- `data` is an optional layout in the email builder's format. Without it, the site's built-in email of that purpose is used.
+
+The form builder's [`src/email-templates.ts`](https://github.com/muhammadarifftaha/pet-adopt/blob/main/plugins/form-builder/src/email-templates.ts) ships two defaults, one of each purpose.
+
+## Sending
+
+```ts
+const sent = await host().sendTemplatedEmail({
+  purpose: 'team-notification',
+  templateId: settings.templateId,   // the template the owner picked, if any
+  fallback: 'my-plugin:notification',
+  to: 'team@example.com',
+  values: { title: 'Blue collar' },
+  details: [{ label: 'Size', value: 'Medium' }],
+})
+```
+
+- It resolves `false` when the site cannot send email, and rejects when sending fails.
+- `details` are sent in team notifications only. A message to a visitor never repeats what someone typed, because anyone can type any address into a public form.
+- `host().emailTemplates(purpose)` lists the templates an owner can pick from. Each has `id`, `name` and `seedKey`.
+- **`emailTemplateUsage`** on the plugin is an optional function that reports where templates are used. The site shows it in the **Used by** column of **Email → Templates**.
+
+## An email sender
+
+A plugin with `email: { send, status? }` sends all of the site's email, for example through a provider's HTTP API where SMTP ports are blocked.
+
+- `send(message)` gets `to`, `subject`, `text` and sometimes `html`. Throw when the message was not accepted.
+- `status()` reports the setup for the plugin's page. While it says `ready: false`, the site uses its built-in SMTP sender, if that is set up.
+- A site can have at most one such plugin.
+- Never put a secret in `status().details`.
+
+Other plugins reach whichever sender is in use with `host().emailSender()`, which gives `null` when the site cannot send email.

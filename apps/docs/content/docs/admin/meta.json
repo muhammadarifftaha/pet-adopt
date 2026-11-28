@@ -1,0 +1,7 @@
+{
+  "title": "For admins",
+  "description": "Running a site day to day",
+  "icon": "LayoutDashboard",
+  "root": true,
+  "pages": ["index", "admin-tour", "pets", "pages", "media", "forms", "instagram-feed", "users-and-roles", "signing-in", "email", "activity-log", "settings-and-themes", "search-and-sharing"]
+}

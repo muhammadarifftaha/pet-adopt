@@ -1,0 +1,97 @@
+---
+title: Activity log
+description: Who changed what, and when; what is recorded, who can read it, and how long it is kept.
+---
+
+The activity log records who changed what, and when. Read it on **Activity** (under **Settings** in the admin); the **Dashboard** also shows the newest few entries in a **Recent activity** card, linking to the full log.
+
+The log is for accountability, not surveillance: it names the fields that changed, never their values, so it holds no personal data or secrets.
+
+## What is recorded
+
+- **Every change:** creating, editing, deleting, publishing and restoring things, role changes, uploads, theme switches and settings, across pets, pages, media, theme, settings, users and plugins.
+- **Sign-ins and sign-outs,** including sign-ins with a [sign-in provider](./signing-in.mdx#sign-in-providers).
+- **Account changes:** password changes and resets, accepted invites, two-factor turned on or off, new backup codes, email changes, connected and disconnected providers, profile pictures and requests to delete an account.
+- **Failed sign-ins:** wrong passwords, wrong two-factor codes, and the right password on an archived account. There is no actor (nobody is signed in), and the account the attempt was aimed at is named as the subject.
+- **Downloads of personal data:** form responses as CSV, and the activity log's own CSV.
+
+**Not recorded:**
+
+- reading anything;
+- test emails;
+- marking form responses as read.
+
+**Page drafts:** the page builder autosaves every few seconds, so its draft saves are recorded at most once every 15 minutes per person and page. Saving a draft by hand is always recorded.
+
+## What an entry holds
+
+| Part | What it is |
+| --- | --- |
+| When | The time of the change |
+| Who | The person's name and role **as they were** at the time, so renaming someone or changing their role doesn't rewrite history |
+| Area | Pets, Pages, Media, Theme, Settings, Users, Own account, Sign-in and sign-out, Plugins or Activity log |
+| What happened | One sentence, such as "Updated pet “Bella”" |
+| Item | What it was about, such as the pet or the page |
+| Fields changed | The names of the fields that changed, never their values |
+| Client address | The internet address the request came from |
+
+- **Role changes** name the roles (they aren't personal data).
+- **Email changes** name the field only, never the addresses.
+- **A failed sign-in never stores the email that was typed:** people type passwords into the email box by mistake.
+- **Entries outlive what they describe.** Deleting a pet, a page or an account leaves its entries in place.
+
+Plugins add entries of their own, all in the Plugins area. A plugin can only write entries while someone is signed in, and only under its own name.
+
+## Who sees what
+
+| | Admin | Editor | Developer | Audit |
+| --- | --- | --- | --- | --- |
+| Their own entries, and failed sign-ins on their account | Yes | Yes | Yes | Yes |
+| Everyone's entries | Yes | No | No | Yes |
+| The **Person** filter and client addresses | Yes | No | No | Yes |
+| **Download CSV** | Yes | No | No | Yes |
+
+Nobody can change or delete an entry from the admin.
+
+## Filters
+
+- **Area:** one of the areas above, or all.
+- **Person:** admins and audit only. It lists everyone who has an entry, under the newest name each had, deleted accounts included.
+- **From** and **To:** days in the site's time zone (Site settings → Region), or in your device's time zone when the site has none. Both days are included.
+
+Filters live in the page's address, so a filtered view can be bookmarked or shared with someone who has the same access. Entries are shown newest first, 50 to a page.
+
+## Downloading as CSV
+
+**Download CSV** (admins and audit) downloads every entry that matches the filters, not just the page on screen.
+
+- **Size:** the newest 50,000 entries at most. When there are more, the screen says so; narrow the dates to get the rest.
+- **Times** are in UTC, whatever the site's time zone.
+- **Columns:** when (UTC), who, role, user id, area, action, what happened, item id, item, fields changed and client address.
+- **Safe in spreadsheets:** cells are written so that none can run as a formula, and the file opens as UTF-8.
+- **The download is recorded** in the log itself.
+
+A CSV file downloaded before an account is deleted keeps that person's details: it is outside the site's reach, so treat it like any other personal data.
+
+## How long entries are kept
+
+Entries are kept for **365 days**, then deleted. Set `ACTIVITY_LOG_DAYS` to keep them for longer or shorter (at least 1 day):
+
+```dotenv
+ACTIVITY_LOG_DAYS=730
+```
+
+Old entries are removed when the server starts, and at most once an hour after that while the log is being read.
+
+## Anonymising deleted accounts
+
+When an account is [deleted](./users-and-roles.mdx#deleting) (by an admin, or 30 days after its owner asked), its entries are anonymised, not deleted. What was done and when stays; who did it doesn't.
+
+On every entry the person made, or that is about them:
+
+- **Their id** becomes one new random id that links to nothing, so their entries still group together.
+- **Their name** becomes "Deleted user" followed by four random characters, such as "Deleted user 3fa1". It is replaced inside the sentences too, under every name the entries recorded for them, since people get renamed.
+- **The client address** is cleared.
+- **What stays:** the action, the area, the time, the role and the field names.
+
+Entries about someone else with the same name are left alone: only entries linked to the deleted account are changed. The deletion's own entry names the new anonymous label.

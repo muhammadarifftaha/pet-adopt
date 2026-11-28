@@ -1,0 +1,232 @@
+---
+title: Pages
+description: Building pages with the page builder, publishing and restoring them, the system pages, and a reference of every block.
+---
+
+Pages live under **Content → Pages**. Each page is built from **blocks** (a banner, some text, a grid of pets, a FAQ) that you arrange in the **page builder**. The homepage, the Pets page and the layout of every pet's page are pages too, and are edited the same way.
+
+Admins, editors and developers can build and publish pages. Audit can open the page builder read-only: every field is locked and there is no **Save draft** or **Publish**. An archived page opens read-only for everyone until it is restored.
+
+## Making a page
+
+1. In **Pages**, choose **New page**, and give it a **title** and an **address**.
+2. Choose **Create and open page builder**. Drag blocks onto the page and edit each one in the right sidebar.
+3. **Publish.** Visitors only ever see published pages.
+
+## Page settings
+
+The settings screen (choose a page in the list) holds what is not part of the layout:
+
+- **Title:** shown in the browser tab as "Title | Site name", and in search results.
+- **Address:** the page's path, such as `about` for `/about`. Lowercase letters, numbers and dashes. It is filled in from the title until you change it. Changing it later breaks links to the old address.
+- **Layout:** **Open page builder**. With unsaved changes on the settings screen, the button saves them first.
+- **Search and sharing:** a **search description** (up to 200 characters) and a **share image**, the picture shown when a link to the page is shared. See [Search and sharing](./search-and-sharing.mdx).
+
+The **Publishing** card beside them shows whether the page is published, a draft or archived, whether there are unpublished changes, and a link to the live page. Its buttons publish, unpublish and archive the page. Under it, the **Versions** card lists the page's history (see [Versions and restoring](#versions-and-restoring)).
+
+**On a live page, settings wait for the next publish,** like the layout does. Change the title or the address of a published page and visitors keep the old ones, the card shows "Unpublished changes", and **Publish changes** applies everything at once. While a new address waits, the card says which address visitors use until then. On a page that is not live, settings apply straight away.
+
+### Addresses
+
+- Addresses are one level deep: `/about`, not `/about/team`.
+- These addresses are reserved: `home` (the homepage), `admin`, `api`, `edit`, `health`, `media`, `pets`, `pet-page` and `setup`.
+- No two pages can share an address, counting both the live addresses and those waiting to be published.
+
+## The page builder
+
+The page builder opens at `/edit/<page id>`.
+
+- **The header** has **← Back** (to the page's settings), undo and redo, **Save draft** and **Publish**.
+- **The left side** has **Blocks** (the list to drag from), **Outline** (the page's blocks as a tree) and **View live**, which opens the live page in a new tab. It opens the address visitors reach today: a new address saved in the page settings is used once you publish.
+- **The canvas** in the middle shows the page as visitors will see it, using the site's own theme.
+- **The right sidebar** shows the options of the selected block. At its top, whatever is selected, sit the **Dark preview** switch and, on the Pet page template, **Preview with**.
+- **Image options** open a picker under the field: search the media library by name or description and page through it, or upload a new image (JPEG, PNG, WebP or GIF, with a description) and use it at once.
+
+### Viewports
+
+The buttons under the canvas draw the page at **Phone** (390 px), **Tablet** (768 px), **Laptop** (1280 px) and **Full width**, so you can check how blocks stack on small screens before publishing.
+
+### Dark preview
+
+The site follows each visitor's light or dark setting (unless it is set to light only, see [Settings and themes](./settings-and-themes.mdx#light-and-dark)). **Dark preview** shows the canvas in the theme's dark colours. It changes only what you see; it is not saved.
+
+### Autosave and drafts
+
+- **Autosave:** the builder saves your draft about 3 seconds after you stop editing, and when you switch to another tab. Opening a page or changing the preview pet is not an edit, so it doesn't save.
+- **Save draft** doubles as the status: "Saved" when there is nothing to save, "Autosaving…" or "Saving…" while it works. You can still press it to save at once.
+- **If an autosave fails,** autosave pauses, **Save draft** gets a red outline and an error message stays on screen. Fix the problem and save again.
+- **Leaving** with unsaved work asks first.
+- **Drafts never change the live page.** Visitors keep seeing the published version until you publish.
+- **Two people, or two tabs:** if the page was saved somewhere else since you opened it, your save is refused with a message asking you to reload, so nobody overwrites someone else's work without knowing.
+
+### Publishing
+
+**Publish** makes the current draft live. It is unavailable when there is nothing to publish: the live page already matches the editor and no page settings are waiting. You can also publish from the page's settings screen.
+
+**Unpublish** takes a page off the site and keeps its draft.
+
+Pages refresh for visitors as soon as you publish, and also every 60 seconds.
+
+Saving, publishing and restoring are recorded in the [activity log](./activity-log.mdx). Autosaves are recorded at most once every 15 minutes per person and page.
+
+## Headings
+
+Every page should have exactly one main heading (`h1`), which screen readers and search engines use to tell what the page is about. The site takes care of it:
+
+- **The first block that shows a heading** gets the page's main heading. Every later block heading is one level below it, and headings inside a block (card titles, questions) one level below that.
+- **A page with no heading at all** gets a hidden main heading with the page's title, for screen readers.
+- **Heading size** (on blocks that have it) changes only how big the heading looks: **Normal** or **Display (very large)**. It never changes the structure.
+
+So you never need to pick heading levels: put the block that introduces the page first.
+
+## Options many blocks share
+
+- **Padding:** every block except Spacer has a **Padding** option with **Top** and **Bottom**: Default, None, Small, Medium, Large or Extra large. **Default** keeps the block's own spacing. On screens narrower than 800 px the padding is a little smaller.
+- **Background:** Plain, Tinted or Dark, from the theme's colours.
+- **Alignment:** Left or Center.
+- **Heading size:** Normal or Display (very large).
+- **Button style:** Solid, Outline or Dark. **Button width:** Fit the text or Full width.
+
+**Links** typed into blocks can be a path on the site (`/pets`), a full `http://` or `https://` address, `mailto:` or `tel:`. Anything else, such as a `javascript:` address, is dropped and the link goes nowhere.
+
+**WhatsApp buttons** in blocks use the number and message from **Site settings → Contact**. In the message, `{pet}` becomes the pet's name where there is one.
+
+**Images** in blocks come from the [media library](./media.mdx), with their alt text.
+
+## Versions and restoring
+
+Every draft save, publish and restore keeps a snapshot of the page, its layout and its settings, in the **Versions** card on the page's settings screen. A draft identical to the latest snapshot is not kept twice, and the latest 50 versions are kept for each page.
+
+- **Live** and **Current draft** badges mark the versions visitors see and you are editing.
+- **View** opens a preview of a version. **Newer** and **Older** step through them.
+- **Restore as draft** puts that version into the draft, for you to check and publish.
+- **Restore and publish** puts it live at once, for a quick rollback. It asks first.
+
+Restoring never rewrites history: the old layout comes back as a **new** version marked "Restored from version N". On version 3, restoring version 2 makes version 4, and any unpublished work in the draft is kept as a version of its own first.
+
+Restoring a version also brings back its title, address, search description and share image. The homepage and the other system pages keep their address.
+
+Versions don't count as uses of an image, so an image deleted from the media library later shows as missing in an old version.
+
+## Archiving and deleting
+
+Removing a page takes two steps:
+
+1. **Archive** (in the page's **Publishing** card, or the pages list). An archived page is off the site, read-only and keeps its address. **Restore page** brings it back as it was.
+2. **Delete** (in the pages list). Only an archived page can be deleted, and it is gone for good. It asks first.
+
+The system pages below can't be archived or deleted.
+
+## System pages
+
+Three pages are always there. They can't be archived or deleted, their addresses can't change, and until you publish your own version each shows a built-in layout.
+
+### The homepage
+
+The page with the address `home`, shown at `/`. If you unpublish it, the site shows its built-in homepage instead.
+
+### The Pets page
+
+Shown at `/pets`: the catalogue, inside a layout you can edit. Its built-in layout is just one **Pet catalogue** block. Add blocks around the catalogue (a banner above it, a FAQ below), and keep the catalogue on the page. If you unpublish it, `/pets` shows the built-in catalogue.
+
+### The Pet page template
+
+**Pages → Pet page** is one layout that draws **every** pet's page at `/pets/<pet>`. There is no page per pet: change the template, and every pet's page changes.
+
+- It has its own set of blocks (see [Pet page template blocks](#pet-page-template-blocks)): the pet blocks, a few ordinary blocks (Text, Adoption steps, FAQ, Cost table, Call to action), Spacer and Divider, and plugin blocks that allow it, such as **Form**.
+- **Preview with** (at the top of the right sidebar) picks which pet the builder shows while you design, including link-only and adopted pets. **View live** then opens that pet's page.
+- It has no address of its own. Each pet's title, search description and share image come from the pet (its **Search and sharing** tab), so the settings screen hides those fields.
+- Above the blocks, every pet's page has a "← All pets" link and, for pending and adopted pets, an automatic notice (see [Statuses](./pets.mdx#statuses)).
+- If you unpublish it, pet pages use the built-in layout: gallery, summary, description, health, personality, timeline, and more pets like this.
+
+## Block reference
+
+The page builder groups blocks the way this list does. Every block also has **Padding**.
+
+### Sections
+
+| Block | Main options |
+| --- | --- |
+| **Hero banner** | Heading, subheading, background image, button text and link, WhatsApp button (show or hide), alignment, height (Medium or Tall), layout (text over the image, or image above the text), heading size, button style |
+| **Text** | Heading, text (a blank line starts a new paragraph), alignment, background |
+| **Image + text** | Image and image side, heading and heading size, a bold line under the heading, text, button text and link, button style and width, photo width (Half or Wide), one photo or two stacked (such as before and after) with a label on each, background |
+| **Features with icons** | Heading, heading size, intro, layout (columns, or heading beside a list), 2 to 4 columns, points (icon, title, text), alignment, background |
+| **Call to action** | Heading, text, a button that opens WhatsApp or a link, button text, background |
+
+### Media
+
+| Block | Main options |
+| --- | --- |
+| **Image grid** | Heading, 2 to 4 columns, images with captions, background |
+| **Image carousel** | Heading, slides (image and caption), background. Visitors swipe or use the arrows |
+| **Video** | Heading, a YouTube or Vimeo link, caption, background. YouTube videos play from YouTube's no-cookie address. Other video sites are not accepted |
+
+### Pets
+
+| Block | Main options |
+| --- | --- |
+| **Pet catalogue** | Heading, heading size, intro, filters (show or hide), background. Shows 12 pets a page with paging, and only available pets until a visitor picks another status. The filters (species, age, sex, size, status, and a location search) always search the Pets page, so use this block there |
+| **Pet spotlight** | One pet, chosen from a list, with a small heading above it (such as "Pet of the week"). Layout: **Spotlight** (photo and short story) or **Full profile** (facts and lists). Heading size, photo side, button text, whether the button opens the pet's page or WhatsApp, WhatsApp button, background. The block disappears from the live site if the pet is adopted, made link-only or removed |
+| **Pet grid** | Heading, heading size, show pets as **cards in a grid** or **full profiles one after another** (up to 12), species (empty for all), status, latest or featured only, how many (1 to 24), a "View all pets" link to `/pets`, the profile button's text and whether it opens the pet's page or WhatsApp, background. Link-only pets never appear |
+| **Adoption steps** | Heading, intro, steps (title and text), background |
+| **Numbers** | Heading, numbers (such as "120+") and what each counts, background |
+
+### Trust and contact
+
+| Block | Main options |
+| --- | --- |
+| **Adopter stories** | Heading, stories (quote, name, detail), background |
+| **Team** | Heading, intro, people (photo, name, role, a short line), background |
+| **Ways to help** | Heading, intro, ways (icon, title, text, and a button that opens WhatsApp, a link, or nothing), a payment heading and payment details shown with a **Copy** button (such as bank details), background |
+| **Cost table** | Heading, heading size, intro, optional photo, which side the heading and photo sit, the two column titles, rows (item, cost, and a highlight: none, total or strong), a note under the table, background |
+| **FAQ** | Heading, questions and answers (each opens and closes), background |
+| **Contact & map** | Heading, and whether to show the address, opening hours (both from Site settings) and the WhatsApp button, a Google Maps embed link, background. For the map, use **Share → Embed a map** on Google Maps and copy the `src` address; other addresses are ignored |
+| **Social links** | Heading, alignment, background. The links themselves come from **Site settings → Contact** |
+
+### Layout helpers
+
+| Block | Main options |
+| --- | --- |
+| **Spacer** | Height: Small, Medium, Large or Extra large |
+| **Divider** | Width: Full or Short |
+
+### Plugins
+
+Plugins can add blocks of their own. They appear in a **Plugins** group:
+
+- **Form** (from the form builder): see [Forms](./forms.mdx). It is also offered in the Pet page template.
+- **Instagram feed**: see [Instagram feed](./instagram-feed.mdx).
+
+### Pet page template blocks
+
+These are offered only in the Pet page template, in a **This pet** group. Each reads the pet whose page is being shown. A block with nothing to show for a pet (no photos, no updates) is left out of that pet's page; in the builder, it explains what it would show instead.
+
+| Block | Main options |
+| --- | --- |
+| **Pet gallery** | A large photo with a strip of thumbnails **below** or **above** it. Choosing a thumbnail shows it large |
+| **Pet summary** | The pet's name as the page's heading, heading size, status badge (show or hide), facts (species, breed, sex, age, size, colour, location), and the main photo: hidden, left or right, and rounded, sharp or round |
+| **Pet health** | Heading, medical history (vaccinated, microchipped, neutered and so on), health notes, layout (side by side or stacked), gap between rows |
+| **Pet personality** | Heading, traits, who they are good with, personality notes, layout (side by side or stacked), gap between rows |
+| **Pet description** | The description, and a WhatsApp button (hidden for adopted pets) whose text can use `{pet}`, `{species}`, `{breed}`, `{age}`, `{sex}` and `{location}`. Left blank, it reads "Ask about `{pet}` on WhatsApp" |
+| **Pet timeline** | The pet's [dated updates](./pets.mdx#the-pet-timeline). Heading; alignment (line on the left, line on the right, or alternating sides with the line in the centre, which falls back to the left layout on narrow screens); newest or oldest first; how many to show (3, 5, 10 or all), with the rest behind **Show all updates**; photos and time of day (show or hide) |
+| **More pets like this** | Heading, and 3, 4 or 6 other available pets: the same species first, then the same state, then any |
+
+A note on the timeline's order: with **Oldest first** and a limit, the newest updates are the ones behind **Show all updates**.
+
+## Adding a block of your own
+
+Developers can add built-in blocks to a site's code. Blocks live in [`apps/web/src/puck/config.tsx`](https://github.com/muhammadarifftaha/pet-adopt/blob/main/apps/web/src/puck/config.tsx); the Pet page template's own blocks are in [`pet-page-config.tsx`](https://github.com/muhammadarifftaha/pet-adopt/blob/main/apps/web/src/puck/pet-page-config.tsx). To add one:
+
+1. Add a props type.
+2. Add an entry under `components` with `fields`, `defaultProps` and a `render` function.
+3. List it in a `categories` group so it shows up in the builder.
+
+The Padding option is added to every block automatically.
+
+**Rules for `render` functions:**
+
+- **No hooks or browser-only code.** The same components render on the server for visitors and inside the builder. For anything interactive, render a client component, as the Image carousel does.
+- **Data comes through `puck.metadata`:** site settings through `puck.metadata.site`, and live data through its fetch functions.
+- **Headings** go through the heading helpers, so each page keeps exactly one `h1`.
+
+A block can also come from a plugin, without changing the site's code: see [Page builder blocks](../developers/plugins/blocks.mdx).

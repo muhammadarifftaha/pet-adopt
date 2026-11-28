@@ -1,0 +1,78 @@
+---
+title: Media
+description: The image library, which images it accepts and why, alt text, and why an image in use can't be deleted.
+---
+
+**Content → Media** holds every image the site uses: pet photos, images in page blocks and email templates, share images, the logo and the site icon. Images are uploaded once and picked from the library wherever they are needed.
+
+Admins, editors and developers can upload, edit and delete images. Audit can look.
+
+## Uploading
+
+Choose **Upload photos**, then drag files into the dialog or choose **Choose photos**. You can add up to 30 at a time. For each one, fill in:
+
+- **File name:** how the image is listed in the library and found when you search. It starts as the uploaded file's own name, up to 120 characters. It is only a label: the stored file always gets a random name, so the name you type never appears in the image's address.
+- **Description** (required): the alt text, see [Alt text](#alt-text).
+
+You can also upload from the image picker in the pet form, site settings, the page builder and the email builder, without leaving the screen.
+
+## What is accepted
+
+| | |
+| --- | --- |
+| **Formats** | JPEG, PNG, WebP and GIF (animated GIFs and WebPs keep their animation, up to 100 frames) |
+| **File size** | up to 10 MB |
+| **Picture size** | up to 12000 px on each side and 40 megapixels |
+
+The type is decided from the file's contents, not its name.
+
+**Refused:**
+
+- **SVG,** because an SVG file can carry script that would run on the site.
+- **AVIF and HEIC** (HEIC is what iPhones save by default), because their hidden details can't be removed without re-compressing the picture (see below). Save the photo as a JPEG, PNG or WebP first: most phones and photo apps can export one.
+
+## Hidden details are removed, the picture is not touched
+
+Photos from phones and cameras carry hidden details: often the GPS position where the photo was taken, the device, comments and a small embedded copy of the picture. For a rescue, a photo's location can be someone's home address.
+
+Every upload has those details removed before it is stored:
+
+- **Without re-compressing.** The parts of the file that hold the picture are copied byte for byte and the rest is left out, so the stored image looks exactly like the one you uploaded, with its colours and animation.
+- **Photos stay upright.** The one detail kept is which way up the photo goes, so phone photos aren't shown sideways.
+- **It fails safe.** If the result isn't the same picture, the upload is refused rather than storing the original with its details.
+
+Uploads go to the site's S3-compatible storage (see [Upload storage](../developers/deployment/settings.mdx#upload-storage)), never to the server's disk, and visitors load them through the site's own `/media` address. A small preview is made for the library and pickers.
+
+## Alt text
+
+Alt text is a short description of what an image shows. Screen readers read it aloud to people who can't see the image, and browsers show it when an image can't load. Search engines read it too.
+
+- It is required, and must be under 200 characters.
+- Say what the image shows, for example "Ginger kitten asleep on a blanket".
+- It is used wherever the image appears: on pet pages, in blocks and in share cards.
+
+Change it, and the file name, on the image's own page: choose an image in the library.
+
+## Finding images
+
+Search the library by file name or description. Choose an image to see its type, size, dimensions, upload date, and **where it is used**.
+
+## Deleting
+
+An image in use can't be deleted. That includes an image used as:
+
+- a pet's photo or share image;
+- a page's share image, including a new one waiting in a live page's unpublished settings;
+- an image in a page layout (draft or live) or an email template;
+- a photo in a pet timeline update;
+- the site's logo or site icon.
+
+Deleting one says where it is still used, so you can replace it there first.
+
+To delete several images, choose **Select images**, pick them and choose **Delete selected**. It asks first; images still in use (or that a server problem stopped) are skipped, stay selected, and show why. The others are deleted either way.
+
+Deleting removes the image and its file for good. Old [page versions](./pages.mdx#versions-and-restoring) don't count as uses, so an image deleted later shows as missing in an old version.
+
+## Images in emails
+
+Some email programs, including older Outlook, can't show WebP images. When an email uses a WebP image, the site sends a PNG copy of it instead, made once and kept beside the original. See [Email](./email.mdx).

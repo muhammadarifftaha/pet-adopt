@@ -35,7 +35,7 @@ const siteURL = (process.env.NEXT_PUBLIC_SERVER_URL ?? '').trim()
 //  - Development also needs eval (React refresh) and websockets (hot reload).
 //  - Captcha services (the form builder's spam protection, src/captcha-widget.tsx in the plugin):
 //    their scripts, frames and checks, limited to their captcha paths where the service allows it.
-//    Fixed here because the CSP is read at start and the chosen service lives in the database;
+//    Fixed here because the CSP is fixed when the site is built and the chosen service lives in the database;
 //    nothing loads from them unless the owner switched protection on.
 // Set CSP_REPORT_ONLY=1 to report violations in the browser console without blocking anything.
 const CAPTCHA_SCRIPTS = 'https://challenges.cloudflare.com https://www.google.com/recaptcha/ https://www.gstatic.com/recaptcha/ https://hcaptcha.com https://*.hcaptcha.com'

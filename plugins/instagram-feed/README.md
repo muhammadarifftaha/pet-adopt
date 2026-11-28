@@ -68,7 +68,7 @@ pnpm migrate
 CSP_IMG_SRC="https://*.cdninstagram.com https://*.fbcdn.net"
 ```
 
-- **Restart the site** afterwards: the content security policy is read when the site starts.
+- **Rebuild the site** afterwards (`pnpm build`, then start it again): the content security policy is fixed when the site is built. In development, restart `pnpm dev`.
 - **Without it,** the grid shows empty squares and the browser's console names the blocked address.
 - **What it means for visitors:** their browsers contact Instagram's servers to load the pictures, so Instagram sees their address. Say so in your privacy policy.
 
@@ -194,7 +194,7 @@ Messages in quotes are the ones the plugin shows.
 
 - **The block is not in the page builder:** it is missing from `apps/web/pet-adopt.blocks.ts` (step 3), or the site was not restarted or rebuilt since.
 - **The block shows a note that no account is connected:** connect one on the plugin's screen. On PostgreSQL or hosted libSQL, also check that `pnpm migrate` has run.
-- **Empty squares where pictures should be:** the content security policy does not allow Instagram's picture hosts (step 5); the browser's console names the blocked address. Restart the site after changing the policy. If only older pictures are missing, press **Refresh now**: their addresses have expired.
+- **Empty squares where pictures should be:** the content security policy does not allow Instagram's picture hosts (step 5); the browser's console names the blocked address. Rebuild the site after changing the policy. If only older pictures are missing, press **Refresh now**: their addresses have expired.
 - **"Only Business and Creator accounts can be connected.":** it is a personal account. Switch it to a professional account in the Instagram app's settings and connect again.
 - **"Instagram did not accept the redirect address.":** the address in your Meta app must be exactly the one on the plugin's screen, including `https://`. It is built from `NEXT_PUBLIC_SERVER_URL`, so check that too.
 - **"Instagram did not accept the app secret.":** copy the Instagram app secret again from the Meta app and press **Save keys**.
@@ -221,7 +221,7 @@ It stores no pictures and nothing about visitors.
 
 ## For developers
 
-The package on npm is compiled JavaScript with type declarations; files keep their `'use client'` and `'use server'` first lines. The source is in [`plugins/instagram-feed`](https://github.com/muhammadarifftaha/pet-adopt/tree/main/plugins/instagram-feed) in the Pet Adopt repository. [docs/plugins.md](https://github.com/muhammadarifftaha/pet-adopt/blob/main/docs/plugins.md#page-builder-blocks) uses its block as an example of a plugin block.
+The package on npm is compiled JavaScript with type declarations; files keep their `'use client'` and `'use server'` first lines. The source is in [`plugins/instagram-feed`](https://github.com/muhammadarifftaha/pet-adopt/tree/main/plugins/instagram-feed) in the Pet Adopt repository. [The plugin guide's page on blocks](https://github.com/muhammadarifftaha/pet-adopt/blob/main/apps/docs/content/docs/developers/plugins/blocks.mdx) uses its block as an example of a plugin block.
 
 | File | What it is |
 | --- | --- |
@@ -264,7 +264,7 @@ Commit `drizzle/` and the regenerated `migrations.ts`. Table and index names mus
 
 **Checks:** `pnpm typecheck` and `pnpm lint` cover this package. The end-to-end backend check (`pnpm check:backend` in `apps/web`) answers Instagram's calls with a fake, so it needs no network and no real account.
 
-**Building the package:** `pnpm pack` in this folder compiles `dist/` first (`build:package`) and writes the tarball. [docs/releasing.md](https://github.com/muhammadarifftaha/pet-adopt/blob/main/docs/releasing.md) says how it is published.
+**Building the package:** `pnpm pack` in this folder compiles `dist/` first (`build:package`) and writes the tarball. [The release runbook](https://github.com/muhammadarifftaha/pet-adopt/blob/main/apps/docs/content/docs/developers/contributing/releasing.mdx) says how it is published.
 
 ## Licence
 

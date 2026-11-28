@@ -1090,7 +1090,7 @@ await check('themes: created from a preset or duplicated, unique names, readable
   await activateTheme({ preset: before.theme })
 })
 
-await check('theme variables for plugin authors: every documented one is in the theme CSS of every preset, light and dark, keeps its contrast pairs, is in the stylesheet fallback and in docs/theming.md', async () => {
+await check('theme variables for plugin authors: every documented one is in the theme CSS of every preset, light and dark, keeps its contrast pairs, is in the stylesheet fallback and on the theming page of the docs site', async () => {
   const { readFileSync } = await import('node:fs')
   const declared = (rule: string | undefined) => new Set([...(rule ?? '').matchAll(/(--[a-z0-9-]+):/g)].map((m) => m[1]))
   ok(THEME_VARIABLES.length > 0 && new Set(THEME_VARIABLES.map((v) => v.name)).size === THEME_VARIABLES.length, 'the list has no duplicates')
@@ -1118,10 +1118,10 @@ await check('theme variables for plugin authors: every documented one is in the 
     }
   }
   const fallback = declared(readFileSync('src/app/(frontend)/styles.css', 'utf8').match(/:root\s*\{([^}]*)\}/)?.[1])
-  const docs = readFileSync('../../docs/theming.md', 'utf8')
+  const docs = readFileSync('../docs/content/docs/developers/plugins/theming.mdx', 'utf8')
   for (const v of THEME_VARIABLES) {
     ok(fallback.has(v.name), `${v.name} is missing from the :root fallback in styles.css`)
-    ok(docs.includes(`\`${v.name}\``), `${v.name} is not described in docs/theming.md`)
+    ok(docs.includes(`\`${v.name}\``), `${v.name} is not described in apps/docs/content/docs/developers/plugins/theming.mdx`)
   }
 })
 

@@ -1,0 +1,64 @@
+---
+title: The first account
+description: Claim a new site with the setup link, follow the guided setup, or create the first admin unattended.
+---
+
+A new site has no accounts and no public sign-up. The first admin account is created in one of two ways: with the **setup link** the server prints, or, for unattended installs, from two environment variables.
+
+## The setup link
+
+Start the server on a new site and look at its log. While no account exists, it prints a **setup link** with a one-time key:
+
+```text
++-----------------------------------------------------------------------------------------+
+| This site has no accounts yet. Open this link to create the first admin account:        |
+| http://localhost:3000/setup?key=…                                                       |
+| Only someone who can read this log has it. It stops working once the account exists.    |
++-----------------------------------------------------------------------------------------+
+```
+
+Open it to create the first admin account.
+
+- **Who can use it:** only someone who can read the server's log has the link, so nobody else can claim a fresh deployment first.
+- **When it stops working:** once the account exists. Opening `/setup` without the key prints the link again.
+- **The address** comes from `NEXT_PUBLIC_SERVER_URL`, so set that to the site's public address before the first start on a server.
+
+While no account exists, the sign-in page says the site is not set up yet.
+
+## The guided setup
+
+A short guided setup follows the account:
+
+1. the site's name, tagline and WhatsApp number;
+2. a theme;
+3. optional sample content (six example pets and an About page), which this step can take out again: only the example pets and an About page nobody has changed are removed, never a pet or page of your own, even one with the same name;
+4. email.
+
+Email comes last on purpose: once the site can send email, every account must confirm its email address before it can change anything.
+
+- **Every step can be skipped** and changed later in the admin.
+- **Skip the rest of the setup** ends it at any point.
+- **Until it is finished or skipped,** the dashboard sends you back to it.
+
+There is no public sign-up. An admin adds more people in **Users**, by emailing an invite by default.
+
+## Unattended installs
+
+To create the first admin without opening a link, set these instead:
+
+```dotenv
+SEED_ADMIN_EMAIL=you@example.com
+SEED_ADMIN_PASSWORD=a-long-password
+```
+
+The server then creates that admin on startup.
+
+- **Password length:** in production the password needs at least 12 characters.
+- **Only for a new site:** the server never changes a password or brings back a deleted account.
+- **The guided setup** starts after signing in.
+
+`pnpm seed` uses the same two variables when they are set. See [Scripts](./scripts.mdx).
+
+## Locked out later
+
+If the only admin forgets their password or loses their two-factor device, two scripts recover the account from the server. See [Scripts](./scripts.mdx#accounts).

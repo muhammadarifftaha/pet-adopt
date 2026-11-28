@@ -444,7 +444,7 @@ export function puckDarkCss(theme: ResolvedTheme): string {
 // The variables plugin authors may rely on
 // ---------------------------------------------------------------------------------------------
 
-/** One CSS variable from themeCss that plugin blocks may use. Documented in docs/theming.md. */
+/** One CSS variable from themeCss that plugin blocks may use. Documented in apps/docs/content/docs/developers/plugins/theming.mdx. */
 export type ThemeVariable = {
   name: `--${string}`
   kind: 'colour' | 'status' | 'shadow' | 'shape' | 'type' | 'spacing'
@@ -454,7 +454,7 @@ export type ThemeVariable = {
   changesWithMode: boolean
   /**
    * Backgrounds this colour reads on as text at 4.5:1 or more (WCAG AA), in light and dark, for
-   * every built-in preset. docs/theming.md says how far that holds for custom colours.
+   * every built-in preset. apps/docs/content/docs/developers/plugins/theming.mdx says how far that holds for custom colours.
    */
   readableOn?: ReadonlyArray<`--${string}`>
 }
@@ -463,7 +463,7 @@ export type ThemeVariable = {
  * The public part of the theme: the variables a plugin block's CSS can count on, with what each is
  * for and the contrast pairs it is promised. It only describes themeCss's output and changes none
  * of it. `check:backend` fails when one of these is missing from themeCss for any preset (light or
- * dark), when a promised pair falls below 4.5:1 on a preset, or when docs/theming.md leaves one out.
+ * dark), when a promised pair falls below 4.5:1 on a preset, or when apps/docs/content/docs/developers/plugins/theming.mdx leaves one out.
  * The admin-only variables (`--sidebar-bg`, `--sidebar-accent`) are left out on purpose.
  */
 export const THEME_VARIABLES: readonly ThemeVariable[] = [

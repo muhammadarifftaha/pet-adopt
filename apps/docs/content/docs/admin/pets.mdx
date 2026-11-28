@@ -1,0 +1,139 @@
+---
+title: Pets
+description: Adding and editing pets, their photos, status and visibility, age and location, and the timeline of updates.
+---
+
+Pets live under **Content → Pets**. The list can be searched (by name, breed or location) and filtered by status and species. Choose **Add pet** to start one, or **Edit** on a pet to change it.
+
+Admins, editors and developers can add and change pets. Audit can open them read-only.
+
+Each pet has its own page at `/pets/<address>`, drawn from the [Pet page template](./pages.mdx#the-pet-page-template), and appears in the catalogue at `/pets` unless it is link-only.
+
+## The pet form
+
+The form is split into tabs, with a sidebar for status and visibility. Fields marked "(required)" must be filled in. If a save fails, a summary at the top lists every problem; each link opens the right tab and moves to the field. A tab with problems shows a red dot.
+
+### Basics
+
+| Field | Notes |
+| --- | --- |
+| **Name** | Required, up to 60 characters. |
+| **Species** | Required. Pick one from the list (cat, dog, rabbit, bird, other) or type your own, such as "guinea pig", up to 40 characters. See [Species](#species). |
+| **Sex**, **Size** | Male, female or unknown; small, medium or large. |
+| **Breed**, **Colour** | Free text. |
+| **Age** | See [Age](#age). |
+| **Country**, **City**, **State** | See [Location](#location). |
+| **Location** | Used only when the city and state are both empty. Otherwise it is made from them. |
+
+### Health and behaviour
+
+- **Health and care:** vaccinated, neutered or spayed, microchipped, house trained, has special needs.
+- **Health notes:** rich text, up to 2000 characters.
+- **Temperament:** calm, playful, energetic, affectionate, independent, shy.
+- **Good with:** children, dogs, cats, other pets.
+- **Personality notes:** anything about their character the lists cannot say. Rich text, up to 2000 characters.
+
+### Photos and story
+
+- **Photos** (required): 1 to 10. The first one is the cover, shown on the pet's card. Change the order with the **up** and **down** buttons beside each photo; dragging is not needed. Choose photos from the [media library](./media.mdx) or upload new ones from the same dialog.
+- **Description:** rich text, up to 5000 characters.
+- **Video link:** a link starting with `https://`, for example a YouTube link.
+
+**Rich text** (the notes and the description) allows bold, italic, underline, bulleted and numbered lists, and links. A link must be a path on the site (`/pets`) or start with `http://` or `https://`.
+
+### Adoption
+
+- **Adoption fee:** a number only, such as `150`. Leave it empty if there is no fee.
+- **Rescue date.**
+- **WhatsApp number for this pet:** optional, for example for a pet that lives with a foster.
+
+<Callout type="info" title="Not shown on the site yet">
+The fee, rescue date and video link are kept with the pet, but no public page or block shows them yet. The WhatsApp buttons on the public site use the number from **Site settings → Contact**.
+</Callout>
+
+### Search and sharing
+
+- **Search title:** shown in search results and when the page is shared. Up to 70 characters.
+- **Search description:** up to 160 characters.
+- **Share image:** the picture shown when the pet's page is shared. Leave it empty to use the cover photo.
+
+Leave the title and description empty and they are written for you: "Mochi is looking for a home" (or "Mochi (adopted)"), and a summary of species, breed, age and location. A preview under the fields shows what will be used as you type. [Search and sharing](./search-and-sharing.mdx) explains the rest.
+
+### Status and visibility (the sidebar)
+
+| Field | What it does |
+| --- | --- |
+| **Status** | **Available**, **Pending** or **Adopted**. See [Statuses](#statuses). |
+| **Featured** | Lets the pet appear in pet grids set to "Featured only". |
+| **Link only** | Keeps the pet out of the catalogue, pet grids and search engines, while anyone with the direct link can still open its page. See [Link-only pets](#link-only-pets). |
+| **Urgent** | Marks a pet that needs a home soon. |
+| **Address** | The last part of the pet's page address. Leave it empty to make it from the name. Lowercase letters, numbers and dashes. |
+
+Choose **Add pet** or **Save changes** at the bottom to save. Leaving the form with unsaved changes asks first.
+
+## Statuses
+
+- **Available:** shown in the catalogue (which lists available pets unless a visitor picks another status), in pet grids, in **More pets like this** and in a **Pet spotlight**.
+- **Pending:** the pet's page shows a notice that the adoption is pending, inviting people to message you anyway because plans sometimes change.
+- **Adopted:** use it once the pet finds a home. The date is recorded and shown in the sidebar ("Adopted on"); it is cleared if you change the status back. The page stays up with a notice that the pet has found a home and no WhatsApp button, which doubles as social proof. Adopted pets drop out of the sitemap, the **Pet spotlight** and **More pets like this**, but their pages can still be found in search engines.
+
+The notices on a pet's page are automatic: they are not blocks, so nobody has to remember to add them.
+
+## Link-only pets
+
+A link-only pet ("unlisted") is left out of every public list: the catalogue, pet grids, a **Pet spotlight**, the sitemap and the pet choice in forms. Its page still opens for anyone with the link, and tells search engines not to index it. Use it for a pet you want to share with one person, or to prepare a pet before it goes on show.
+
+## Species
+
+Species is free text, so you can add your own. It is stored in a tidy form ("Guinea  Pig" and "guinea-pig" become one species) and shown with a capital letter ("Guinea pig"). The catalogue's species filter lists the built-in species first, then your own.
+
+## Age
+
+Enter the age once, in one of these ways:
+
+- **I know the birth date:** the date itself. It cannot be in the future.
+- **I know about how old it is:** a whole number and a unit ("8 months"). It is saved as an estimated birth date, so the page shows "About 8 months" and keeps counting.
+- **I do not know the age:** type an age in your own words (up to 40 characters, such as "a young adult") and pick an **age group** for the filter.
+- **Keep the current age:** shown when editing a pet that already has a birth date, so saving doesn't move it.
+
+Because the age is kept as a birth date, the site works out the age and the age group every day: a kitten becomes "young" without anyone editing it. The groups are:
+
+| Group | Age |
+| --- | --- |
+| Baby | under 6 months |
+| Young | under 2 years |
+| Adult | under 8 years |
+| Senior | 8 years and over |
+
+## Location
+
+- **Country:** starts as the site's own country (set in [Site settings → Region](./settings-and-themes.mdx#region)). Change it for a pet that is somewhere else.
+- **City** and **State:** the boxes suggest places in the pet's country. Picking a city fills in its state, and typing a state puts its cities first. You can still type anything that isn't in the list.
+
+Saving the city and state fills in the location visitors see, as "City, State". On the pet's own page, a pet in another country also gets the country's name ("Málaga, Spain"). If both city and state are empty, the **Location** field is shown as typed.
+
+Spell places the same way every time: the catalogue's location search matches text inside the location, ignoring capitals and accents, and the city and state are grouped exactly as typed.
+
+## The pet timeline
+
+The **Timeline** card, below the form on a pet's edit page, holds dated updates about the pet: the day they arrived, a vaccination, a move to a foster home. They appear on the pet's page through the [Pet timeline block](./pages.mdx#pet-page-template-blocks). The card appears once the pet has been saved.
+
+Each update saves on its own: posting one never saves the pet form above it, and saving the pet never touches the updates.
+
+Choose **Add update** (or **Edit** on an update) and fill in:
+
+| Field | Notes |
+| --- | --- |
+| **Date** | Required. Today by default, in the site's time zone. |
+| **Time** | Optional. The time where the pet is. |
+| **Title** | Required, up to 120 characters, such as "Moved to a foster home". |
+| **Text** | Optional rich text, up to 2000 characters. |
+| **Photos** | Up to 6, from the media library, reordered with **up** and **down** buttons. |
+
+- **Limits:** a pet can have up to 200 updates. Delete one to add another.
+- **Deleting** an update asks first.
+- **Order:** updates are listed newest first: by day, then by time (an update with no time counts as the start of its day).
+- **Photos** used in an update count as in use, so they can't be deleted from the media library.
+- **Dates are calendar days.** The date and time are shown exactly as entered, never shifted to the visitor's time zone.
+
+Adding, editing and deleting updates is recorded in the [activity log](./activity-log.mdx), naming the pet but never the text.

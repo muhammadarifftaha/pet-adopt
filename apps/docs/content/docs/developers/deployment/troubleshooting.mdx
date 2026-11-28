@@ -1,0 +1,41 @@
+---
+title: Troubleshooting
+description: Common problems after a deploy, what this guide does not cover, and what the project has tested.
+---
+
+## When something goes wrong
+
+| What you see | Likely cause |
+|---|---|
+| The server stops at start with a message about `BETTER_AUTH_SECRET` | It is missing, shorter than 32 characters, or still a placeholder |
+| Every page answers 500 right after a deploy | The storage settings are wrong. The log says which one; run `pnpm --filter @pet-adopt/web storage:check` |
+| "still hold the placeholders from .env.example" | The two storage keys were not replaced |
+| "are the development keys from docker-compose.yml" | Production is using the local development keys |
+| The build or the server stops with a message about `CSP_IMG_SRC` | One of its hosts is not a lower-case `https://` host without a path or port |
+| Signing in is refused, or saving anything fails while signed in | `NEXT_PUBLIC_SERVER_URL` does not match the address in the browser exactly (scheme, host and port) |
+| Images upload but large ones fail | The proxy's body size limit is below 11 MB |
+| "This server is inside a private network" on the Email screen | The mail server is on a private address. Set it with `SMTP_HOST` instead (see [Hosting for someone else](./hosting-for-others.mdx)) |
+| Emailed links point at `localhost` | `NEXT_PUBLIC_SERVER_URL` was not set when the site was built |
+| An owner is locked out of sign-in | Wait ten minutes, or run `NEW_PASSWORD=… pnpm admin:reset-password <email>` on the server |
+| The last admin lost their two-factor device | `pnpm --filter @pet-adopt/web admin:reset-2fa <email>` on the server |
+| The build fails at "migrate" | The build machine cannot reach the database. See [step 5](./index.mdx#5-build) |
+| Every visitor shares one set of sign-in limits, or the log says `Sign-in throttling cannot tell clients apart` | The client address settings do not match your proxy. See [Check the client address](./reverse-proxy.mdx#check-the-client-address) |
+
+The two recovery commands talk to the database in `apps/web/.env` directly, so run them where the site's `DATABASE_URL` works. `admin:reset-password` also signs the account out everywhere and lifts its sign-in lockout. `admin:reset-2fa` leaves the password as it is; if the person's role must use two-factor, they set it up again at once.
+
+Errors are written to the server's log only. Point your host's log collection or an error monitor at it; the site has none built in. `/health` answers as long as the server is running, so an uptime monitor can watch it.
+
+## What this guide does not cover
+
+- **A container image.** The project does not ship a `Dockerfile` yet. The steps work inside one: build with `SKIP_BUILD_MIGRATE=1`, run `pnpm migrate` when the container starts, and pass the settings as environment variables.
+- **Managed platforms.** The site runs anywhere that runs a Next.js server with a database and S3-compatible storage. On Vercel, preview builds skip migrations and are never indexed by search engines.
+- **Tuning** the database or the proxy beyond the settings named here.
+
+## What has been tested
+
+So you know how far to trust each part:
+
+- **Tested:** a production build and start on one machine with SQLite and with PostgreSQL, uploads against four S3-compatible servers, the setup link, and Node.js 22 and 24. Email was sent through a public mail server with TLS on port 465 and STARTTLS on port 587. The client address was checked behind nginx and behind Caddy, alone and with a second proxy in front standing in for a CDN, using the examples in this guide without their certificates. The 11 MB body limit was checked on nginx.
+- **Not yet tested by the project:** a real CDN, a CDN that sends its own header with the visitor's address, the proxies' HTTPS setup, the systemd unit, a PostgreSQL connection pooler, hosted libSQL against a live account, and more than one server at once.
+
+If you run one of the untested setups, the [client address check](./reverse-proxy.mdx#check-the-client-address) is the first thing to confirm.

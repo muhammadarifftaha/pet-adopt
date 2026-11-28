@@ -203,7 +203,7 @@ The package on npm is compiled JavaScript with type declarations. The source is 
 | `@pet-adopt/plugin-form-builder/actions` | The server actions |
 | `@pet-adopt/plugin-form-builder/captcha` | The widget |
 
-The Form block used to be built into the site. It keeps the same name (`FormBlock`) and options, so pages saved before the move still show their forms. [docs/plugins.md](https://github.com/muhammadarifftaha/pet-adopt/blob/main/docs/plugins.md#page-builder-blocks) uses it as an example of a plugin block.
+The Form block used to be built into the site. It keeps the same name (`FormBlock`) and options, so pages saved before the move still show their forms. [The plugin guide's page on blocks](https://github.com/muhammadarifftaha/pet-adopt/blob/main/apps/docs/content/docs/developers/plugins/blocks.mdx) uses it as an example of a plugin block.
 
 **How it talks to the site:** it imports nothing from the app, only [`@pet-adopt/plugin-sdk`](https://github.com/muhammadarifftaha/pet-adopt/tree/main/packages/plugin-sdk) and the site's UI package. Everything it needs comes through `host()`:
 - permissions;
@@ -230,7 +230,7 @@ Commit `drizzle/` and the regenerated `migrations.ts`. Table and index names mus
 
 **Checks:** `pnpm typecheck` and `pnpm lint` cover this package. The end-to-end backend check (`pnpm check:backend` in `apps/web`) exercises forms, answers, limits, CSV, the spam trap, captcha and the Form block. The captcha's verify calls are answered by a fake there, so it needs no network.
 
-**Building the package:** `pnpm pack` in this folder compiles `dist/` first (`build:package`) and writes the tarball. [docs/releasing.md](https://github.com/muhammadarifftaha/pet-adopt/blob/main/docs/releasing.md) says how it is published.
+**Building the package:** `pnpm pack` in this folder compiles `dist/` first (`build:package`) and writes the tarball. [The release runbook](https://github.com/muhammadarifftaha/pet-adopt/blob/main/apps/docs/content/docs/developers/contributing/releasing.mdx) says how it is published.
 
 ## Licence
 

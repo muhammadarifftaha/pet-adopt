@@ -16,6 +16,7 @@ Next.js (app router), React, TypeScript, Drizzle ORM (SQLite through libSQL, or 
   - `src/server`: the data layer and its rules; `src/server/actions` holds the server actions the UI calls.
   - `src/puck`: the builder's blocks and their checks.
   - `src/plugins`: the plugin registry and runtime.
+- `apps/docs`: the documentation site (Fumadocs). Pages are MDX in `content/docs/`, in two sections: `admin/` (running a site) and `developers/`. Update the page when you change what it describes.
 - `packages/ui` (`@pet-adopt/ui`): shadcn components and the shared CSS.
 - `packages/plugin-sdk` (`@pet-adopt/plugin-sdk`): everything a plugin imports. It imports nothing from the app.
 - `plugins/*`: workspace plugins. Each depends only on the SDK.

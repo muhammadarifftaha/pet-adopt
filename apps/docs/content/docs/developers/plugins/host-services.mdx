@@ -1,0 +1,90 @@
+---
+title: Host services
+description: The site's services a plugin reaches through host(), the errors it throws, and the activity log.
+---
+
+## Host services
+
+`host()` returns the site's services. All of them run on the server only. Call `host()` inside a server action, a server component or a block loader, never at the top of a file: it only works inside a running site.
+
+| Service | What it is for |
+|---|---|
+| `requirePermission(permission)` | The signed-in person if they have the permission. Throws a `UserError` otherwise |
+| `requireUser()` | Someone who can change plugin content (`pluginContent:edit`). Audit accounts are refused |
+| `requireAdmin()` | Someone who can change plugin settings (`plugins:edit`): admins and developers |
+| `run(fn)` | Runs an action and turns what it throws into an `ActionResult`. See [Errors](#errors) |
+| `clientAddress()` | The visitor's address as the site's proxy reports it, or `null` |
+| `consumeAttempt(key, rule)` | A rate limit. Counts one attempt and throws a `UserError` on the attempt after the `rule.max`th. The count starts again only once `rule.windowMs` passes with no attempt under the limit (each attempt under it restarts the window), and a key over the limit stays refused until `rule.windowMs` after the attempt that reached it. Start the key with your plugin's name |
+| `phone.validate(raw)` | `true`, or the reason a phone number cannot be used |
+| `phone.toE164(raw)` | The number in international form (`+60123456789`), or `null` |
+| `choices(source)` | Current choices from site data. `'pets'` gives the listed pets that are not adopted |
+| `emailSender()` | The site's email sender (a ready email plugin, else the built-in SMTP sender), or `null` when neither is set up |
+| `sendTemplatedEmail(message)` | Sends an email through one of the site's templates. See [Email](./email.mdx#sending) |
+| `emailTemplates(purpose)` | The templates of a purpose, for a "which template" choice |
+| `recordActivity(entry)` | Adds an entry to the activity log. See [The activity log](#the-activity-log) |
+| `privacyPolicy()` | The site's privacy policy while it is live, and where an admin chooses it |
+| `timeZone()` | The site's time zone, or `null`. Pass it to `formatWhen` |
+| `siteUrl()` | The site's public address, without a trailing slash |
+| `revalidateSite()` | Asks the site to redraw its public pages after a change visitors see. Never throws; does nothing outside a request |
+| `secrets.seal(plain, purpose)` | Encrypts a secret, such as an API key, before you store it |
+| `secrets.open(sealed, purpose)` | Decrypts it, or returns `null` when it cannot be opened |
+| `logError(error, context?)` | Logs an error safely. See [Errors](#errors) |
+
+Notes:
+
+- **Permissions:** see [Checking in a server action](./screens-and-cards.mdx#checking-in-a-server-action) for how `requirePermission` and `run` fit together.
+- **Secrets:** a value only opens with the `purpose` it was sealed with. `open` returns `null` after the site's secret changes; ask for the secret again then. Never send a secret to a browser.
+- **Privacy:** a plugin that collects personal data should warn while `privacyPolicy().policy` is `null`, and link to the policy where visitors type.
+- **Times:** show every time with `formatWhen(value, timeZone, style)`, so all screens agree. `style` is `'dateTime'` (the default), `'date'` or `'longDate'`.
+
+### Helpers that need no site
+
+The SDK also exports helpers that work anywhere, without `host()`:
+
+- `can`, `asRole`, `ROLES`, `ROLE_INFO` and `accessPermission`: roles and permissions.
+- `pluginTablePrefix`: the prefix of a plugin's table names (see [Storage](./storage.mdx#rules-the-site-checks)).
+- `foldText`: text as searches compare it.
+- `csvCell`: a CSV cell that a spreadsheet cannot run as a formula.
+- `formatWhen`, `isTimeZone`, `dayInZone` and `startOfDayInZone`: dates and time zones.
+
+## Errors
+
+Throw one of two classes when the person can fix the problem:
+
+- **`ValidationError`** for bad input. It takes one message per field: `new ValidationError({ name: 'Give it a name.' })`.
+- **`UserError`** for a broken rule: `new UserError('That form no longer exists.')`.
+
+Inside `host().run`:
+
+| Thrown | The action returns |
+|---|---|
+| `ValidationError` | `{ ok: false, error, fieldErrors }` |
+| `UserError` | `{ ok: false, error }` with its message |
+| Anything else | A general failure. The error is logged on the server |
+
+Rules:
+
+- **Messages are shown to people.** Write them for the person, and put no secret or internal detail in them.
+- **Never log an error object yourself.** No `console.error(error)`. A failed database query carries the values it was given, which can be passwords, emails or whole records.
+- **Use `host().logError(error, 'my-plugin: what was happening')`** when you catch an error and carry on. It logs what went wrong without those values.
+- **Use the SDK's classes.** The site recognises errors by class. This is one reason the SDK is a peer dependency: a plugin with its own copy would have its errors treated as general failures.
+
+## The activity log
+
+The site keeps a log of who changed what. A plugin adds to it after a change succeeds:
+
+```ts
+await host().recordActivity({
+  action: 'my-plugin.item.update',
+  summary: 'Updated the item "Blue collar"',
+  subject: { id: item.id, label: item.name },
+  fields: ['name', 'price'],
+})
+```
+
+- **`action`** is `<plugin name>.<thing>.<verb>`, in lowercase. It must start with the name of a plugin in the site's config, or nothing is recorded.
+- **`summary`** is one sentence in the past tense.
+- **`fields`** names what changed. **Never put values or personal data in an entry.**
+- **Record** changes, and downloads of personal data. Do not record reads.
+- It records the signed-in person. With nobody signed in, it records nothing.
+- It never throws. A failure is logged and your change stands.

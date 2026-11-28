@@ -1,0 +1,99 @@
+---
+title: Storage
+description: A plugin's own database tables, the rules the site checks, generating migrations, and when they run.
+---
+
+A plugin can own database tables. The site creates and migrates them, on SQLite and on PostgreSQL. Tables are declared with [Drizzle ORM](https://orm.drizzle.team), which the site uses for its own.
+
+## Files
+
+```text
+my-plugin/
+  schema/sqlite.ts     the tables, for SQLite
+  schema/pg.ts         the same tables, for PostgreSQL
+  drizzle/             generated; commit it
+  migrations.ts        generated; the plugin imports it
+  src/storage.ts       definePluginStorage(...)
+```
+
+`src/storage.ts`:
+
+```ts
+import { definePluginStorage } from '@pet-adopt/plugin-sdk'
+
+import { migrations } from '../migrations'
+import * as pg from '../schema/pg'
+import * as sqlite from '../schema/sqlite'
+
+export const storage = definePluginStorage({ tables: { sqlite, pg }, migrations })
+```
+
+Pass `storage` to the plugin (`definePlugin({ name: 'my-plugin', storage, ... })`), and open the tables in server code:
+
+```ts
+const { db, t, withTransaction } = await storage.open()
+const rows = await db.select().from(t.items)
+```
+
+- **Write queries once.** `t` is typed as the SQLite tables. On PostgreSQL it holds the PostgreSQL twins, so the same code runs on both.
+- **Transactions:** `withTransaction(async (tx) => { ... }, { lock: 'my-plugin:items' })`. The `lock` makes transactions with the same name run one at a time.
+- **`dialect`** (`'sqlite'` or `'pg'`) is there for the rare query that must differ.
+- **`drizzle-orm` is a peer dependency** of a plugin with tables.
+
+The form builder's [`src/storage.ts`](https://github.com/muhammadarifftaha/pet-adopt/blob/main/plugins/form-builder/src/storage.ts) and its `schema/` folder are a full example.
+
+## Rules the site checks
+
+The site checks these when the config loads, and refuses to start if one is broken:
+
+- **The prefix:** every table and index name starts with `plugin_<name>_`, with the name's dashes turned into underscores. For `form-builder` that is `plugin_form_builder_`. `pluginTablePrefix(name)` returns it.
+- **Twins:** `schema/sqlite.ts` and `schema/pg.ts` declare the same tables and columns.
+- **No site tables:** a migration may only name tables and indexes with the plugin's prefix. So a plugin table cannot have a foreign key into one of the site's tables. Store the id as a plain column instead. Foreign keys between the plugin's own tables are fine.
+- **Migration ids** look like `0000_init`, and are unique and in order.
+
+Two more things to keep in mind:
+
+- **Keep columns portable.** Use integer ids, JSON columns for lists, and plain text for options, so both databases behave the same.
+- **Name long constraints yourself.** PostgreSQL cuts names at 63 characters, and a generated name with the prefix can be longer.
+
+## Generating migrations
+
+Never write `migrations.ts` by hand. After changing the schema files, run this from the root of the repository (or of a site, which is a clone of it):
+
+```bash
+pnpm plugin:generate <plugin folder> <change_name>
+```
+
+For example, `pnpm plugin:generate plugins/form-builder add_notes`.
+
+- The folder is relative to where you type the command.
+- The name is lowercase letters, digits and underscores. It becomes part of the migration's id.
+- It runs drizzle-kit on both schema files, writes `drizzle/sqlite` and `drizzle/pg`, and then writes `migrations.ts` with the SQL of every migration inside it. Because the SQL is inside `migrations.ts`, a plugin from npm and a plugin kept as a folder migrate the same way.
+- It stops if the two databases' migrations do not pair up.
+- The schema files may use relative imports only. drizzle-kit loads them without the site's path aliases.
+- **Commit `drizzle/` and `migrations.ts`.** drizzle-kit compares against `drizzle/` to work out the next change.
+
+<Callout type="warn" title="A shipped migration never changes">
+  The site keeps a checksum of each migration it ran, and refuses one that was edited or put out of order. To change a table, change the schema and generate a new migration.
+</Callout>
+
+## When migrations run
+
+| Database | When |
+|---|---|
+| A local SQLite file | When the site opens the database, and with `pnpm migrate` |
+| PostgreSQL, hosted libSQL | With `pnpm migrate`, and as part of `pnpm build` |
+
+The site's own migrations run first, then each plugin's.
+
+Until a plugin's migrations have run:
+
+- its screens show a notice that says what to run;
+- its dashboard cards are left out;
+- `storage.open()` throws a `UserError` with a message for the owner;
+- its block loaders give no data, so its blocks show what they show without data;
+- the server prints a warning when it starts.
+
+Removing a plugin from the config keeps its tables and data. There is no command that drops them.
+
+While you develop a plugin, see [Local development](./packaging.mdx#local-development) for the order of steps after a schema change.

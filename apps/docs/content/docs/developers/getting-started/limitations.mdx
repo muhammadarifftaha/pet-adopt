@@ -1,0 +1,9 @@
+---
+title: Known limitations
+description: What Pet Adopt does not do yet, so you can plan around it.
+---
+
+- **Pages are single-level:** `/about`, not `/about/team`.
+- **Reserved addresses:** a page cannot use `home` (the homepage has it), `admin`, `api`, `edit`, `health`, `media`, `pets`, `pet-page` or `setup`.
+- **Photo formats:** photos can't be SVG, AVIF or HEIC. Save them as JPEG, PNG or WebP first. SVG can carry script, and the metadata of AVIF and HEIC can't be removed without recompressing the picture.
+- **Email preview:** the email template builder has no phone-width preview. Emails use a fixed 600 px layout that stacks columns on small screens.

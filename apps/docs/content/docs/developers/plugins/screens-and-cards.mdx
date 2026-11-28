@@ -1,0 +1,102 @@
+---
+title: Screens and cards
+description: Admin screens, menu icons, dashboard cards, who can open them, and how a server action checks access.
+---
+
+## Screens
+
+Each entry in `screens` is one page in the admin.
+
+| Key | Meaning |
+|---|---|
+| `path` | The address under `/admin/plugins/<name>/`. `''` is the plugin's home screen |
+| `title` | The page title, and the menu label unless `nav.label` is set |
+| `component` | What to draw. It receives `user`, `params` and `searchParams` |
+| `nav` | How it looks in the menu: `{ label?, Icon? }` |
+| `hidden` | Leave it out of the menu. It is still reachable by its address |
+| `access` | Who can open it. See [Access levels](#access-levels) |
+
+- **Paths:** each segment is lowercase letters, digits and dashes, or a parameter such as `:id`. `items/:id` opened as `items/3` gives `params.id === '3'`.
+- **The menu:** a screen appears in the sidebar's Plugins section unless it is `hidden` or its path has a parameter.
+- **Matching:** when two screens could match an address, the one with fewer parameters wins. `items/new` beats `items/:id`.
+- **No home screen:** a plugin without a `path: ''` screen gets a built-in overview page at `/admin/plugins/<name>`, for the roles that can see plugin settings (admins, developers and audit). It shows the description and what the plugin adds.
+- **Components are server components.** They can be `async` and read data directly. For anything interactive, render a component from a file that starts with `'use client'`.
+- **`user`** is the signed-in person: `id`, `email`, `name` and `role`.
+- **Building screens:** use `@pet-adopt/ui`, the components the admin itself is made of (`@pet-adopt/ui/components/button`, and so on). See [Theming](./theming.mdx#where-a-plugin-draws).
+
+The [example plugin](./index.mdx#the-example-plugin) has a home screen with a menu entry and a second screen at `tips/:id`.
+
+### Menu icons
+
+`nav.Icon` takes one of two things:
+
+1. **A react-icons icon:** `import { FiBookOpen } from 'react-icons/fi'`, then `nav: { label: 'Tips', Icon: FiBookOpen }`.
+2. **SVG path data:** `{ viewBox?, paths, outline? }`.
+   - `paths` is a list of 1 to 20 strings, each the `d` of a `<path>`.
+   - `viewBox` defaults to `"0 0 24 24"`.
+   - `outline: true` draws a 2 px outline. Without it the shape is filled.
+
+   ```ts
+   nav: { label: 'Hello', Icon: { viewBox: '0 0 24 24', paths: ['M12 2 2 22h20z'], outline: true } }
+   ```
+
+Anything else is refused when the config loads. Raw SVG markup is never accepted. A screen without an icon gets a standard one.
+
+## Dashboard cards
+
+```tsx
+dashboardWidgets: [
+  {
+    id: 'tip-of-the-day',
+    title: 'Tip of the day',
+    component: ({ user }) => <p>Photos taken in daylight get more enquiries.</p>,
+  },
+]
+```
+
+- `id` is unique within the plugin.
+- `component` receives `user`. It is a server component, like a screen.
+- `access` works as it does for screens.
+- Each card loads on its own. If `component` throws, that card says "This card could not be loaded" (with the error's reference from the server log) and the rest of the dashboard still shows. Catch the errors you expect and show your own message instead.
+
+## Access levels
+
+A screen or card sets `access`. The default is `all`.
+
+| `access` | Can change | Can view only | Cannot open |
+|---|---|---|---|
+| `all` | Admin, editor, developer | Audit | |
+| `admin` | Admin, developer | Audit | Editor |
+| `personalData` | Admin, editor | Audit | Developer |
+
+Use `personalData` for anything visitors sent, such as form responses.
+
+The site checks `access` before it shows a screen, a menu entry or a card. **It cannot check your server actions.** Each action must check for itself.
+
+## Checking in a server action
+
+A server action is a function in a file that starts with `'use server'`. The browser can call it, so it must check who is calling.
+
+```ts
+'use server'
+
+import { accessPermission, host, type ActionResult } from '@pet-adopt/plugin-sdk'
+
+export async function renameItemAction(id: number, name: string): Promise<ActionResult<void>> {
+  return host().run(async () => {
+    await host().requirePermission(accessPermission('all', 'edit'))
+    // ... check the input, then make the change
+  })
+}
+```
+
+- **`accessPermission(access, 'view' | 'edit')`** gives the permission for a level. Use `'view'` for actions that read and `'edit'` for actions that change something. Audit accounts have every `view` permission and no `edit` permission.
+- **`host().requirePermission(permission)`** returns the signed-in person, or throws a `UserError` when they lack the permission.
+- **`host().run(fn)`** wraps the whole action. It returns `{ ok: true, data }`, or `{ ok: false, error, fieldErrors? }` when `fn` throws. See [Errors](./host-services.mdx#errors).
+- **Check first.** Call `requirePermission` before reading the input or the database.
+- **Showing or hiding a button:** `can(user.role, accessPermission('all', 'edit'))` answers without throwing. Hiding a button is not a check; the action still checks.
+- **Public actions:** an action a visitor calls (sending a form) checks no permission. Limit it with `host().consumeAttempt` instead (see [Host services](./host-services.mdx)).
+
+Call `host()` inside an action, a server component or a block loader, never at the top of a file. It only works inside a running site.
+
+An action that changes something should also add an entry to the [activity log](./host-services.mdx#the-activity-log).

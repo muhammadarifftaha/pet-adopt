@@ -1,0 +1,70 @@
+---
+title: Security
+description: What a site protects by default, and what you need to do to run one safely.
+---
+
+<Callout type="info" title="Found a vulnerability?">
+Please do not open a public issue. Report it privately as [SECURITY.md](https://github.com/muhammadarifftaha/pet-adopt/blob/main/SECURITY.md) describes.
+</Callout>
+
+## Running a site safely
+
+- **Secrets.** Set every secret in `apps/web/.env` to a long random value (for example `openssl rand -hex 32`) before the first production start. Never commit `.env`. See [step 2](./index.mdx#2-set-the-two-required-values).
+- **The first account.** Create the first admin account yourself, straight after the first start, so nobody else can claim the site. See [step 8](./index.mdx#8-create-the-first-account).
+- **HTTPS.** Serve the site over HTTPS, and set `NEXT_PUBLIC_SERVER_URL` to the exact public address.
+- **The client address.** If you run a reverse proxy or CDN, make sure visitors cannot forge the client address header it sets, and that the site's port cannot be reached without it. See [The reverse proxy](./reverse-proxy.mdx).
+- **The database.** Use PostgreSQL with a strong password in production, and never expose the database port to the internet.
+- **Storage keys.** Keep them scoped to the uploads bucket only. The keys in `docker-compose.yml` are for the local development server; production refuses them.
+- **Hosting for someone else.** Leave `AUTH_PROVIDER_PRIVATE_ADDRESSES` and `SMTP_PRIVATE_ADDRESSES` unset: the site then refuses sign-in providers and mail servers inside your network, which its admins could otherwise point it at. See [Hosting for someone else](./hosting-for-others.mdx).
+- **Updates.** Keep the site and its dependencies up to date. The project is pre-1.0, and only the latest commit on `main` receives security fixes. See [Updating](./backups-and-updates.mdx#updating).
+- **Embeds and scripts.** Review the security headers in [`apps/web/next.config.ts`](https://github.com/muhammadarifftaha/pet-adopt/blob/main/apps/web/next.config.ts) before adding embeds or external scripts.
+
+## Security defaults
+
+What every site does without any setting.
+
+### Access
+
+- Visitors can only read published pages and listed pets. Everything else needs a sign-in.
+- Sessions last two hours, and cookies are HTTP-only (HTTPS-only in production).
+- Each server action checks the person's role.
+
+### Sign-in protection
+
+- **Attempt limits,** counted before the password is checked: 30 per client address, 5 per email from one client (then ten minutes locked), and 100 per hour per email overall. Someone typing an owner's email from their own machine only locks themselves out.
+- **Reset and invite links:** using one (choosing a password while signed out) is limited to 10 tries per client address in 15 minutes, and a link that doesn't exist is refused before any password is hashed.
+- **Recovery:** a locked-out owner can run `NEW_PASSWORD='...' pnpm admin:reset-password owner@example.com` on the server, and `pnpm --filter @pet-adopt/web admin:reset-2fa <email>` turns off two-factor for the last admin.
+- **Client addresses:** they come from `X-Forwarded-For` (or `CLIENT_IP_HEADER`), counting `TRUSTED_PROXY_HOPS` entries from the end. Only a proxy you control can be trusted to add it.
+
+### No public API
+
+Of the endpoints of Better Auth (the sign-in library the site uses), only sign-in, sign-out, session, change-password and sign-in provider callbacks are reachable. Everything else returns 404.
+
+### Uploads
+
+- **Allowed:** JPEG, PNG, WebP or GIF, up to 10 MB, 12000 px on a side and 40 megapixels.
+- **Refused:** SVG, because it can carry script.
+- **Metadata:** every image has its metadata (GPS position, device, comments, embedded thumbnails) cut out without recompressing, so the picture itself is exactly what was uploaded.
+- **AVIF and HEIC:** refused, because their metadata cannot be removed without recompressing.
+
+### Links
+
+Links typed into blocks and settings are checked when saved, and rendered through a filter that blocks `javascript:` and `data:` addresses.
+
+### Encrypted secrets
+
+The SMTP password, sign-in provider secrets, captcha secret keys and two-factor secrets are stored encrypted with a key derived from `BETTER_AUTH_SECRET`. Password reset, invite and email change links are stored only as hashes and work once.
+
+### The activity log
+
+It records changes, sign-ins and failed sign-ins, naming fields but never their values. It is kept for 365 days (`ACTIVITY_LOG_DAYS`).
+
+### Headers
+
+Set in [`apps/web/next.config.ts`](https://github.com/muhammadarifftaha/pet-adopt/blob/main/apps/web/next.config.ts): `nosniff`, no framing by other sites, a strict referrer policy, no access to the camera, microphone or location, a Content-Security-Policy, and HSTS (one year) when the site's address is https.
+
+- **What the policy allows:** your own site, plus Google Maps, YouTube (no-cookie) and Vimeo embeds, and the four captcha services. Pictures load only from your own site unless you list other hosts in `CSP_IMG_SRC` (the Instagram feed plugin needs two; its README names them).
+- **Inline scripts** stay allowed because Next.js needs them, and a nonce would end page caching.
+- **Adding an embed or script:** extend the policy. Set `CSP_REPORT_ONLY=1` first to see what it would block.
+
+The Content-Security-Policy (a header that tells browsers which other sites a page may load scripts, pictures and frames from) and HSTS are written when you build, so changing `CSP_IMG_SRC`, `CSP_REPORT_ONLY` or the site's address means building again. A production server (`next start`) sends the headers the build wrote, so restarting it alone changes nothing. In development, restarting `pnpm dev` is enough.

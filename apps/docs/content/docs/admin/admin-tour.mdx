@@ -1,0 +1,40 @@
+---
+title: A tour of the admin
+description: What each part of the team admin holds, and every route the site serves.
+---
+
+The team signs in at `/admin`. Visitors never do: the public site needs no account.
+
+## The sidebar
+
+The sidebar has three sections, each showing only what your role can see:
+
+| Section | Screens |
+| --- | --- |
+| **Content** | **Pets**, **Pages** (with the page builder) and **Media** (the image library) |
+| **Plugins** | **Forms** (the form builder), **Instagram** (the Instagram feed plugin) and any other plugin you add |
+| **Settings** | **Email** (sending and templates), **Theme**, **Users**, **Authentication** (two-factor, sign-in providers, archived accounts), **Activity** and **Site settings** |
+
+The **Dashboard** shows recent activity and a card from each plugin.
+
+Everyone also has an **Account** page, for their own picture, name, password, email address, two-factor and connected sign-in providers.
+
+What each screen does, and who may use it, is in [Run a site](./index.mdx).
+
+## Routes
+
+| Route | What it is |
+| --- | --- |
+| `/` | The homepage: the page with the address `home`, or a built-in layout until you publish one |
+| `/pets` | The Pets page: the catalogue with filters and paging, inside a layout you can edit |
+| `/pets/[slug]` | A pet's page, drawn from the **Pet page template** |
+| `/[slug]` | Any page you build, such as `/about` |
+| `/admin` | The team admin |
+| `/edit/[id]` | The page builder for one page (signed in only) |
+| `/setup` | First-time setup (only while it isn't finished) |
+| `/media/[file]` | Uploaded images, served from your S3 bucket |
+| `/sitemap.xml`, `/robots.txt` | For search engines |
+| `/api/auth/*` | Sign-in endpoints (Better Auth). Sign-up and everything else Better Auth ships return 404 |
+| `/health` | Liveness check for hosting platforms |
+
+A **slug** is the short name in a page's address, such as `about` in `/about`. Some slugs are reserved; see [Known limitations](../developers/getting-started/limitations.mdx).
