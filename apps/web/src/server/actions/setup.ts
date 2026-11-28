@@ -8,7 +8,7 @@ import { headers } from 'next/headers'
 import { recordActivity } from '../activity'
 import { getAuth } from '../auth'
 import { asRecord, run, UserError, type ActionResult } from '../result'
-import { addSampleAboutPage, addSamplePets, removeSampleContent } from '../sample-content'
+import { addSampleAboutPage, addSamplePets, removeSampleContent, sampleContentLeftMessage } from '../sample-content'
 import { requirePermission, requireUser } from '../session'
 import { createFirstAdmin, finishSetup } from '../setup'
 import type { SessionUser } from '../types'
@@ -47,9 +47,13 @@ export async function addSampleContentAction(): Promise<ActionResult<{ pets: num
 export async function removeSampleContentAction(): Promise<ActionResult<{ pets: number }>> {
   return run(async () => {
     const actor = await requirePermission('pets:edit')
-    const pets = await removeSampleContent()
-    await recordActivity({ actor, action: 'setup.sample-content-removed', area: 'pets', summary: `Removed the sample content (${pets} example pets)` })
-    return { pets }
+    const result = await removeSampleContent()
+    // Whatever went is logged, even when something was left behind.
+    if (result.pets > 0 || result.aboutPage) {
+      await recordActivity({ actor, action: 'setup.sample-content-removed', area: 'pets', summary: `Removed the sample content (${result.pets} example pets${result.aboutPage ? ' and the About page' : ''})` })
+    }
+    if (result.left.length) throw new UserError(sampleContentLeftMessage(result))
+    return { pets: result.pets }
   })
 }
 

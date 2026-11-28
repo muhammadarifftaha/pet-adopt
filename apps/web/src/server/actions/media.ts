@@ -2,7 +2,7 @@
 
 import { changedFields, quoted, recordActivity, type Actor } from '../activity'
 import { getMedia, getMediaByIds, listMedia, loadLayoutTexts, mediaUsage, updateMediaAlt, updateMediaDetails } from '../media'
-import { assertId, run, UserError, ValidationError, type ActionResult } from '../result'
+import { assertId, logError, run, UserError, ValidationError, type ActionResult } from '../result'
 import { requirePermission } from '../session'
 import type { MediaItem } from '../types'
 import { removeUpload, saveUpload } from '../uploads'
@@ -81,8 +81,9 @@ export async function deleteMediaAction(id: number): Promise<ActionResult> {
 const MAX_BULK = 100
 
 /**
- * Deletes several images, each on its own: one that is still in use (or already gone) is skipped
- * with its reason, and the rest are deleted. Up to 100 at a time (a full library page).
+ * Deletes several images, each on its own: one that is still in use (or already gone, or that a
+ * server problem stops) is skipped with its reason, and the rest are deleted. Up to 100 at a time
+ * (a full library page).
  */
 export async function deleteManyMediaAction(ids: number[]): Promise<ActionResult<{ deleted: number[]; failed: Array<{ id: number; message: string }> }>> {
   return run(async () => {
@@ -102,8 +103,13 @@ export async function deleteManyMediaAction(ids: number[]): Promise<ActionResult
         deleted.push(id)
         await recordDelete(user, id, before.get(id) ?? null)
       } catch (error) {
+        // Keep going whatever the error: the images before this one are already gone, so the answer
+        // must still list them (and the screen refresh its grid).
         if (error instanceof UserError) failed.push({ id, message: error.message })
-        else throw error
+        else {
+          logError(error, `Could not delete image ${id}`)
+          failed.push({ id, message: 'Could not be deleted because of a server problem. Try again.' })
+        }
       }
     }
     return { deleted, failed }

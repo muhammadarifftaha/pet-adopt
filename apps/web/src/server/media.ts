@@ -123,12 +123,28 @@ export async function updateMediaAlt(id: number, alt: string): Promise<MediaItem
  * and passed to `mediaUsage` when several images are checked in a row (a bulk delete): the layouts
  * do not change while images are deleted, and reading them again for each image is the slow part.
  */
-export type LayoutTexts = { pages: string[]; emails: string[]; /** Each pet timeline entry's photo ids. */ timeline: number[][] }
+export type LayoutTexts = {
+  pages: string[]
+  emails: string[]
+  /** Each pet timeline entry's photo ids. */
+  timeline: number[][]
+  /**
+   * Share images waiting in a live page's unpublished settings (`details_draft`), one per page, left
+   * out when it is the page's live share image (already counted through `seo_image_id`).
+   */
+  pendingShares: number[]
+}
+
+/** The share image id in a page's unpublished settings (JSON `{ seoImageId }`), if any. */
+function pendingShareId(detailsDraft: unknown): number | null {
+  const id = (detailsDraft as { seoImageId?: unknown } | null)?.seoImageId
+  return typeof id === 'number' && Number.isInteger(id) ? id : null
+}
 
 export async function loadLayoutTexts(): Promise<LayoutTexts> {
   const { db, t } = await getDatabase()
   const [pages, emails, timeline] = await Promise.all([
-    db.select({ draft: t.pages.puckDraft, published: t.pages.puckPublished }).from(t.pages),
+    db.select({ draft: t.pages.puckDraft, published: t.pages.puckPublished, seoImageId: t.pages.seoImageId, detailsDraft: t.pages.detailsDraft }).from(t.pages),
     db.select({ data: t.emailTemplates.data }).from(t.emailTemplates),
     // Timeline photos are JSON id lists (src/server/pet-timeline.ts), compared here in JavaScript so it
     // works the same on both databases (a pet holds at most a few hundred entries).
@@ -138,6 +154,10 @@ export async function loadLayoutTexts(): Promise<LayoutTexts> {
     pages: pages.map((page) => JSON.stringify([page.draft, page.published])),
     emails: emails.map((template) => JSON.stringify(template.data)),
     timeline: timeline.map((row) => (Array.isArray(row.photoIds) ? row.photoIds : [])),
+    pendingShares: pages.flatMap((page) => {
+      const pending = pendingShareId(page.detailsDraft)
+      return pending !== null && pending !== page.seoImageId ? [pending] : []
+    }),
   }
 }
 
@@ -145,7 +165,7 @@ export async function loadLayoutTexts(): Promise<LayoutTexts> {
 export async function mediaUsage(id: number, layoutTexts?: LayoutTexts) {
   const { db, t } = await getDatabase()
   const one = async (query: Promise<Array<{ n: number }>>) => (await query)[0]?.n ?? 0
-  const [petPhotos, petShares, pages, logo, favicon, [row]] = await Promise.all([
+  const [petPhotos, petShares, livePages, logo, favicon, [row]] = await Promise.all([
     one(db.select({ n: count() }).from(t.petPhotos).where(eq(t.petPhotos.mediaId, id))),
     one(db.select({ n: count() }).from(t.pets).where(eq(t.pets.seoImageId, id))),
     one(db.select({ n: count() }).from(t.pages).where(eq(t.pages.seoImageId, id))),
@@ -160,8 +180,12 @@ export async function mediaUsage(id: number, layoutTexts?: LayoutTexts) {
   let layouts = 0
   let emails = 0
   let timeline = 0
+  let pages = livePages
   if (row) {
     const texts = layoutTexts ?? (await loadLayoutTexts())
+    // A live page's new share image waits in its unpublished settings until the page is published:
+    // deleting it now would publish the page without one.
+    pages += texts.pendingShares.filter((pending) => pending === id).length
     // Timeline entries that show it (by id: their photos are a JSON list of media ids).
     timeline = texts.timeline.filter((ids) => ids.includes(id)).length
     layouts = texts.pages.filter((text) => text.includes(row.filename)).length
