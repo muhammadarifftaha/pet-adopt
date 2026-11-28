@@ -97,8 +97,13 @@ export function RichTextField({
   );
 }
 
-function RichTextEditorField({
+/**
+ * The editor without React Hook Form's Controller, for forms other than the pet form (the timeline
+ * update form). `domId` replaces the pet form's `pet-<name>` id.
+ */
+export function RichTextEditorField({
   name,
+  domId,
   label,
   description,
   maxChars,
@@ -108,6 +113,7 @@ function RichTextEditorField({
   error,
 }: {
   name: string;
+  domId?: string;
   label: string;
   description?: string;
   maxChars: number;
@@ -116,12 +122,13 @@ function RichTextEditorField({
   onBlur: () => void;
   error?: string;
 }) {
-  const id = fieldId(name);
+  const id = domId ?? fieldId(name);
   const labelId = `${id}-label`;
+  const helpId = domId ? `${domId}-help` : "pet-richtext-help";
   const describedBy = [
     description ? `${id}-description` : null,
     `${id}-count`,
-    "pet-richtext-help",
+    helpId,
     error ? `${id}-error` : null,
   ]
     .filter(Boolean)
@@ -230,7 +237,7 @@ function RichTextEditorField({
         {label}
       </FieldLabel>
       {description ? <FieldDescription id={`${id}-description`}>{description}</FieldDescription> : null}
-      <p id="pet-richtext-help" className="sr-only">
+      <p id={helpId} className="sr-only">
         Formatting: bold, italic, underline, bulleted and numbered lists, and links. Use the toolbar above
         the text, or Control or Command with B, I or U.
       </p>
