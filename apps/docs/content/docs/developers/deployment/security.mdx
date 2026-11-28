@@ -32,6 +32,7 @@ What every site does without any setting.
 ### Sign-in protection
 
 - **Attempt limits,** counted before the password is checked: 30 per client address, 5 per email from one client (then ten minutes locked), and 100 per hour per email overall. Someone typing an owner's email from their own machine only locks themselves out.
+- **Reset and invite links:** using one (choosing a password while signed out) is limited to 10 tries per client address in 15 minutes, and a link that doesn't exist is refused before any password is hashed.
 - **Recovery:** a locked-out owner can run `NEW_PASSWORD='...' pnpm admin:reset-password owner@example.com` on the server, and `pnpm --filter @pet-adopt/web admin:reset-2fa <email>` turns off two-factor for the last admin.
 - **Client addresses:** they come from `X-Forwarded-For` (or `CLIENT_IP_HEADER`), counting `TRUSTED_PROXY_HOPS` entries from the end. Only a proxy you control can be trusted to add it.
 

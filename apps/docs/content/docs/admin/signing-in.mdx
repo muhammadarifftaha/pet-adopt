@@ -135,7 +135,7 @@ Providers are set up on **Authentication → Sign-in providers**. Admins add and
 
 3. **Copy the redirect address** the screen shows (it has a **Copy** button) into the provider's app, as an allowed redirect or callback address. It looks like `https://adopt.example.com/api/auth/callback/google`: your `NEXT_PUBLIC_SERVER_URL`, then a short name made from the provider's name when it is first saved (`google`, then `google-2`...). That name never changes, so the address stays valid if you rename the provider.
 
-You can add any number of providers. Every sign-in uses PKCE (a check that stops a stolen sign-in code from being used elsewhere). Changes reach every server running the site within 30 seconds.
+You can add any number of providers. Every sign-in uses PKCE (a check that stops a stolen sign-in code from being used elsewhere). Changes reach every server running the site within 30 seconds. If a provider's discovery document can't be read when a server sets up sign-in (the provider is down for a moment), that provider's button is left out and the server tries it again until it works: after 30 seconds, then twice as long each time, up to every 10 minutes.
 
 ### Addresses the site accepts
 
@@ -174,6 +174,7 @@ On the **Account** page, enter the new address and your current password.
 - **Limits:** 5 requests an hour. A new request cancels the older link.
 - **Without email on the site,** you can't change it yourself; ask an admin.
 - **Changing your password** cancels a pending change, in case someone else asked for it with your old password.
+- **Confirming a new address** cancels reset links sent to the old one, in case that mailbox is why you are moving.
 
 ### As an admin
 
@@ -182,6 +183,7 @@ On the Users screen, **Edit** someone and type a new address.
 - **It changes at once.** The address must not be used by another account, archived ones included.
 - **Both addresses** get the **Email change notice**.
 - **The new address is unconfirmed** until the person confirms it (see [Confirmed emails](./users-and-roles.mdx#confirmed-emails)).
-- **Cancelled:** a pending change the person asked for themselves, and reset links sent to the old address. A waiting invite is sent again to the new address.
+- **Cancelled:** a pending change the person asked for themselves, and reset links sent to the old address. A waiting invite is sent again to the new address; when it can't be emailed, the Edit dialog shows its link with a **Copy** button, since the link sent to the old address no longer works.
+- **When a notice can't be sent** to one or both addresses, the Edit dialog says so, so you can tell the person yourself.
 
 The activity log records that an email changed, never the addresses.

@@ -52,7 +52,7 @@ Scripts that talk to the site's database or storage load `apps/web/.env` themsel
   - after adding or updating a plugin that has tables of its own (the server warns at start while one is waiting).
 - **`pnpm seed`** adds sample content so a fresh install has something to look at: six example pets and an About page, the same the first-time setup offers.
   - Every step checks first, so it is safe to run again and finishes a partial run.
-  - It never touches a real site: if any pet other than the samples exists, no pets are added, and site settings are only filled in while they are still the defaults.
+  - It never touches a real site: if any pet other than the samples exists, no pets are added (a sample is recognised by its name and its placeholder picture, so a real pet called Luna or Max counts as real), and site settings are only filled in while they are still the defaults.
   - It refuses to run in production (`NODE_ENV=production`, or a database on another machine) unless `SEED_FORCE=1`, so demo data and the placeholder WhatsApp number cannot end up on a live site by accident.
   - With `SEED_ADMIN_EMAIL` and `SEED_ADMIN_PASSWORD` set, it also creates the first admin.
   - On PostgreSQL, run `pnpm migrate` first.

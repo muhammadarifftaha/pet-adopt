@@ -14,11 +14,11 @@ description: The site's services a plugin reaches through host(), the errors it 
 | `requireAdmin()` | Someone who can change plugin settings (`plugins:edit`): admins and developers |
 | `run(fn)` | Runs an action and turns what it throws into an `ActionResult`. See [Errors](#errors) |
 | `clientAddress()` | The visitor's address as the site's proxy reports it, or `null` |
-| `consumeAttempt(key, rule)` | A rate limit. Counts one attempt and throws a `UserError` past `rule.max` within `rule.windowMs`. Start the key with your plugin's name |
+| `consumeAttempt(key, rule)` | A rate limit. Counts one attempt and throws a `UserError` on the attempt after the `rule.max`th. The count starts again only once `rule.windowMs` passes with no attempt under the limit (each attempt under it restarts the window), and a key over the limit stays refused until `rule.windowMs` after the attempt that reached it. Start the key with your plugin's name |
 | `phone.validate(raw)` | `true`, or the reason a phone number cannot be used |
 | `phone.toE164(raw)` | The number in international form (`+60123456789`), or `null` |
 | `choices(source)` | Current choices from site data. `'pets'` gives the listed pets that are not adopted |
-| `emailSender()` | The site's email sender, or `null` when the site cannot send email |
+| `emailSender()` | The site's email sender (a ready email plugin, else the built-in SMTP sender), or `null` when neither is set up |
 | `sendTemplatedEmail(message)` | Sends an email through one of the site's templates. See [Email](./email.mdx#sending) |
 | `emailTemplates(purpose)` | The templates of a purpose, for a "which template" choice |
 | `recordActivity(entry)` | Adds an entry to the activity log. See [The activity log](#the-activity-log) |

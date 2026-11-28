@@ -117,7 +117,7 @@ Page versions and email templates they made show no creator afterwards.
 Anyone can choose **Delete my account** on their **Account** page, and confirm with their password.
 
 - **At once:** the account is archived. They are signed out everywhere, can't sign in, and waiting reset, invite and email change links are cancelled.
-- **After 30 days:** the account is deleted, as above. The site checks for accounts that are due when it starts, and at most once an hour after that.
+- **After 30 days:** the account is deleted, as above. The site checks for accounts that are due when it starts, and at most once an hour after that. An account that can't be deleted is named in the server log and tried again next time, without holding up the others.
 - **The email:** they get the system email **Account deletion**, with the date. The sign-in page explains that the account is closed.
 - **Until then:** an admin sees "Asked to be deleted" with the date on **Authentication → Archived accounts**, and can **Restore** the account (which cancels the deletion) or **Delete now**.
 - **The last active admin** can't delete their own account: the Account page explains why instead. Make someone else an admin first.

@@ -240,7 +240,8 @@ export type PluginBlockLoader = (props: Record<string, unknown>) => Promise<unkn
 ```
 
 - **It gets the block's options,** checked the same way as `render`'s. Treat them as untrusted all the same: in the page builder the browser sends them.
-- **Return plain JSON,** or `null` for nothing. The result crosses to the browser in the page builder. A result over about 1 MB is dropped.
+- **Return a plain JSON object or array,** or `null` for nothing. The result crosses to the browser in the page builder. Anything else (a number, a string, `true`) and a result over about 1 MB reach `render` as `data: null`.
+- **A `choice` may name something gone.** The option is a plain id, but the record it names may have been deleted since the page was saved: look it up and return `null` when it is missing.
 - **It never breaks a page.** A loader that throws gives `null`, and the error is logged without its values. A plugin whose tables are not migrated gives `null` quietly.
 - **Only public data.** Anyone who can see a page with the block sees what the loader returns.
 - **Keep it fast.** It runs whenever a page with the block is drawn (pages are cached for about a minute). When it needs another service, keep a copy in your tables and refresh it now and then: the Instagram feed reads Instagram about once an hour and never while the site is being built.

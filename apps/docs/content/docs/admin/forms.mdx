@@ -134,19 +134,21 @@ If you switch on captcha, mention the service in your privacy policy too: it pro
 
 ## Spam
 
-Three layers, in this order, before anything is stored.
+Three layers before anything is stored.
 
 ### 1. Sending limits
 
-- 10 sends per 10 minutes from one visitor;
-- 200 an hour per form, from everyone.
+- 10 sends per 10 minutes from one visitor, counted for every send;
+- 200 an hour per form, from everyone, counted only for sends that got past the spam trap and the captcha, so bots cannot use it up and close the form for real visitors.
+
+An answer far longer than any question allows is refused before anything else runs.
 
 ### 2. The spam trap
 
 Every form has a hidden box labelled "Website" (a honeypot: a trap for automated senders).
 
 - **Who fills it:** people never see it, and screen readers and the keyboard skip it. Bots fill in every box, so a filled trap marks a bot.
-- **What a bot gets:** the usual "sent" message, while nothing is saved, emailed or counted.
+- **What a bot gets:** the usual "sent" message, while nothing is saved or emailed, and it does not count toward the form's own limit.
 - **Where to change it:** the **Spam trap** card in the form editor, apart from the questions. It's on by default.
 - **When to switch it off:** only if a tool you use fills forms in automatically.
 - **Reserved name:** a question can never have the id `website`, or its real answers would look like spam.
@@ -176,7 +178,9 @@ Saved keys protect forms only after **Check these keys** verifies a real token w
 **How it works:**
 
 - **Server check:** each visitor's token is verified with the service on the server, and the answer must name this site's address (a leading `www.` aside). A site running on `localhost` skips the address check, because the services' test keys answer with names of their own.
-- **If the service can't be reached,** the form is refused with an explanation, so nothing slips through during an outage.
+- **If the service can't be reached,** the form is refused with an explanation, so nothing slips through during an outage. The server log says so.
+- **If the service refuses the keys** (for example a secret key revoked or rotated in the service's console), forms are refused with the same "try again in a moment, or contact us another way" explanation, and the server log names the service's error codes (at most once every 10 minutes). Fix the keys in **Forms → Spam protection** and check them again.
+- **If tokens name another address,** they are refused and the server log says which address they named. On a working site that usually means `NEXT_PUBLIC_SERVER_URL` does not match the address visitors use.
 - **If the saved secret can no longer be read** (for example after `BETTER_AUTH_SECRET` changed), forms are refused too. Enter the secret key again and check the keys.
 - **The content security policy** already allows the four services, so nothing needs changing there.
 

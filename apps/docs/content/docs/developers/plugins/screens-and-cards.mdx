@@ -57,6 +57,7 @@ dashboardWidgets: [
 - `id` is unique within the plugin.
 - `component` receives `user`. It is a server component, like a screen.
 - `access` works as it does for screens.
+- Each card loads on its own. If `component` throws, that card says "This card could not be loaded" (with the error's reference from the server log) and the rest of the dashboard still shows. Catch the errors you expect and show your own message instead.
 
 ## Access levels
 
