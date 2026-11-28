@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <style>
+    path, ellipse { fill: #18181b; }
+    @media (prefers-color-scheme: dark) { path, ellipse { fill: #fafafa; } }
+  </style>
+  <ellipse cx="9" cy="11" rx="3" ry="4" />
+  <ellipse cx="16" cy="7.5" rx="3" ry="4" />
+  <ellipse cx="23" cy="11" rx="3" ry="4" />
+  <ellipse cx="26.5" cy="18" rx="2.5" ry="3.2" />
+  <path d="M16 15c-4.2 0-8.5 5.4-8.5 9.2 0 2.6 2 3.8 4.3 3.8 1.6 0 2.7-.8 4.2-.8s2.6.8 4.2.8c2.3 0 4.3-1.2 4.3-3.8 0-3.8-4.3-9.2-8.5-9.2z" />
+</svg>
