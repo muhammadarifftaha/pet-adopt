@@ -9,6 +9,7 @@ import { logError } from '@/server/result'
 import '@/plugins/host'
 import '@/plugins/storage'
 import { getPluginBlock } from '@/plugins/registry'
+import { pluginBlockOptions } from '@/puck/plugin-blocks'
 import { PluginNotReadyError } from '@/plugins/storage'
 
 /** A block's result is a feed or a short list. Anything near this size is a mistake. */
@@ -60,6 +61,7 @@ export async function fetchPluginBlockData(name: unknown, props: unknown): Promi
   if (typeof name !== 'string') return null
   const options = plainBlockProps(props)
   if (!options) return null
-  const block = getPluginBlock(name)
-  return block?.load ? runPluginBlockLoader(name, block.load, options) : null
+  const found = getPluginBlock(name)
+  // The loader gets the block's own options, checked as the block's drawing gets them.
+  return found?.load ? runPluginBlockLoader(name, found.load, pluginBlockOptions(found.block, options)) : null
 }

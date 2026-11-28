@@ -151,6 +151,9 @@ function toPuckField(block: AnyPluginBlock, key: string, field: PluginBlockField
 type RenderProps = Json & { puck?: { isEditing?: boolean } }
 
 /** One plugin block as a Puck block. */
+/** Loaded data is an object or a list; anything else (a value saved into a page by hand) counts as none. */
+const isLoaded = (value: unknown) => typeof value === 'object' && value !== null
+
 export function toPuckComponent(block: AnyPluginBlock): ComponentConfig {
   const fields = Object.fromEntries(
     Object.entries(block.fields as Record<string, PluginBlockField | undefined>).flatMap(([key, field]) => (field ? [[key, toPuckField(block, key, field)]] : [])),
@@ -190,7 +193,7 @@ export function toPuckComponent(block: AnyPluginBlock): ComponentConfig {
       const headingLevel = props.headingLevel === 1 || props.headingLevel === 2 ? props.headingLevel : undefined
       let drawn: React.ReactElement | null
       try {
-        drawn = block.render({ ...pluginBlockOptions(block, props), data: props[PLUGIN_DATA_PROP] ?? null, editing, headingLevel })
+        drawn = block.render({ ...pluginBlockOptions(block, props), data: isLoaded(props[PLUGIN_DATA_PROP]) ? props[PLUGIN_DATA_PROP] : null, editing, headingLevel })
       } catch (error) {
         // One block must not take the page down with it. (This catches the block's own function;
         // a component it returns is drawn later by React and is not covered.)

@@ -95,7 +95,7 @@ export const formBlock = definePluginBlock<FormBlockProps, FormBlockData>({
     }
     const Heading = headingLevel === 1 ? 'h1' : 'h2'
     // The policy is a page of the site: only a site path is linked.
-    const privacy = data?.privacy && typeof data.privacy.href === 'string' && /^\/(?!\/)/.test(data.privacy.href) && typeof data.privacy.title === 'string' ? data.privacy : null
+    const privacy = data?.privacy && typeof data.privacy.href === 'string' && /^\/(?![\/\\])/.test(data.privacy.href) && typeof data.privacy.title === 'string' ? data.privacy : null
     return (
       <Band background={background}>
         <div className="fb-form-section">

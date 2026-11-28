@@ -292,10 +292,10 @@ export function getPluginEmailTemplates(): Registry['templateSeeds'] {
  * The server half of a plugin's page builder block: `load` is its loader, or null when the block
  * shows nothing loaded. Undefined when the site lists no block of that name (pet-adopt.blocks.ts).
  */
-export function getPluginBlock(name: string): { plugin: string; load: PluginBlockLoader | null } | undefined {
+export function getPluginBlock(name: string): { plugin: string; block: AnyPluginBlock; load: PluginBlockLoader | null } | undefined {
   const block = siteBlocks.find((entry) => entry.name === name)
   if (!block) return undefined
-  return { plugin: block.plugin, load: registry().blockLoaders.get(name)?.load ?? null }
+  return { plugin: block.plugin, block, load: registry().blockLoaders.get(name)?.load ?? null }
 }
 
 export function getPluginWidgets(): ResolvedWidget[] {
