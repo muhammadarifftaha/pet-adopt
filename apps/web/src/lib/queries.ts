@@ -18,9 +18,11 @@ import {
   TEMPERAMENTS,
   type Option,
 } from '@/lib/options'
+import type { TimelineEntry } from '@/lib/pet-timeline'
 import { richTextToPlain, type RichTextDoc } from '@/lib/rich-text'
 import { getPublishedPage as loadPublishedPage } from '@/server/pages'
 import { getPrivacyPolicy as loadPrivacyPolicy, type PrivacyPolicy } from '@/server/privacy'
+import { listTimeline } from '@/server/pet-timeline'
 import * as pets from '@/server/pets'
 import { describeError } from '@/server/result'
 import type { PetFilters } from '@/server/pets'
@@ -225,11 +227,13 @@ export type PetPageData = PetSpotlightData & {
   location: string | null
   state: string | null
   unlisted: boolean
+  /** The pet's timeline, newest first (the Pet timeline block may draw it either way). */
+  timeline: TimelineEntry[]
 }
 
 async function toPetPage(pet: Pet): Promise<PetPageData> {
   // The country is named only for a pet outside the site's own country (see displayLocation).
-  const location = await displayLocation(pet, siteCountryCode(await getSettings()))
+  const [location, timeline] = await Promise.all([displayLocation(pet, siteCountryCode(await getSettings())), listTimeline(pet.id)])
   return {
     ...toSpotlight(pet),
     statusLabel: labelFor(STATUSES, pet.status),
@@ -239,6 +243,7 @@ async function toPetPage(pet: Pet): Promise<PetPageData> {
     location,
     state: pet.state,
     unlisted: pet.unlisted,
+    timeline,
   }
 }
 

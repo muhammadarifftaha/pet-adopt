@@ -247,6 +247,30 @@ export const petPhotos = sqliteTable(
   (t) => [primaryKey({ columns: [t.petId, t.position] }), index('pet_photos_media_idx').on(t.mediaId)],
 )
 
+// A pet's timeline (src/server/pet-timeline.ts): dated updates shown on its page, each its own row so
+// one can be added, edited or deleted without touching the others.
+export const petTimelineEntries = sqliteTable(
+  'pet_timeline_entries',
+  {
+    id: id(),
+    petId: integer('pet_id')
+      .notNull()
+      .references(() => pets.id, { onDelete: 'cascade' }),
+    // The day it happened (YYYY-MM-DD) and, optionally, the time of day (HH:MM, 24-hour).
+    date: text('date').notNull(),
+    time: text('time'),
+    title: text('title').notNull(),
+    // Rich text (src/lib/rich-text.ts), or null.
+    bodyDoc: text('body_doc', { mode: 'json' }).$type<RichTextDoc>(),
+    // Media library ids, in order. Not foreign keys: mediaUsage counts them, and a missing one is left out when drawn.
+    photoIds: text('photo_ids', { mode: 'json' }).$type<number[]>().notNull().default(sql`'[]'`),
+    createdBy: text('created_by').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index('pet_timeline_entries_pet_date_idx').on(t.petId, t.date)],
+)
+
 export const pages = sqliteTable(
   'pages',
   {

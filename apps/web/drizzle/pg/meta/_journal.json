@@ -183,6 +183,13 @@
       "when": 1795776538246,
       "tag": "0025_rich_white_queen",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1795844727583,
+      "tag": "0026_spooky_komodo",
+      "breakpoints": true
     }
   ]
 }

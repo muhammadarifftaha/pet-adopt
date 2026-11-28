@@ -123,15 +123,22 @@ export async function updateMediaAlt(id: number, alt: string): Promise<MediaItem
  * and passed to `mediaUsage` when several images are checked in a row (a bulk delete): the layouts
  * do not change while images are deleted, and reading them again for each image is the slow part.
  */
-export type LayoutTexts = { pages: string[]; emails: string[] }
+export type LayoutTexts = { pages: string[]; emails: string[]; /** Each pet timeline entry's photo ids. */ timeline: number[][] }
 
 export async function loadLayoutTexts(): Promise<LayoutTexts> {
   const { db, t } = await getDatabase()
-  const [pages, emails] = await Promise.all([
+  const [pages, emails, timeline] = await Promise.all([
     db.select({ draft: t.pages.puckDraft, published: t.pages.puckPublished }).from(t.pages),
     db.select({ data: t.emailTemplates.data }).from(t.emailTemplates),
+    // Timeline photos are JSON id lists (src/server/pet-timeline.ts), compared here in JavaScript so it
+    // works the same on both databases (a pet holds at most a few hundred entries).
+    db.select({ photoIds: t.petTimelineEntries.photoIds }).from(t.petTimelineEntries),
   ])
-  return { pages: pages.map((page) => JSON.stringify([page.draft, page.published])), emails: emails.map((template) => JSON.stringify(template.data)) }
+  return {
+    pages: pages.map((page) => JSON.stringify([page.draft, page.published])),
+    emails: emails.map((template) => JSON.stringify(template.data)),
+    timeline: timeline.map((row) => (Array.isArray(row.photoIds) ? row.photoIds : [])),
+  }
 }
 
 /** Where an image is used. Deleting one that is in use would strip a pet's photos or a page's share image. */
@@ -152,13 +159,16 @@ export async function mediaUsage(id: number, layoutTexts?: LayoutTexts) {
   // the JSON text finds exactly the pages that use it.
   let layouts = 0
   let emails = 0
+  let timeline = 0
   if (row) {
     const texts = layoutTexts ?? (await loadLayoutTexts())
+    // Timeline entries that show it (by id: their photos are a JSON list of media ids).
+    timeline = texts.timeline.filter((ids) => ids.includes(id)).length
     layouts = texts.pages.filter((text) => text.includes(row.filename)).length
     // Email templates keep their Image blocks the same way.
     emails = texts.emails.filter((text) => text.includes(row.filename)).length
   }
-  return { pets: petPhotos + petShares, pages, logo: logo > 0, favicon: favicon > 0, layouts, emails }
+  return { pets: petPhotos + petShares, pages, logo: logo > 0, favicon: favicon > 0, layouts, emails, timeline }
 }
 
 /** Deletes the row and returns its filename so the caller can remove the stored files. */
@@ -173,12 +183,13 @@ export async function deleteMediaRow(id: number, layoutTexts?: LayoutTexts): Pro
       usage.pages ? `${usage.pages} page(s)` : '',
       usage.layouts ? `${usage.layouts} page layout(s)` : '',
       usage.emails ? `${usage.emails} email template(s)` : '',
+      usage.timeline ? `${usage.timeline} pet timeline entr${usage.timeline === 1 ? 'y' : 'ies'}` : '',
       usage.logo ? 'the site logo' : '',
       usage.favicon ? 'the site icon (favicon)' : '',
     ].filter(Boolean)
     return new UserError(`This image is still used by ${where.join(' and ') || 'something else'}. Replace it there first.`)
   }
-  if (usage.pets + usage.pages + usage.layouts + usage.emails > 0 || usage.logo || usage.favicon) throw stillUsed()
+  if (usage.pets + usage.pages + usage.layouts + usage.emails + usage.timeline > 0 || usage.logo || usage.favicon) throw stillUsed()
   try {
     await db.delete(t.media).where(eq(t.media.id, id))
   } catch (error) {
