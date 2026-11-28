@@ -21,6 +21,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { useSiteTimeZone } from "@/components/admin/site-time";
 import { useViewOnly } from "@/components/admin/view-only";
 import { timelineDateTimeAttr, timelineWhenText } from "@/components/site/timeline-format";
+import { callAction } from "@/lib/admin/call-action";
 import { unwrapResult } from "@/lib/admin/unwrap-client";
 import { compareTimelineNewestFirst, TIMELINE_MAX_ENTRIES, type TimelineEntry } from "@/lib/pet-timeline";
 import { richTextToPlain } from "@/lib/rich-text";
@@ -89,7 +90,7 @@ export function PetTimeline({ petId, petName, initial }: { petId: number; petNam
     if (!deleting || busy) return;
     setBusy(true);
     setDeleteError(null);
-    const result = await deletePetTimelineEntryAction(deleting.id);
+    const result = await callAction(deletePetTimelineEntryAction(deleting.id));
     setBusy(false);
     if (!result.ok) {
       setDeleteError(result.error);

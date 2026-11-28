@@ -21,6 +21,7 @@ import {
 import { useColorMode } from "@/lib/color-mode";
 import { ROLE_INFO } from "@pet-adopt/plugin-sdk";
 import { cn } from "@/lib/utils";
+import { callAction } from "@/lib/admin/call-action";
 import { signOutAction } from "@/server/actions/auth";
 import type { SessionUser } from "@/server/types";
 
@@ -37,7 +38,8 @@ export function UserMenu({ user, canSwitchMode = false }: { user: SessionUser; c
   async function signOut() {
     setSigningOut(true);
     setError(null);
-    const result = await signOutAction();
+    // callAction: a call that never arrives (network, redeploy) shows a message instead of a stuck menu.
+    const result = await callAction(signOutAction());
     if (result.ok) {
       // The sign-in page is a different root layout, so Next does a full page load. That also drops
       // everything this tab held for the person (the in-memory SWR cache, form state).

@@ -37,11 +37,19 @@ export default async function AuthLayout({
         <ThemeStyle settings={settings} />
       </head>
       <body className="min-h-screen bg-background font-sans text-foreground antialiased w-full flex flex-col items-center justify-center">
+        {/* First focusable element: lets keyboard users skip the header (WCAG 2.4.1). Each screen's
+            card title is the page's one <h1>. */}
+        <a
+          href="#main-content"
+          className="sr-only focus:not-sr-only focus:absolute focus:left-2 focus:top-2 focus:z-50 focus:rounded-md focus:bg-background focus:px-3 focus:py-2"
+        >
+          Skip to main content
+        </a>
         <header className="w-full flex items-start justify-between py-2 px-4 border-b border-border text-muted-foreground">
           <p className="text-sm">{settings.siteName} </p>
           <AuthNav />
         </header>
-        <main className="flex flex-auto items-center justify-center px-4 py-12 w-full">
+        <main id="main-content" tabIndex={-1} className="flex flex-auto items-center justify-center px-4 py-12 w-full">
           {children}
         </main>
       </body>

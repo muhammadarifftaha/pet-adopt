@@ -19,6 +19,7 @@ import {
   toTimelineInput,
   type TimelineEntryFormValues,
 } from "@/lib/zod-schema/pet-timeline";
+import { callAction } from "@/lib/admin/call-action";
 import { addPetTimelineEntryAction, updatePetTimelineEntryAction } from "@/server/actions/pet-timeline";
 
 import { ErrorSummary, type SummaryItem } from "../form/ErrorSummary";
@@ -112,9 +113,8 @@ export function TimelineEntryForm({
     setSaving(true);
     setGeneral(null);
     const input = toTimelineInput(values);
-    const result = entry
-      ? await updatePetTimelineEntryAction(entry.id, input)
-      : await addPetTimelineEntryAction(petId, input);
+    // callAction: a call that never arrives (network, redeploy) becomes a message, not a stuck "Saving…".
+    const result = await callAction(entry ? updatePetTimelineEntryAction(entry.id, input) : addPetTimelineEntryAction(petId, input));
     setSaving(false);
 
     if (result.ok) {

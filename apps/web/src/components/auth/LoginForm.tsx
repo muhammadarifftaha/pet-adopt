@@ -6,6 +6,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { loginSchema, LoginSchemaType } from "@/lib/zod-schema/auth";
 import { signInAction } from "@/server/actions/auth";
 import { verifyTwoFactorAction } from "@/server/actions/two-factor";
+import { callAction, UNREACHABLE_MESSAGE } from "@/lib/admin/call-action";
 import { Checkbox } from "@pet-adopt/ui/components/checkbox";
 import { FieldContent } from "@pet-adopt/ui/components/field";
 import { Field, FieldError, FieldGroup, FieldLabel } from "@pet-adopt/ui/components/field";
@@ -37,7 +38,8 @@ export default function LoginForm({
   // sees the old cookies, so nothing redirects by itself: navigate here once it succeeds. /admin
   // has a different root layout, so this is a full page load that sends the new cookie.
   const onSubmit = async (values: LoginSchemaType) => {
-    const result = await signInAction(values);
+    // callAction: a call that never arrives (network, redeploy) becomes a message, not silence.
+    const result = await callAction(signInAction(values));
     if (result.ok && result.data.twoFactor) {
       form.resetField("password");
       setStep("code");
@@ -70,7 +72,7 @@ export default function LoginForm({
   return (
     <Card className="w-full max-w-lg">
       <CardHeader>
-        <h2 className="text-lg font-semibold">Sign in</h2>
+        <h1 className="text-lg font-semibold">Sign in</h1>
         <p>
           Please enter your email and password to sign in to {settings.siteName}
           .
@@ -154,6 +156,8 @@ function CodeStep({
   const [code, setCode] = React.useState("");
   const [trustDevice, setTrustDevice] = React.useState(false);
   const [error, setError] = React.useState<string>();
+  // The server could not be reached: not the code's fault, so not on the field, and no restart.
+  const [failure, setFailure] = React.useState<string | null>(null);
   const [pending, startTransition] = React.useTransition();
   const headingRef = React.useRef<HTMLHeadingElement>(null);
   React.useEffect(() => headingRef.current?.focus(), []);
@@ -161,10 +165,12 @@ function CodeStep({
   function submit(event: React.FormEvent) {
     event.preventDefault();
     if (pending) return;
+    setFailure(null);
     startTransition(async () => {
-      const result = await verifyTwoFactorAction({ code, trustDevice });
+      const result = await callAction(verifyTwoFactorAction({ code, trustDevice }));
       if (result.ok) return onSignedIn();
       if (result.fieldErrors?.code) return setError(result.fieldErrors.code);
+      if (result.error === UNREACHABLE_MESSAGE) return setFailure(result.error);
       onRestart(result.error);
     });
   }
@@ -172,14 +178,19 @@ function CodeStep({
   return (
     <Card className="w-full max-w-lg">
       <CardHeader>
-        <h2 ref={headingRef} tabIndex={-1} className="text-lg font-semibold outline-none">
+        <h1 ref={headingRef} tabIndex={-1} className="text-lg font-semibold outline-none">
           Enter your code
-        </h2>
+        </h1>
         <p>Open your authenticator app and enter the 6-digit code for {siteName}. Lost your phone? Enter one of your backup codes instead.</p>
       </CardHeader>
       <CardContent className="w-full">
         <form id="code-form" noValidate onSubmit={submit}>
           <FieldGroup>
+            {failure ? (
+              <p role="alert" className="text-sm text-destructive">
+                {failure}
+              </p>
+            ) : null}
             <Field data-invalid={error ? true : undefined}>
               <FieldLabel htmlFor="two-factor-code">Code</FieldLabel>
               <Input
