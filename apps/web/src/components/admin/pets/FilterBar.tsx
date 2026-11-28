@@ -25,7 +25,7 @@ import { usePetList, type PetListSeed } from "@/lib/admin/use-pet-list";
 import { isPetStatus, type Option, PET_STATUS_VALUES } from "@/lib/options";
 import { listSpeciesOptionsAction } from "@/server/actions/pets";
 import { capitalize } from "es-toolkit";
-import PetPagination from "./PetPagination";
+import { PetPagination } from "./PetPagination";
 
 // How long to wait after the last keystroke before the URL (and so the list) updates.
 const SEARCH_DEBOUNCE_MS = 300;
@@ -33,7 +33,7 @@ const SEARCH_DEBOUNCE_MS = 300;
 // Builds a pager link such as /admin/pets?search=mochi&page=2 (a page of 1 is left out).
 const serialize = createSerializer(petSearchParsers);
 
-export default function FilterBar({
+export function FilterBar({
   speciesOptions: initialSpeciesOptions,
   initialFilters,
   initialData,

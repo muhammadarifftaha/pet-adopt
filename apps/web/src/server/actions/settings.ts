@@ -14,7 +14,7 @@ export async function getSettingsAction(): Promise<ActionResult<SiteSetting>> {
 }
 
 /**
- * Admins only. Send only the keys you are changing. Nested theme colours are
+ * Admins and developers (`settings:edit`). Send only the keys you are changing. Nested theme colours are
  * `customTheme.light.primary`, `customTheme.dark.text` and so on in `fieldErrors`.
  */
 export async function updateSettingsAction(input: unknown): Promise<ActionResult<SiteSetting>> {

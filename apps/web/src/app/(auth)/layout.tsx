@@ -9,7 +9,7 @@ import { getSettings, siteIcons } from "@/lib/queries";
 // the (admin) layout).
 import "@pet-adopt/ui/globals.css";
 import "../(frontend)/fonts";
-import AuthNav from "@/components/auth/AuthNav";
+import { AuthNav } from "@/components/auth/AuthNav";
 
 export async function generateMetadata(): Promise<Metadata> {
   return {

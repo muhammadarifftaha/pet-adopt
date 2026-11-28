@@ -71,7 +71,12 @@ export function PublicForm({
         captchaToken = (await captchaRef.current?.getToken()) ?? null
         if (!captchaToken) {
           setErrors({})
-          setFormError('Please complete the spam check above the button, then send the form.')
+          // reCAPTCHA v3 shows nothing to complete: then the check itself could not run.
+          setFormError(
+            CAPTCHA_INFO[form.captcha.provider].invisible
+              ? 'The spam check could not run, so the form was not sent. Reload the page and try again, or contact us another way.'
+              : 'Please complete the spam check above the button, then send the form.',
+          )
           requestAnimationFrame(() => summaryRef.current?.focus())
           return
         }

@@ -17,6 +17,7 @@ export function SocialLinks({ items, className }: { items?: SocialLink[] | null;
         <li key={`${s.platform}-${i}`}>
           <a href={s.url} target="_blank" rel="noopener noreferrer">
             {labelFor(SOCIAL_PLATFORMS, s.platform)}
+            <span className="sr-only"> (opens in a new tab)</span>
           </a>
         </li>
       ))}

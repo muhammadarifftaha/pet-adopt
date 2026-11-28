@@ -60,7 +60,7 @@ export async function createInvite(userId: string): Promise<{ url: string; expir
     await tx.insert(t.verifications).values({ id: randomUUID(), identifier: identifierFor(token), value: userId, expiresAt, createdAt: now, updatedAt: now })
     return { id: user.id, name: user.name, email: user.email, role: asRole(user.role) }
   })
-  void purgeExpired().catch(() => undefined)
+  void purgeExpired().catch((error) => logError(error, 'could not purge expired invites'))
   return { url: inviteUrl(token), expiresAt, user }
 }
 

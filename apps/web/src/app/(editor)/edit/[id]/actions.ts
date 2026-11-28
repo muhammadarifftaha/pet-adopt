@@ -44,6 +44,23 @@ async function persist(id: number, data: Data, publish: boolean, baseVersion?: n
   }
 }
 
+/**
+ * Settles to whether a permission check passed. The builder's preview reads below need `pages:view`
+ * like the builder itself, and give an empty preview instead of throwing inside Puck's resolvers.
+ */
+const passes = (check: Promise<unknown>) => check.then(() => true, () => false)
+
+const EMPTY_CATALOG: CatalogData = {
+  pets: [],
+  page: 1,
+  totalPages: 1,
+  hasPrevPage: false,
+  hasNextPage: false,
+  filters: { species: '', sex: '', ageGroup: '', size: '', status: '', location: '' },
+  speciesOptions: [],
+}
+
+/** The page builder's Save draft. Saving a draft never changes the live page. */
 export async function saveDraftAction(id: number, data: Data, baseVersion?: number): Promise<Result> {
   return persist(id, data, false, baseVersion)
 }
@@ -53,12 +70,14 @@ export async function autosaveDraftAction(id: number, data: Data, baseVersion?: 
   return persist(id, data, false, baseVersion, true)
 }
 
+/** The page builder's Publish: saves `data` and makes it the live page. */
 export async function publishAction(id: number, data: Data, baseVersion?: number): Promise<Result> {
   return persist(id, data, true, baseVersion)
 }
 
 /** One pet for the editor's Pet spotlight preview. Public data (hidden pets come back as null). */
 export async function fetchPetSpotlightAction(id: number): Promise<PetSpotlightData | null> {
+  if (!(await passes(requirePermission('pages:view')))) return null
   const petId = Number(id)
   if (!Number.isSafeInteger(petId) || petId < 1) return null
   return getPetSpotlight(petId)
@@ -66,11 +85,13 @@ export async function fetchPetSpotlightAction(id: number): Promise<PetSpotlightD
 
 /** The first page of the catalogue, for the editor's Pet catalogue preview (no filters). */
 export async function fetchCatalogAction(): Promise<CatalogData> {
+  if (!(await passes(requirePermission('pages:view')))) return EMPTY_CATALOG
   return queryCatalog({})
 }
 
 /** Full profiles for the editor's pet grid preview (profile layout). Same clamping as below. */
 export async function fetchPetProfilesAction(filters: PetFilters): Promise<PetSpotlightData[]> {
+  if (!(await passes(requirePermission('pages:view')))) return []
   const f = filters ?? {}
   return queryPetProfiles({
     species: normalizeSpecies(f.species) || undefined,
@@ -82,6 +103,7 @@ export async function fetchPetProfilesAction(filters: PetFilters): Promise<PetSp
 
 /** Live pets for the editor's pet grid preview. Public data, but inputs are clamped. */
 export async function fetchPetsAction(filters: PetFilters): Promise<PetCardData[]> {
+  if (!(await passes(requirePermission('pages:view')))) return []
   // A client can send anything, including nothing.
   const f = filters ?? {}
   return queryPetCards({
@@ -108,6 +130,7 @@ export async function fetchPetPagePreviewAction(id: number): Promise<ActionResul
 
 /** "More pets like this" in the editor. Public data (available, listed pets); inputs are checked. */
 export async function fetchSimilarPetsAction(pet: { id: number; species: string; state: string | null }, limit: number): Promise<PetCardData[]> {
+  if (!(await passes(requirePermission('pages:view')))) return []
   const id = Number(pet?.id)
   if (!Number.isSafeInteger(id) || id < 1) return []
   const species = typeof pet.species === 'string' ? pet.species.slice(0, 100) : ''

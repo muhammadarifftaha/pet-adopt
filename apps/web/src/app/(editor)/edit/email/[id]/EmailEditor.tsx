@@ -152,6 +152,7 @@ function HeaderActions() {
 // Module-level, so Puck gets the same object on every render.
 const OVERRIDES = { headerActions: HeaderActions }
 const READ_ONLY = { drag: false, duplicate: false, delete: false, edit: false, insert: false }
+const IFRAME = { enabled: false }
 
 export function EmailEditor({ target, name, purpose, purposeLabel, initialData, ctx, defaultTo, readOnly }: Props) {
   const [problems, setProblems] = useState<string[]>([])
@@ -217,7 +218,7 @@ export function EmailEditor({ target, name, purpose, purposeLabel, initialData, 
         onChange={onChange}
         headerTitle={name}
         headerPath={purposeLabel}
-        iframe={{ enabled: false }}
+        iframe={IFRAME}
         overrides={OVERRIDES}
         permissions={readOnly ? READ_ONLY : undefined}
       />

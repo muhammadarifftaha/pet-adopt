@@ -6,7 +6,7 @@ import { assertId, run, type ActionResult } from '../result'
 import { requirePermission } from '../session'
 import type { ThemeRecord } from '../types'
 
-// The Theme screen (admin only, like the site settings it changes).
+// The Theme screen: admins and developers change it (`theme:edit`), audit can look.
 
 export async function listThemesAction(): Promise<ActionResult<Awaited<ReturnType<typeof listThemes>>>> {
   return run(async () => {

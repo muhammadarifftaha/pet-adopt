@@ -1,5 +1,6 @@
-// Rich text for the pet's health notes, stored as a JSON document (the shape Tiptap/ProseMirror
-// produce) and rendered as React elements, never as HTML. Only a small, fixed set is allowed:
+// Rich text for pet fields (description, health and personality notes) and timeline entries,
+// stored as a JSON document (the shape Tiptap/ProseMirror produce) and rendered as React
+// elements, never as HTML. Only a small, fixed set is allowed:
 //   paragraphs, bulleted and numbered lists, and the marks bold, italic, underline and link.
 // This file is pure (no React, no editor library), so the server, the form's zod schema, and the
 // tests all use the same rules. `validateRichText` does not just check: it BUILDS a new document

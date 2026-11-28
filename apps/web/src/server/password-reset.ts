@@ -52,7 +52,7 @@ export async function createResetLink(userId: string): Promise<{ url: string; ex
       .insert(t.verifications)
       .values({ id: randomUUID(), identifier: identifierFor(token), value: userId, expiresAt, createdAt: now, updatedAt: now })
   })
-  void purgeExpired().catch(() => undefined)
+  void purgeExpired().catch((error) => logError(error, 'could not purge expired reset links'))
   return { url: resetUrl(token), expiresAt }
 }
 

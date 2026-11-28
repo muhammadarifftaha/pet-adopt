@@ -11,7 +11,6 @@ import {
   restoreAndPublishPageVersion,
   restorePage,
   restorePageVersion,
-  saveDraft,
   savePageDetails,
   unpublishPage,
 } from '../pages'
@@ -61,21 +60,10 @@ export async function savePageDetailsAction(id: number | null, input: unknown): 
 }
 
 /**
- * Used by the page builder. Saving a draft never changes the live page. Pass the `version` the
- * builder last received (the page's `updatedAt` in ms, returned by every save): if the page has
- * changed since, nothing is written and the error says to reload.
+ * Makes the draft (or `data`, when given) the live page. Pass the `baseVersion` last received (the
+ * page's `updatedAt` in ms, returned by every save): if the page has changed since, nothing is
+ * written and the error says to reload.
  */
-export async function saveDraftAction(id: number, data: unknown, baseVersion?: number): Promise<ActionResult<{ version: number }>> {
-  return run(async () => {
-    const user = await requirePermission('pages:edit')
-    const pageId = assertId(id)
-    const saved = await saveDraft(pageId, data, version(baseVersion), user.id)
-    await recordPageActivity(user, pageId, 'page.draft', (title) => `Saved a draft of the page ${title}`)
-    return saved
-  })
-}
-
-/** Makes the draft (or `data`, when given) the live page. Takes the same `baseVersion` as saveDraftAction. */
 export async function publishPageAction(
   id: number,
   data?: unknown,

@@ -1,4 +1,7 @@
-/** Only allow links an owner could reasonably mean. Blocks javascript: and data: URLs. */
+/**
+ * A link an owner typed, made safe to render: site paths, #anchors, http(s), mailto: and tel: links
+ * pass; anything else (javascript:, data:, "//host"...) becomes '#'.
+ */
 export function safeHref(href?: string | null): string {
   const value = (href ?? '').trim()
   if (!value) return '#'
@@ -68,7 +71,7 @@ export function safeVideoEmbed(url?: string | null): string | null {
   return null
 }
 
-// Only Google Maps embed URLs may be placed in an iframe.
+/** A Google Maps embed URL (https://www.google.com/maps/embed?...), the only kind placed in an iframe; null for anything else. */
 export function safeMapEmbed(url?: string | null): string | null {
   const value = (url ?? '').trim()
   return /^https:\/\/www\.google\.com\/maps\/embed\?/.test(value) ? value : null

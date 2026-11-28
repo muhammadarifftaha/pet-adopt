@@ -5,6 +5,7 @@
 import { provideHost } from '@pet-adopt/plugin-sdk'
 import { headers } from 'next/headers'
 
+import { isEmailAddress } from '@/lib/email-address'
 import { PetStatus } from '@/lib/options'
 import { safeRevalidate } from '@/lib/revalidate'
 import { SITE_URL } from '@/lib/seo'
@@ -45,15 +46,19 @@ provideHost({
     return []
   },
   emailSender: () => getEmailSender(),
-  sendTemplatedEmail: (message) => {
+  // Async, so a refusal is a rejection like any other sending failure.
+  sendTemplatedEmail: async (message) => {
     const purpose = message?.purpose
     if (purpose !== 'team-notification' && purpose !== 'visitor-message') throw new Error(`plugins may send team notifications and visitor messages only, not "${String(purpose)}"`)
+    // One mailbox only: a typed "a@x.com, b@y.com" would otherwise reach both.
+    const to = typeof message.to === 'string' ? message.to.trim() : ''
+    if (!isEmailAddress(to)) throw new Error('sendTemplatedEmail needs one email address in `to`')
     const values = Object.fromEntries(Object.entries(message.values ?? {}).filter(([, value]) => typeof value === 'string').map(([key, value]) => [key, value.slice(0, 500)]))
     return sendPurposeEmail({
       purpose,
       templateId: typeof message.templateId === 'number' ? message.templateId : null,
       fallback: typeof message.fallback === 'string' && /^[a-z0-9-]+:[a-z0-9-]+$/.test(message.fallback) ? message.fallback : null,
-      to: message.to,
+      to,
       values,
       // A message to a visitor never carries details, whatever the plugin passes.
       details: purpose === 'team-notification' ? message.details : undefined,

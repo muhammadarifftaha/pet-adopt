@@ -69,7 +69,7 @@ export function EmailCard({ user, status }: { user: SessionUser; status: EmailCh
         </p>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
-        <p role="status" className="text-sm empty:hidden">
+        <p role="status" className="text-sm empty:sr-only">
           {message}
         </p>
         {pending ? (

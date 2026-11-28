@@ -22,18 +22,20 @@ export async function register() {
     }
   }
 
+  // Everything below opens the database, and some of it writes. `next build` runs this too, and must
+  // not: the database may be unreachable, a local file must not be created, and a preview build may
+  // share production's database (which migrate-on-build.ts keeps away from on purpose).
+  if (process.env.NEXT_PHASE === 'phase-production-build') return
+
   // The first account. Unattended installs set SEED_ADMIN_EMAIL and SEED_ADMIN_PASSWORD and get it
   // made here. Otherwise, while no account exists, the setup link (src/server/setup.ts) is printed
   // to this log: only someone who can read it can claim the new site.
   try {
     const { ensureOwner } = await import('@/server/users')
     await ensureOwner()
-    // Not while building: that must not open (or create) the database.
-    if (process.env.NEXT_PHASE !== 'phase-production-build') {
-      const { announceSetupLink, ensureSetupLink } = await import('@/server/setup')
-      const link = await ensureSetupLink()
-      if (link) announceSetupLink(link)
-    }
+    const { announceSetupLink, ensureSetupLink } = await import('@/server/setup')
+    const link = await ensureSetupLink()
+    if (link) announceSetupLink(link)
   } catch (error) {
     // Most likely the schema is not there yet (run `pnpm migrate` first on Postgres). Log a short
     // description, never the error object: database errors carry the bound values.

@@ -90,7 +90,7 @@ export const formBlock = definePluginBlock<FormBlockProps, FormBlockData>({
       if (!editing) return null
       return (
         <Band background={background}>
-          <p className="muted">{formId ? 'This form was deleted, so the block is hidden on the site.' : 'Choose a form. Forms are made under Plugins, Forms.'}</p>
+          <p className="muted">{formId ? 'This form could not be found or loaded: it may have been deleted, or the site could not read it just now. While that lasts, the block is hidden on the site.' : 'Choose a form. Forms are made under Plugins, Forms.'}</p>
         </Band>
       )
     }

@@ -230,6 +230,8 @@ export const pets = sqliteTable(
     index('pets_state_idx').on(t.state),
     // The catalog filters on status and sorts newest first.
     index('pets_status_created_idx').on(t.status, t.createdAt),
+    // Media usage counts share images, and deleting an image clears them (ON DELETE SET NULL).
+    index('pets_seo_image_idx').on(t.seoImageId),
   ],
 )
 
@@ -479,5 +481,12 @@ export const activityLog = sqliteTable(
     // The client address (an IPv6 address cut to its /64), when the proxy reports one.
     client: text('client'),
   },
-  (t) => [index('activity_log_at_idx').on(t.at), index('activity_log_actor_at_idx').on(t.actorId, t.at), index('activity_log_area_at_idx').on(t.area, t.at)],
+  (t) => [
+    index('activity_log_at_idx').on(t.at),
+    index('activity_log_actor_at_idx').on(t.actorId, t.at),
+    index('activity_log_area_at_idx').on(t.area, t.at),
+    // Your own entries include failed sign-ins on your account, and deleting an account rewrites
+    // the entries about it: both look entries up by subject.
+    index('activity_log_subject_at_idx').on(t.subjectId, t.at),
+  ],
 )

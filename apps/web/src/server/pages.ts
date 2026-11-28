@@ -535,15 +535,21 @@ export async function archivePage(id: number): Promise<void> {
   await revalidatePage(id, [toPath(row.slug)])
 }
 
-/** Brings an archived page back exactly as it was (a published page is live again). */
+/**
+ * Brings an archived page back exactly as it was (a published page is live again). Refuses a page
+ * that is not archived, so a second click changes nothing (an open builder keeps its version).
+ */
 export async function restorePage(id: number): Promise<void> {
   const { db, t } = await getDatabase()
   const [row] = await db
     .update(t.pages)
     .set({ archivedAt: null, updatedAt: new Date() })
-    .where(eq(t.pages.id, id))
+    .where(and(eq(t.pages.id, id), isNotNull(t.pages.archivedAt)))
     .returning({ slug: t.pages.slug })
-  if (!row) throw new UserError('Page not found.')
+  if (!row) {
+    const [page] = await db.select({ id: t.pages.id }).from(t.pages).where(eq(t.pages.id, id)).limit(1)
+    throw new UserError(page ? 'This page is not archived.' : 'Page not found.')
+  }
   await revalidatePage(id, [toPath(row.slug)])
 }
 

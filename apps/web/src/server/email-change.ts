@@ -131,7 +131,7 @@ export async function requestEmailChange(userId: string, raw: unknown, sender?: 
       updatedAt: now,
     })
   })
-  void purgeExpired().catch(() => undefined)
+  void purgeExpired().catch((error) => logError(error, 'could not purge expired email-change links'))
 
   const confirm = await renderPurposeEmail({
     purpose: 'email-change',

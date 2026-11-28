@@ -18,7 +18,8 @@ import { needsEmailConfirmation } from '@/server/email-change'
 import { hasSampleContent } from '@/server/sample-content'
 import { getSessionUser } from '@/server/session'
 import { announceSetupLink, ensureSetupLink, hasAccounts, isSetupDone, isSetupKeyValid } from '@/server/setup'
-import { getStorage } from '@/server/storage'
+
+import { checkStorage } from './storage-check'
 
 export const metadata = { title: 'Set up your site' }
 
@@ -85,7 +86,7 @@ export default async function SetupPage({ searchParams }: { searchParams: Promis
       ) : null}
       {step === 'done' ? (
         <SetupDone
-          storage={await getStorage().then((s) => s.describe()).catch(() => null)}
+          storage={await checkStorage()}
           emailReady={(await getEmailSettingsView()).ready}
           needsConfirmation={await needsEmailConfirmation(user)}
           email={user.email}

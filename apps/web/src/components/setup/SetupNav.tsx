@@ -1,4 +1,6 @@
 import Link from 'next/link'
+import { FiCheck } from 'react-icons/fi'
+
 // The steps of the first-time setup, in order (src/app/(setup)/setup/page.tsx). Steps after the
 // account are links, so any can be visited or skipped.
 export const SETUP_STEPS = [
@@ -20,11 +22,19 @@ export function SetupNav({ current }: { current: SetupStep }) {
         {SETUP_STEPS.map((step, i) => {
           const here = step.key === current
           const linkable = current !== 'account' && step.key !== 'account'
-          const label = `${i + 1}. ${step.label}`
+          const done = i < index
+          // Steps before this one are passed (done or skipped): a tick, and words for screen readers.
+          const label = (
+            <>
+              {done ? <FiCheck aria-hidden className="mr-1 inline size-3.5" /> : null}
+              {`${i + 1}. ${step.label}`}
+              {done ? <span className="sr-only"> (done or skipped)</span> : null}
+            </>
+          )
           return (
-            <li key={step.key} className={here ? 'font-semibold text-foreground' : i < index ? 'text-muted-foreground line-through' : 'text-muted-foreground'}>
+            <li key={step.key} className={here ? 'font-semibold text-foreground' : 'text-muted-foreground'}>
               {linkable && !here ? (
-                <Link href={`/setup?step=${step.key}`} className="no-underline hover:underline">
+                <Link href={`/setup?step=${step.key}`} className="underline underline-offset-4 hover:text-foreground">
                   {label}
                 </Link>
               ) : (

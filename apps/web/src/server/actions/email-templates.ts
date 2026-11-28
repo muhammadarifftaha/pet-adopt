@@ -1,6 +1,8 @@
 'use server'
 
+import { isEmailAddress } from '@/lib/email-address'
 import { isEmailPurpose, isSystemPurpose, PURPOSE_INFO, type EmailPurpose } from '@/lib/email-template'
+import { sendFailureReason } from '@/lib/mail-error'
 
 import { quoted, recordActivity, type Actor } from '../activity'
 import { getEmailSender, sendsToLocalServer } from '../email'
@@ -18,7 +20,7 @@ import {
   type EmailTemplateSummary,
   type SystemEmail,
 } from '../email-templates'
-import { assertId, describeError, run, UserError, ValidationError, type ActionResult } from '../result'
+import { assertId, logError, run, UserError, ValidationError, type ActionResult } from '../result'
 import { requirePermission } from '../session'
 import { consumeAttempt } from '../throttle'
 
@@ -26,7 +28,6 @@ import { consumeAttempt } from '../throttle'
 // developers) builds templates; audit can look. Every change is in the activity log.
 
 const TEST_RULE = { max: 5, windowMs: 15 * 60 * 1000 }
-const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 async function record(actor: Actor, action: string, template: { name: string } | null, id: number, summary: string, fields?: string[]) {
   await recordActivity({ actor, action, area: 'settings', summary, subject: { id, label: template?.name ?? null }, fields })
@@ -36,13 +37,6 @@ export async function listEmailTemplatesAction(): Promise<ActionResult<EmailTemp
   return run(async () => {
     await requirePermission('settings:view')
     return listEmailTemplates()
-  })
-}
-
-export async function getEmailTemplateAction(id: number): Promise<ActionResult<EmailTemplateRecord | null>> {
-  return run(async () => {
-    await requirePermission('settings:view')
-    return getEmailTemplate(assertId(id))
   })
 }
 
@@ -87,7 +81,7 @@ export async function deleteEmailTemplateAction(id: number): Promise<ActionResul
   })
 }
 
-/** Saves the edited copy of one of the site's own emails (password reset, test email). */
+/** Saves the edited copy of one of the site's system emails (password reset, invitation, test email...). */
 export async function saveSystemEmailAction(purpose: string, data: unknown): Promise<ActionResult<SystemEmail>> {
   return run(async () => {
     const user = await requirePermission('settings:edit')
@@ -130,7 +124,7 @@ export async function sendEmailTemplateTestAction(purpose: EmailPurpose, data: u
     const user = await requirePermission('settings:edit')
     if (!isEmailPurpose(purpose)) throw new UserError('Unknown kind of email.')
     const address = typeof to === 'string' ? to.trim() : ''
-    if (!address || address.length > 254 || !EMAIL.test(address)) throw new ValidationError({ to: 'Enter an email address, like name@example.com.' })
+    if (!isEmailAddress(address)) throw new ValidationError({ to: 'Enter an email address, like name@example.com.' })
     const email = await renderTemplatePreview(purpose, data)
     const sender = await getEmailSender()
     if (!sender) throw new UserError('Email is not set up yet, so nothing can be sent. Set it up on the Email page.')
@@ -139,7 +133,8 @@ export async function sendEmailTemplateTestAction(purpose: EmailPurpose, data: u
     try {
       await sender.send({ to: address, subject: `[Test] ${email.subject}`, text: email.text, html: email.html })
     } catch (error) {
-      throw new UserError(`The email was not sent. ${describeError(error)}`)
+      logError(error, 'test email not sent')
+      throw new UserError(`The email was not sent. ${sendFailureReason(error)}`)
     }
     return { to: address }
   })

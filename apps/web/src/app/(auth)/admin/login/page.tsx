@@ -1,4 +1,4 @@
-import LoginForm from "@/components/auth/LoginForm";
+import { LoginForm } from "@/components/auth/LoginForm";
 import { ProviderSignIn } from "@/components/auth/ProviderSignIn";
 import { errorCode, providerSignInError } from "@/lib/auth-provider-errors";
 import { listEnabledProviders } from "@/server/auth-providers";
@@ -9,6 +9,7 @@ import { getSessionUser } from "@/server/session";
 import { DELETION_GRACE_DAYS } from "@/server/users";
 import { hasAccounts } from "@/server/setup";
 import { getSettings } from "@/server/settings";
+import { logError } from "@/server/result";
 
 export default async function AdminLoginPage({
   searchParams,
@@ -18,7 +19,12 @@ export default async function AdminLoginPage({
   // Someone who is already signed in has nothing to do here.
   if (await getSessionUser()) goTo(safeRedirectPath((await searchParams).redirect));
   // A new site has no accounts: the first one is made with the setup link (src/server/setup.ts).
-  if (!(await hasAccounts().catch(() => true))) {
+  // If that cannot be read, show the form: signing in then reports the problem.
+  const accounts = await hasAccounts().catch((failure: unknown) => {
+    logError(failure, "sign-in page: could not count accounts");
+    return true;
+  });
+  if (!accounts) {
     return (
       <div className="w-full h-full flex flex-col items-center justify-center gap-4 p-4">
         <section className="w-full max-w-lg rounded-lg border p-6">
@@ -32,7 +38,14 @@ export default async function AdminLoginPage({
     );
   }
   // Providers are extra: if they cannot be read, the password form still works.
-  const [settings, { redirect, error, closed }, providers] = await Promise.all([getSettings(), searchParams, listEnabledProviders().catch(() => [])]);
+  const [settings, { redirect, error, closed }, providers] = await Promise.all([
+    getSettings(),
+    searchParams,
+    listEnabledProviders().catch((failure: unknown) => {
+      logError(failure, "sign-in page: could not read sign-in providers");
+      return [];
+    }),
+  ]);
   // A sign-in provider that came back with an error (Better Auth adds ?error=<code>).
   const code = errorCode(error);
   return (

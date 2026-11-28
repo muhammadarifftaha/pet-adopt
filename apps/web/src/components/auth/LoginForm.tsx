@@ -15,7 +15,7 @@ import { Button } from "@pet-adopt/ui/components/button";
 import { Card, CardContent, CardFooter, CardHeader } from "@pet-adopt/ui/components/card";
 import { SiteSetting } from "@/server/types";
 
-export default function LoginForm({
+export function LoginForm({
   settings,
   redirectTo,
 }: {
@@ -56,12 +56,25 @@ export default function LoginForm({
   };
   const rootError = form.formState.errors.root?.message;
 
+  // Back from the code step: the focused button is gone, so put focus on the reason for coming back,
+  // or on the email box. The root error can arrive one render after the step changes, so wait for it.
+  const focusAfterRestart = React.useRef<"email" | "error" | null>(null);
+  const rootErrorRef = React.useRef<HTMLParagraphElement>(null);
+  React.useEffect(() => {
+    if (step !== "password" || !focusAfterRestart.current) return;
+    if (focusAfterRestart.current === "email") form.setFocus("email");
+    else if (rootErrorRef.current) rootErrorRef.current.focus();
+    else return;
+    focusAfterRestart.current = null;
+  }, [step, rootError, form]);
+
   if (step === "code") {
     return (
       <CodeStep
         siteName={settings.siteName}
         onSignedIn={() => router.replace(redirectTo)}
         onRestart={(message) => {
+          focusAfterRestart.current = message ? "error" : "email";
           setStep("password");
           if (message) form.setError("root", { message });
         }}
@@ -82,7 +95,7 @@ export default function LoginForm({
         <form id="login-form" noValidate onSubmit={form.handleSubmit(onSubmit)}>
           <FieldGroup>
             {rootError && (
-              <p role="alert" className="text-sm text-destructive">
+              <p ref={rootErrorRef} tabIndex={-1} role="alert" className="text-sm text-destructive outline-none">
                 {rootError}
               </p>
             )}

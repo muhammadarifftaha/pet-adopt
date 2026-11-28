@@ -19,7 +19,7 @@ import { getDatabase } from '@/db/client'
 
 import { getAuth } from './auth'
 import { cancelPendingLinks } from './pending-links'
-import { UserError, ValidationError } from './result'
+import { logError, UserError, ValidationError } from './result'
 import { open, seal } from './secret-box'
 import type { Role, SessionUser } from './types'
 
@@ -110,8 +110,10 @@ export async function backupCodesLeft(userId: string): Promise<number | null> {
   try {
     const { backupCodes } = await auth.api.viewBackupCodes({ body: { userId } })
     return backupCodes.length
-  } catch {
-    // Codes that cannot be opened (another BETTER_AUTH_SECRET) count as none left.
+  } catch (error) {
+    // Codes that cannot be opened (another BETTER_AUTH_SECRET) count as none left. Logged, because
+    // the same failure also hides a database or Better Auth problem.
+    logError(error, 'could not read backup codes')
     return 0
   }
 }

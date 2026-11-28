@@ -179,7 +179,7 @@ export async function saveCaptchaSettingsAction(input: unknown): Promise<ActionR
       before.minScore !== saved.minScore && 'minimum score',
       before.enabled !== saved.enabled && 'on or off',
     ].filter((field): field is string => Boolean(field))
-    await host().recordActivity({ action: 'form-builder.captcha.update', summary: 'Changed the forms’ spam protection', fields })
+    if (fields.length) await host().recordActivity({ action: 'form-builder.captcha.update', summary: 'Changed the forms’ spam protection', fields })
     return saved
   })
 }

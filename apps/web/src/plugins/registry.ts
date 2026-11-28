@@ -28,7 +28,7 @@ export type ResolvedWidget = PluginWidget & { plugin: string }
 /**
  * One registered plugin, for the admin's plugin list and its page. Every plugin has a page at
  * `href`: its own home screen (`path: ''`) when it declares one, otherwise a built-in overview
- * (`hasOwnHome: false`), which is admin-only because it shows how the plugin is set up.
+ * (`hasOwnHome: false`), shown only to roles with `plugins:view` because it shows how the plugin is set up.
  */
 export type PluginInfo = {
   name: string
@@ -270,10 +270,10 @@ export function getEmailPlugin(): { plugin: string; sender: EmailSender } | null
 
 /**
  * Where each email template is used, from every plugin that reports it (`emailTemplateUsage`), keyed
- * by template id. A plugin that fails (not migrated yet, say) is skipped.
+ * by template id, or by seed key (`<plugin>:<key>`) for uses of a plugin's default: look up both. A
+ * plugin that fails (not migrated yet, say) is skipped.
  */
 export async function getEmailTemplateUsage(): Promise<Map<number | string, Array<{ label: string; href?: string }>>> {
-  // Keyed by template id, or by seed key (`<plugin>:<key>`) for uses of a plugin's default.
   const byTemplate = new Map<number | string, Array<{ label: string; href?: string }>>()
   for (const { plugin, usage } of registry().templateUsage) {
     try {

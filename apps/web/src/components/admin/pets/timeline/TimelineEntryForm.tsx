@@ -22,7 +22,7 @@ import {
 import { callAction } from "@/lib/admin/call-action";
 import { addPetTimelineEntryAction, updatePetTimelineEntryAction } from "@/server/actions/pet-timeline";
 
-import { ErrorSummary, type SummaryItem } from "../form/ErrorSummary";
+import { ErrorSummary, type SummaryItem } from "@/components/admin/ErrorSummary";
 import { RichTextEditorField } from "../form/RichTextField";
 import { TimelinePhotosField } from "./TimelinePhotosField";
 

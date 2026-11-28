@@ -22,7 +22,7 @@ import {
   STATUSES,
   TEMPERAMENTS,
 } from '@/lib/options'
-import { foldText } from '@pet-adopt/plugin-sdk'
+import { dayInZone, foldText } from '@pet-adopt/plugin-sdk'
 
 import { safeRevalidate } from '@/lib/revalidate'
 import { slugify } from '@/lib/slugify'
@@ -331,6 +331,13 @@ async function uniqueSlug(db: Db, t: Schema, name: string, selfId: number | null
   return `${base}-${Date.now().toString(36)}`
 }
 
+/** Today in the site's time zone (the server's without one), as YYYY-MM-DD. */
+async function siteToday(): Promise<string> {
+  const { db, t } = await getDatabase()
+  const [row] = await db.select({ timeZone: t.siteSettings.timeZone }).from(t.siteSettings).limit(1)
+  return dayInZone(new Date(), row?.timeZone)
+}
+
 /**
  * Creates (`id` = null) or updates a pet. `raw` is the form data as a plain object; keys that are
  * left out stay as they are. Photos are `photoIds`, the share image is `seoImageId`.
@@ -372,7 +379,8 @@ export async function savePet(id: number | null, raw: unknown): Promise<{ id: nu
   } else if (birthDate && ageValue != null) {
     f.fail_('ageValue', 'Enter either a birth date or an age, not both.')
   }
-  if (birthDate && birthDate > today) f.fail_('birthDate', 'The birth date cannot be in the future.')
+  // "Today" where the site is may already be tomorrow in UTC (ages themselves count in UTC days).
+  if (birthDate && birthDate > today && birthDate > (await siteToday())) f.fail_('birthDate', 'The birth date cannot be in the future.')
   let estimated: string | undefined
   if (!birthDate && ageValue != null && ageUnit != null) {
     estimated = estimateBirthDate(ageValue, ageUnit, today)

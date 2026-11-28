@@ -1,10 +1,12 @@
 'use server'
 
+import { isEmailAddress } from '@/lib/email-address'
+import { sendFailureReason } from '@/lib/mail-error'
 
 import { recordActivity } from '../activity'
 import { renderPurposeEmail } from '../email-templates'
 import { getEmailSender, getEmailSettingsView, sendsToLocalServer, saveEmailSettings, type EmailSettingsView } from '../email'
-import { describeError, run, UserError, ValidationError, type ActionResult } from '../result'
+import { logError, run, UserError, ValidationError, type ActionResult } from '../result'
 import { requirePermission } from '../session'
 import { consumeAttempt } from '../throttle'
 
@@ -13,26 +15,26 @@ import { consumeAttempt } from '../throttle'
 // when the SMTP server is on this machine, such as Mailpit), and the message names nothing private.
 
 const TEST_EMAIL_RULE = { max: 5, windowMs: 15 * 60 * 1000 }
-const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 export async function sendTestEmailAction(to: string): Promise<ActionResult<{ to: string }>> {
   return run(async () => {
     const user = await requirePermission('settings:edit', { unconfirmed: true })
     const address = typeof to === 'string' ? to.trim() : ''
-    if (!address || address.length > 254 || !EMAIL.test(address)) throw new ValidationError({ to: 'Enter an email address, like name@example.com.' })
+    if (!isEmailAddress(address)) throw new ValidationError({ to: 'Enter an email address, like name@example.com.' })
 
     const sender = await getEmailSender()
     if (!sender) throw new UserError('Email is not set up yet, so nothing can be sent. Save the email settings first.')
     // A mail server on this machine (Mailpit) sends nothing anywhere: no limit there.
     if (!(await sendsToLocalServer())) await consumeAttempt(`emailtest:${user.id}`, TEST_EMAIL_RULE)
 
+    // Email > Templates: the default "Test email" template, or the built-in one.
+    const email = await renderPurposeEmail({ purpose: 'test', values: { senderName: user.name } })
     try {
-      // Email > Templates: the default "Test email" template, or the built-in one.
-      const email = await renderPurposeEmail({ purpose: 'test', values: { senderName: user.name } })
       await sender.send({ to: address, subject: email.subject, text: email.text, html: email.html })
     } catch (error) {
-      // The provider's own explanation (unverified domain, bad key...) helps the admin fix it.
-      throw new UserError(`The email was not sent. ${describeError(error)}`)
+      // The server's or provider's own explanation (bad password, unverified domain...) helps fix it.
+      logError(error, 'test email not sent')
+      throw new UserError(`The email was not sent. ${sendFailureReason(error)}`)
     }
     return { to: address }
   })

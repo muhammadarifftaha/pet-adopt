@@ -227,6 +227,7 @@ export const pets = pgTable(
     index('pets_city_idx').on(t.city),
     index('pets_state_idx').on(t.state),
     index('pets_status_created_idx').on(t.status, t.createdAt),
+    index('pets_seo_image_idx').on(t.seoImageId),
   ],
 )
 
@@ -474,5 +475,10 @@ export const activityLog = pgTable(
     // The client address (an IPv6 address cut to its /64), when the proxy reports one.
     client: text('client'),
   },
-  (t) => [index('activity_log_at_idx').on(t.at), index('activity_log_actor_at_idx').on(t.actorId, t.at), index('activity_log_area_at_idx').on(t.area, t.at)],
+  (t) => [
+    index('activity_log_at_idx').on(t.at),
+    index('activity_log_actor_at_idx').on(t.actorId, t.at),
+    index('activity_log_area_at_idx').on(t.area, t.at),
+    index('activity_log_subject_at_idx').on(t.subjectId, t.at),
+  ],
 )

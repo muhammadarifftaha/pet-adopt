@@ -58,13 +58,14 @@ export async function removeSampleContentAction(): Promise<ActionResult<{ pets: 
 }
 
 /**
- * Ends the guided setup, finished or skipped. Only needs an admin's role, not a confirmed email: the
- * email step may just have switched that rule on.
+ * Ends the guided setup, finished or skipped. Needs `settings:edit` (admins and developers, the
+ * roles the dashboard sends to the setup), not a confirmed email: the email step may just have
+ * switched that rule on.
  */
 export async function finishSetupAction(input: { skipped?: boolean }): Promise<ActionResult> {
   return run(async () => {
     const user = await requireUser()
-    if (!can(user.role, 'settings:edit')) throw new UserError('Only an admin can finish the setup.')
+    if (!can(user.role, 'settings:edit')) throw new UserError('Only admins and developers can finish the setup.')
     await finishSetup()
     await recordActivity({ actor: user, action: 'setup.done', area: 'settings', summary: asRecord(input).skipped ? 'Skipped the rest of the first-time setup' : 'Finished the first-time setup' })
   })

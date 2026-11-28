@@ -22,6 +22,8 @@ import { createUserAction, resetUserPasswordAction, updateUserAction, type Updat
 import type { InviteResult } from "@/server/invites";
 import type { UserListItem } from "@/server/users";
 
+import { ErrorSummary } from "@/components/admin/ErrorSummary";
+
 import { InviteOutcome } from "./InviteDialogs";
 import { useWhen } from "@/components/admin/site-time";
 
@@ -65,8 +67,8 @@ function useFormErrors() {
   return { fieldErrors, formError, summaryRef, show, clear };
 }
 
-/** The message at the top of a form: a list of links to the fields, or the server's message. */
-function ErrorSummary({
+/** The shared error summary for a dialog's form, once a save failed: links to the fields, or the server's message. */
+function FormErrorSummary({
   errors,
   formError,
   labels,
@@ -80,22 +82,19 @@ function ErrorSummary({
   summaryRef: React.RefObject<HTMLDivElement | null>;
 }) {
   if (!formError) return null;
-  const listed = Object.keys(labels).filter((key) => errors[key]);
+  const items = Object.keys(labels)
+    .filter((key) => errors[key])
+    .map((key) => ({ name: key, label: labels[key], message: errors[key] }));
   return (
-    <div ref={summaryRef} role="alert" tabIndex={-1} className="rounded-md border border-destructive p-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring">
-      <p className="font-medium text-destructive">{listed.length ? "Please check these:" : formError}</p>
-      {listed.length > 0 && (
-        <ul className="mt-1 list-disc pl-5">
-          {listed.map((key) => (
-            <li key={key}>
-              <a href={`#${idFor(key)}`} className="underline underline-offset-4">
-                {labels[key]}: {errors[key]}
-              </a>
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
+    <ErrorSummary
+      ref={summaryRef}
+      items={items}
+      general={items.length ? null : formError}
+      idOf={idFor}
+      failureTitle="This could not be saved"
+      onSelect={(key) => document.getElementById(idFor(key))?.focus()}
+      className=""
+    />
   );
 }
 
@@ -345,7 +344,7 @@ function AddUserForm({ minPasswordLength, onDone }: { minPasswordLength: number;
         <DialogTitle>Add user</DialogTitle>
         <DialogDescription>They sign in at /admin/login with this email and their password.</DialogDescription>
       </DialogHeader>
-      <ErrorSummary
+      <FormErrorSummary
         errors={errors.fieldErrors}
         formError={errors.formError}
         labels={{ name: "Name", email: "Email", role: "Role", password: "Password" }}
@@ -485,7 +484,7 @@ function EditUserForm({ user, isMe, onDone }: { user: UserListItem; isMe: boolea
         <DialogTitle>Edit {user.name}</DialogTitle>
         <DialogDescription>{user.email}</DialogDescription>
       </DialogHeader>
-      <ErrorSummary errors={errors.fieldErrors} formError={errors.formError} labels={{ name: "Name", email: "Email", role: "Role" }} idFor={id} summaryRef={errors.summaryRef} />
+      <FormErrorSummary errors={errors.fieldErrors} formError={errors.formError} labels={{ name: "Name", email: "Email", role: "Role" }} idFor={id} summaryRef={errors.summaryRef} />
       <TextField id={`${prefix}-name`} label="Name" required autoComplete="off" maxLength={80} value={name} onChange={(e) => setName(e.target.value)} error={errors.fieldErrors.name} />
       <TextField
         id={`${prefix}-email`}
@@ -566,7 +565,7 @@ function PasswordForm({ user, isMe, minPasswordLength, onDone }: { user: UserLis
             : "They are signed out everywhere and sign in again with the new password. To let them choose their own instead, use Reset link."}
         </DialogDescription>
       </DialogHeader>
-      <ErrorSummary errors={errors.fieldErrors} formError={errors.formError} labels={{ password: "Password" }} idFor={() => id} summaryRef={errors.summaryRef} />
+      <FormErrorSummary errors={errors.fieldErrors} formError={errors.formError} labels={{ password: "Password" }} idFor={() => id} summaryRef={errors.summaryRef} />
       <PasswordField id={id} label="New password" value={password} onChange={setPassword} error={errors.fieldErrors.password} minLength={minPasswordLength} />
       <DialogFooter>
         <SubmitButton pending={pending} busyText="Saving…">

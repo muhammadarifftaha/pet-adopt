@@ -14,8 +14,9 @@ export function PetCard({ pet, headingLevel: Name = 'h3' }: { pet: PetCardData; 
   return (
     <Link href={`/pets/${pet.slug}`} className="pet-card">
       <div className="pet-card-image">
+        {/* The name is the card's heading: a photo without its own alt text adds nothing to the link. */}
         {pet.image ? (
-          <Image src={pet.image.url} alt={pet.image.alt || pet.name} fill sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 25vw" />
+          <Image src={pet.image.url} alt={pet.image.alt} fill sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 25vw" />
         ) : (
           <div className="pet-card-placeholder">No photo</div>
         )}

@@ -11,8 +11,8 @@ import {
 import type { SearchParams } from "nuqs/server";
 import { FiPlus } from "react-icons/fi";
 import { loadPetSearchParams } from "./search-params";
-import FilterBar from "@/components/admin/pets/FilterBar";
-import PetList from "@/components/admin/pets/PetList";
+import { FilterBar } from "@/components/admin/pets/FilterBar";
+import { PetList } from "@/components/admin/pets/PetList";
 import { ViewOnly } from "@/components/admin/view-only";
 
 export const metadata: Metadata = { title: "Pets" };

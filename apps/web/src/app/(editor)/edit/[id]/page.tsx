@@ -4,6 +4,7 @@ import type { Metadata } from 'next'
 import { notFound, redirect } from 'next/navigation'
 import React from 'react'
 
+import { unwrap } from '@/lib/admin/unwrap'
 import { getPetPagePreview, getSettings, type PetPageData } from '@/lib/queries'
 import { forcedModeCss, resolveTheme } from '@/lib/theme'
 import { listPetChoicesAction, type PetChoice } from '@/puck/actions'
@@ -45,7 +46,7 @@ export default async function EditPage({ params }: { params: Promise<{ id: strin
   // The Pet page template: its own blocks, previewed with a pet (the newest visible one to start).
   let petPreview: { choices: PetChoice[]; pet: PetPageData | null } | null = null
   if (page.slug === PET_PAGE_SLUG) {
-    const choices = await listPetChoicesAction()
+    const choices = unwrap(await listPetChoicesAction())
     const first = choices.find((choice) => !choice.note) ?? choices[0]
     petPreview = { choices, pet: first ? await getPetPagePreview(first.id) : null }
   }

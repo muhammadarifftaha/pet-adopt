@@ -26,7 +26,7 @@ import { eq } from 'drizzle-orm'
 
 import { getDatabase } from '@/db/client'
 
-import { UserError } from './result'
+import { logError, UserError } from './result'
 
 export type Throttle = { max: number; windowMs: number }
 
@@ -121,14 +121,16 @@ export async function consumeAttempt(key: string, rule: Throttle): Promise<void>
     const minutes = Math.max(Math.ceil((row.lastRequest + rule.windowMs - now) / 60_000), 1)
     throw new UserError(`Too many attempts. Try again in about ${minutes} minute${minutes === 1 ? '' : 's'}.`)
   }
-  void purgeExpired().catch(() => undefined)
+  void purgeExpired().catch((error) => logError(error, 'could not purge expired attempt counters'))
 }
 
 /** Now and then, remove counters nobody will read again, so the table cannot grow without bound. */
 async function purgeExpired(): Promise<void> {
   if (Math.random() > 0.02) return
   const { db, t } = await getDatabase()
-  // Our keys only. Better Auth's own rows ("<ip>|<path>") are not ours to delete.
+  // Our keys only (every prefix consumeAttempt is called with). The site's own windows are at most
+  // an hour; a plugin's rule longer than two hours is cut short here (the SDK says so).
+  // Better Auth's own rows ("<ip>|<path>") are not ours to delete.
   await db
     .delete(t.rateLimits)
     .where(
@@ -139,6 +141,8 @@ async function purgeExpired(): Promise<void> {
           like(t.rateLimits.key, 'pwreset:%'),
           like(t.rateLimits.key, 'linkuse:%'),
           like(t.rateLimits.key, 'emailtest:%'),
+          like(t.rateLimits.key, 'emailchange:%'),
+          like(t.rateLimits.key, 'oauth:%'),
           like(t.rateLimits.key, 'plugin:%'),
         ),
         lt(t.rateLimits.lastRequest, Date.now() - 2 * 60 * 60 * 1000),

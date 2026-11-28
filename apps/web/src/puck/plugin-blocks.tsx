@@ -26,7 +26,6 @@ const RESERVED_OPTIONS = new Set(['id', 'puck', 'editMode', 'padding', 'spacing'
 
 const FIELD_TYPES = new Set(['text', 'textarea', 'number', 'select', 'radio', 'choice'])
 
-/** A saved `choice` value (an id): text up to this length, or a finite number. */
 /** The longest text a `choice` option may save (the SDK documents it). */
 export const MAX_CHOICE_LENGTH = 200
 
@@ -91,9 +90,10 @@ export function pluginBlockProblems(blocks: readonly AnyPluginBlock[], builtIn: 
 
 /**
  * A block's own options out of what a page (or a browser) holds for it, each one checked: a missing
- * value or one of the wrong kind becomes the default, a number is kept inside its limits, and a
- * choice must be one the option offers. Nothing else is passed on, so a block's `render` and its
- * loader only ever see options of the kinds the block declared.
+ * value or one of the wrong kind becomes the default, a number is kept inside its limits, a select
+ * or radio value must be one the option offers, and a `choice` value must be an id (text up to 200
+ * characters, or a number); whether that record still exists is the loader's business. Nothing else
+ * is passed on, so a block's `render` and its loader only ever see options of the kinds the block declared.
  */
 export function pluginBlockOptions(block: AnyPluginBlock, props: Json): Json {
   const fields = block.fields as Record<string, PluginBlockField | undefined>
@@ -151,10 +151,10 @@ function toPuckField(block: AnyPluginBlock, key: string, field: PluginBlockField
 
 type RenderProps = Json & { puck?: { isEditing?: boolean } }
 
-/** One plugin block as a Puck block. */
 /** Loaded data is an object or a list; anything else (a value saved into a page by hand) counts as none. */
 const isLoaded = (value: unknown) => typeof value === 'object' && value !== null
 
+/** One plugin block as a Puck block. */
 export function toPuckComponent(block: AnyPluginBlock): ComponentConfig {
   const fields = Object.fromEntries(
     Object.entries(block.fields as Record<string, PluginBlockField | undefined>).flatMap(([key, field]) => (field ? [[key, toPuckField(block, key, field)]] : [])),

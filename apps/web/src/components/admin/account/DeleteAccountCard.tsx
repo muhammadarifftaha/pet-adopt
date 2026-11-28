@@ -77,7 +77,7 @@ export function DeleteAccountCard({ user, graceDays, lastAdmin }: { user: Sessio
                 <span className="sr-only">: not possible, you are the only admin</span>
               </Button>
             </div>
-            <p id="delete-account-blocked" role="status" className="text-sm empty:hidden">
+            <p id="delete-account-blocked" role="status" className="text-sm empty:sr-only">
               {blockedNote ? "Not possible while you are the only admin." : ""}
             </p>
           </>

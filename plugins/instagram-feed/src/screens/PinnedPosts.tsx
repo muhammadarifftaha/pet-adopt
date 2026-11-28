@@ -4,7 +4,7 @@ import { formatWhen } from '@pet-adopt/plugin-sdk'
 import { Badge } from '@pet-adopt/ui/components/badge'
 import { Button } from '@pet-adopt/ui/components/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@pet-adopt/ui/components/card'
-import React, { useState } from 'react'
+import React, { useRef, useState } from 'react'
 
 import { setPinnedPostsAction } from '../actions'
 import { MAX_PINNED, type FeedPost } from '../types'
@@ -25,7 +25,8 @@ type Props = {
 
 // Choosing pinned posts: each post is a real checkbox (its picture is the label's content), the
 // order of the pins is the order they were ticked, and "Move earlier" / "Move later" change it
-// (nothing here needs dragging). A hidden live region says what each press did.
+// (nothing here needs dragging). A hidden live region says what each press did, and focus stays on
+// the moved row's button, or moves to a neighbouring row's Unpin (the heading when none is left).
 export function PinnedPosts({ posts, canPin, pending, run, onSaved, error, timeZone }: Props) {
   const saved = posts.filter((post) => post.pinned).map((post) => post.id)
   const [order, setOrder] = useState(saved)
@@ -44,6 +45,13 @@ export function PinnedPosts({ posts, canPin, pending, run, onSaved, error, timeZ
   const changed = order.join(',') !== saved.join(',')
   const full = order.length >= MAX_PINNED
   const nameOf = (post: FeedPost) => `the post of ${formatWhen(post.postedAt, timeZone, 'date')}`
+  const list = useRef<HTMLDivElement>(null)
+  // After React has redrawn the list: the button for `id` and `action`, else the card's heading.
+  const focusAfterRender = (id: string | null, action: 'earlier' | 'later' | 'unpin') =>
+    requestAnimationFrame(() => {
+      const button = id ? list.current?.querySelector<HTMLElement>(`[data-pin="${CSS.escape(id)}"][data-action="${action}"]`) : null
+      ;(button ?? document.getElementById('ig-pins'))?.focus()
+    })
 
   const toggle = (post: FeedPost) => {
     if (order.includes(post.id)) {
@@ -67,6 +75,15 @@ export function PinnedPosts({ posts, canPin, pending, run, onSaved, error, timeZ
     setOrder(next)
     const post = byId.get(id)
     setAnnouncement(`Moved ${post ? nameOf(post) : 'the post'} to number ${to + 1} of ${next.length}.`)
+    focusAfterRender(id, by < 0 ? 'earlier' : 'later')
+  }
+
+  // Unpin in the order list removes its own row: focus the row that takes its place, else the one before.
+  const unpinFromList = (post: FeedPost) => {
+    const index = order.indexOf(post.id)
+    const rest = order.filter((id) => id !== post.id)
+    toggle(post)
+    focusAfterRender(rest[index] ?? rest[index - 1] ?? null, 'unpin')
   }
 
   const save = () =>
@@ -141,7 +158,7 @@ export function PinnedPosts({ posts, canPin, pending, run, onSaved, error, timeZ
             {full && canPin ? <p className="text-muted-foreground">{MAX_PINNED} posts are pinned, which is the most. Unpin one to pin another.</p> : null}
 
             {order.length > 0 ? (
-              <div>
+              <div ref={list}>
                 <h3 className="mb-2 font-medium">Order of the pinned posts</h3>
                 <ol className="flex list-none flex-col gap-2 p-0">
                   {order.map((id, index) => {
@@ -158,20 +175,22 @@ export function PinnedPosts({ posts, canPin, pending, run, onSaved, error, timeZ
                         </span>
                         {canPin ? (
                           <span className="flex flex-wrap items-center gap-2">
-                            <Button type="button" variant="outline" size="sm" aria-label={`Move earlier: ${label}`} aria-disabled={pending || index === 0 || undefined} onClick={() => !pending && move(id, -1)}>
+                            <Button type="button" variant="outline" size="sm" data-pin={id} data-action="earlier" aria-label={`Move earlier: ${label}`} aria-disabled={pending || index === 0 || undefined} onClick={() => !pending && move(id, -1)}>
                               Move earlier
                             </Button>
                             <Button
                               type="button"
                               variant="outline"
                               size="sm"
+                              data-pin={id}
+                              data-action="later"
                               aria-label={`Move later: ${label}`}
                               aria-disabled={pending || index === order.length - 1 || undefined}
                               onClick={() => !pending && move(id, 1)}
                             >
                               Move later
                             </Button>
-                            <Button type="button" variant="outline" size="sm" aria-label={`Unpin: ${label}`} aria-disabled={pending || undefined} onClick={() => !pending && toggle(post)}>
+                            <Button type="button" variant="outline" size="sm" data-pin={id} data-action="unpin" aria-label={`Unpin: ${label}`} aria-disabled={pending || undefined} onClick={() => !pending && unpinFromList(post)}>
                               Unpin
                             </Button>
                           </span>

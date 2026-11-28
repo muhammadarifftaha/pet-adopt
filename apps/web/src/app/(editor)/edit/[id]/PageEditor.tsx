@@ -553,7 +553,10 @@ export function PageEditor({ pageId, title, slug, liveSlug: initialLiveSlug, sta
       fetchPet: fetchPetSpotlightAction,
       fetchPetProfiles: fetchPetProfilesAction,
       fetchCatalog: () => fetchCatalogAction(),
-      fetchPluginBlock: loadPluginBlockAction,
+      fetchPluginBlock: async (name, props) => {
+        const result = await loadPluginBlockAction(name, props)
+        return result.ok ? result.data : null
+      },
       ...(isPetPage ? { pet, fetchSimilarPets: fetchSimilarPetsAction } : {}),
     }),
     [site, isPetPage, pet],

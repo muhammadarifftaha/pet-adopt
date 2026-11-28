@@ -34,13 +34,13 @@ export type S3Settings = {
   secretAccessKey?: string
 }
 
-/**
- * Reads and checks the S3_* variables. Throws with a message naming the variable to fix, so a
- * misconfigured bucket fails at the first upload or image with a clear reason.
- */
 /** The local storage server's keys in docker-compose.yml: public knowledge, for development only. */
 const DEVELOPMENT_KEYS = { accessKeyId: 'GK0123456789abcdef01234567', secretAccessKey: '0123456789abcdef'.repeat(4) }
 
+/**
+ * Reads and checks the S3_* variables. Throws with a message naming the variable to fix: production
+ * calls it at start (instrumentation.ts), elsewhere the first upload or image fails with the reason.
+ */
 export function s3Settings(env: NodeJS.ProcessEnv = process.env): S3Settings {
   const bucket = env.S3_BUCKET?.trim()
   if (!bucket) {

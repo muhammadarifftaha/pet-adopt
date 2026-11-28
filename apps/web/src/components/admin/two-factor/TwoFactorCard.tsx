@@ -47,7 +47,7 @@ export function TwoFactorCard({ status, siteName }: { status: TwoFactorStatus; s
         </p>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
-        <p aria-live="polite" className="text-sm empty:hidden">
+        <p aria-live="polite" className="text-sm empty:sr-only">
           {message ? <span key={message.id}>{message.text}</span> : null}
         </p>
         {!status.enabled && !settingUp ? (

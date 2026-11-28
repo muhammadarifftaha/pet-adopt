@@ -44,11 +44,12 @@ export async function requireUser(): Promise<SessionUser> {
   return user
 }
 
-/** The signed-in person, if their role has `permission`; a UserError that says why otherwise. */
 /**
- * `unconfirmed: true` lets an account whose email is not confirmed through: only for fixing how the
- * site sends email (saving the SMTP settings, a test email). Otherwise a wrong SMTP setting would
- * lock everyone out: the rule is on, and the confirmation email cannot arrive.
+ * The signed-in person, if their role has `permission`; a UserError that says why otherwise.
+ *
+ * @param opts.unconfirmed Lets an account whose email is not confirmed through: only for fixing how
+ * the site sends email (saving the SMTP settings, a test email). Otherwise a wrong SMTP setting
+ * would lock everyone out: the rule is on, and the confirmation email cannot arrive.
  */
 export async function requirePermission(permission: Permission, opts: { unconfirmed?: boolean } = {}): Promise<SessionUser> {
   const user = await requireUser()

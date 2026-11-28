@@ -1,6 +1,6 @@
 import React from "react";
 import Image from "next/image";
-import useSWR, { useSWRConfig } from "swr";
+import useSWR from "swr";
 import { FiChevronLeft, FiChevronRight } from "react-icons/fi";
 
 import { Button } from "@pet-adopt/ui/components/button";
@@ -16,14 +16,14 @@ import {
 import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from "@pet-adopt/ui/components/field";
 import { Input } from "@pet-adopt/ui/components/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@pet-adopt/ui/components/tabs";
+import { callAction } from "@/lib/admin/call-action";
+import { MEDIA_CACHE_KEY, useInvalidateMedia } from "@/lib/admin/media-cache";
 import { unwrapResult } from "@/lib/admin/unwrap-client";
 import type { PetFormMedia } from "@/lib/zod-schema/pet";
 import { listMediaAction, uploadMediaAction } from "@/server/actions/media";
 import type { MediaItem } from "@/server/types";
 
 const PAGE_SIZE = 12;
-/** First entry of the SWR keys of the library, so an upload can refresh every cached page. */
-const MEDIA_KEY = "media";
 
 const toRef = (media: MediaItem): PetFormMedia => ({
   id: media.id,
@@ -91,7 +91,7 @@ function PickerBody({
   onPick: (items: PetFormMedia[]) => void;
   onCancel: () => void;
 }) {
-  const { mutate } = useSWRConfig();
+  const invalidateMedia = useInvalidateMedia();
   const single = max === 1;
 
   const [tab, setTab] = React.useState("library");
@@ -106,7 +106,7 @@ function PickerBody({
   const fileRef = React.useRef<HTMLInputElement>(null);
 
   const query = useDebounced(search.trim(), 300);
-  const { data, error, isLoading } = useSWR([MEDIA_KEY, query, page] as const, async ([, term, pageNumber]) =>
+  const { data, error, isLoading } = useSWR([MEDIA_CACHE_KEY, query, page] as const, async ([, term, pageNumber]) =>
     unwrapResult(await listMediaAction({ search: term, page: pageNumber, limit: PAGE_SIZE })),
   );
 
@@ -135,6 +135,7 @@ function PickerBody({
     // without this, uploading an image would also submit the pet.
     event.preventDefault();
     event.stopPropagation();
+    if (uploading) return;
 
     const body = new FormData();
     const file = fileRef.current?.files?.[0];
@@ -143,7 +144,8 @@ function PickerBody({
 
     setUploading(true);
     setUploadErrors({});
-    const result = await uploadMediaAction(body);
+    // callAction: a call that never arrives (network, redeploy) becomes a message, not a stuck "Uploading…".
+    const result = await callAction(uploadMediaAction(body));
     setUploading(false);
 
     if (!result.ok) {
@@ -155,7 +157,7 @@ function PickerBody({
       return;
     }
 
-    await mutate((key) => Array.isArray(key) && key[0] === MEDIA_KEY);
+    await invalidateMedia();
     const chosen = choose(result.data);
     setMessage(
       chosen
@@ -320,7 +322,8 @@ function PickerBody({
               </Field>
             </FieldGroup>
             <div>
-              <Button type="submit" disabled={uploading}>
+              {/* aria-disabled, not disabled: focus stays on the button (and in the dialog) while it works. */}
+              <Button type="submit" aria-disabled={uploading || undefined}>
                 {uploading ? "Uploading…" : "Upload image"}
               </Button>
             </div>

@@ -10,6 +10,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@pet-
 import { Field, FieldDescription, FieldGroup, FieldLabel } from '@pet-adopt/ui/components/field'
 import { Input } from '@pet-adopt/ui/components/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@pet-adopt/ui/components/select'
+import { ErrorSummary } from '@/components/admin/ErrorSummary'
 import { useViewOnly, ViewOnlyFieldset } from '@/components/admin/view-only'
 import { saveEmailSettingsAction } from '@/server/actions/email'
 import type { EmailField, EmailSettingsView } from '@/server/email'
@@ -195,28 +196,15 @@ export function EmailSettingsForm({ initial }: { initial: EmailSettingsView }) {
 
       <form noValidate aria-label="Email settings" onSubmit={submit} className="flex flex-col gap-6">
         {errorEntries.length || general ? (
-          <div ref={summaryRef} tabIndex={-1} role="alert" className="rounded-lg border border-destructive p-3 text-sm outline-none">
-            <p className="font-medium">The email settings could not be saved</p>
-            {general ? <p className="mt-1">{general}</p> : null}
-            {errorEntries.length ? (
-              <ul className="mt-1 list-disc pl-5">
-                {errorEntries.map(([key, message]) => (
-                  <li key={key}>
-                    <a
-                      href={`#${fieldId(key)}`}
-                      className="underline underline-offset-4"
-                      onClick={(event) => {
-                        event.preventDefault()
-                        document.getElementById(fieldId(key))?.focus()
-                      }}
-                    >
-                      {LABELS[key as keyof Values] ?? key}: {message}
-                    </a>
-                  </li>
-                ))}
-              </ul>
-            ) : null}
-          </div>
+          <ErrorSummary
+            ref={summaryRef}
+            items={errorEntries.map(([key, message]) => ({ name: key, label: LABELS[key as keyof Values] ?? key, message }))}
+            general={general}
+            idOf={fieldId}
+            failureTitle="The email settings could not be saved"
+            onSelect={(key) => document.getElementById(fieldId(key))?.focus()}
+            className=""
+          />
         ) : null}
 
         <ViewOnlyFieldset className="flex flex-col gap-6">

@@ -6,11 +6,12 @@ import { useRouter } from 'next/navigation'
 import React from 'react'
 import { FiMoon, FiRotateCcw, FiSun } from 'react-icons/fi'
 
-import { useUnsavedChanges } from '@/components/admin/useUnsavedChanges'
+import { ErrorSummary } from '@/components/admin/ErrorSummary'
+import { useUnsavedChanges } from '@/components/admin/use-unsaved-changes'
 import type { ThemePreviewMessage } from '@/components/site/ThemePreviewBridge'
 import { Badge } from '@pet-adopt/ui/components/badge'
 import { Button, buttonVariants } from '@pet-adopt/ui/components/button'
-import { Field, FieldDescription, FieldError, FieldLabel, FieldLegend, FieldSet } from '@pet-adopt/ui/components/field'
+import { Field, FieldDescription, FieldLabel, FieldLegend, FieldSet } from '@pet-adopt/ui/components/field'
 import { Input } from '@pet-adopt/ui/components/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@pet-adopt/ui/components/select'
 import {
@@ -54,6 +55,25 @@ const STYLE_FIELDS: Array<{ group: 'type' | 'shape'; key: StyleKey; label: strin
 
 const fieldId = (name: string) => `theme-${name.replace(/\./g, '-')}`
 
+/** The server names theme fields `customTheme.<key>`; the form's ids leave out the prefix. */
+const errorFieldId = (key: string) => fieldId(key.replace(/^customTheme\./, ''))
+
+/** A readable name for a field the server reported, for the error summary. */
+function errorLabel(key: string): string {
+  if (key === 'name') return 'Name'
+  if (key === 'base') return 'Based on'
+  const [, first, second] = key.split('.')
+  const style = STYLE_FIELDS.find((f) => f.key === first)
+  if (style && !second) return style.label
+  if ((first === 'light' || first === 'dark') && second) {
+    const colours = first === 'light' ? 'Light colours' : 'Dark colours'
+    if (second === 'text') return `${colours}: readability`
+    const color = COLOR_FIELDS.find((c) => c.key === second)
+    return color ? `${color.label} (${colours.toLowerCase()})` : colours
+  }
+  return key
+}
+
 /** The base preset's own choice for a style key, for the "Preset default (...)" option. */
 const presetChoice = (base: string, key: StyleKey): string | undefined =>
   base in PRESETS ? (PRESETS[base as PresetKey] as Record<StyleKey, string>)[key] : undefined
@@ -72,6 +92,13 @@ export function ThemeEditor({ theme, isActive }: { theme: ThemeRecord; isActive:
   const [status, setStatus] = React.useState('')
   const [saving, setSaving] = React.useState(false)
   const iframeRef = React.useRef<HTMLIFrameElement>(null)
+  // After a failed save, focus moves to the error summary (it is on screen by the time this runs).
+  const summaryRef = React.useRef<HTMLDivElement>(null)
+  const [focusTick, setFocusTick] = React.useState(0)
+  React.useEffect(() => {
+    if (focusTick > 0) summaryRef.current?.focus()
+  }, [focusTick])
+  const summaryItems = Object.entries(errors).map(([key, message]) => ({ name: key, label: errorLabel(key), message }))
 
   const dirty = JSON.stringify({ name, base, settings }) !== initial
   const { dialog: leaveDialog, allowNavigation } = useUnsavedChanges(dirty)
@@ -123,7 +150,8 @@ export function ThemeEditor({ theme, isActive }: { theme: ThemeRecord; isActive:
     if (!result.ok) {
       setSaving(false)
       setErrors(result.fieldErrors ?? {})
-      setGeneral(result.fieldErrors ? 'Some values need attention. They are marked below.' : result.error)
+      setGeneral(result.fieldErrors ? null : result.error)
+      setFocusTick((tick) => tick + 1)
       return
     }
     if (andUse) {
@@ -131,6 +159,7 @@ export function ThemeEditor({ theme, isActive }: { theme: ThemeRecord; isActive:
       if (!used.ok) {
         setSaving(false)
         setGeneral(used.error)
+        setFocusTick((tick) => tick + 1)
         return
       }
     }
@@ -164,7 +193,11 @@ export function ThemeEditor({ theme, isActive }: { theme: ThemeRecord; isActive:
             ))}
           </SelectContent>
         </Select>
-        <FieldError id={`${id}-error`} errors={error ? [{ message: error }] : []} />
+        {error ? (
+          <p id={`${id}-error`} className="text-sm text-destructive">
+            {error}
+          </p>
+        ) : null}
       </Field>
     )
   }
@@ -180,12 +213,18 @@ export function ThemeEditor({ theme, isActive }: { theme: ThemeRecord; isActive:
         }}
         className="flex flex-col gap-6"
       >
-        <ViewOnlyFieldset className="flex flex-col gap-6">
-        {general ? (
-          <p role="alert" className="rounded-md border border-destructive/50 bg-destructive/5 p-3 text-sm text-destructive">
-            {general}
-          </p>
+        {general || summaryItems.length ? (
+          <ErrorSummary
+            ref={summaryRef}
+            items={summaryItems}
+            general={general}
+            idOf={errorFieldId}
+            failureTitle="The theme could not be saved"
+            onSelect={(key) => document.getElementById(errorFieldId(key))?.focus()}
+            className=""
+          />
         ) : null}
+        <ViewOnlyFieldset className="flex flex-col gap-6">
 
         <Field data-invalid={errors.name ? true : undefined}>
           <FieldLabel htmlFor={fieldId('name')}>
@@ -199,7 +238,11 @@ export function ThemeEditor({ theme, isActive }: { theme: ThemeRecord; isActive:
             aria-invalid={Boolean(errors.name)}
             aria-describedby={errors.name ? `${fieldId('name')}-error` : undefined}
           />
-          <FieldError id={`${fieldId('name')}-error`} errors={errors.name ? [{ message: errors.name }] : []} />
+          {errors.name ? (
+            <p id={`${fieldId('name')}-error`} className="text-sm text-destructive">
+              {errors.name}
+            </p>
+          ) : null}
         </Field>
 
         <Field>
@@ -236,7 +279,7 @@ export function ThemeEditor({ theme, isActive }: { theme: ThemeRecord; isActive:
               <FieldLegend>{m === 'light' ? 'Light colours' : 'Dark colours'}</FieldLegend>
               <FieldDescription>Colours you leave alone come from {presetLabel(base)}.</FieldDescription>
               {/* Checked as you type, with the same rule the server applies when saving. */}
-              <p role="status" className={cn('text-sm', problem ? 'font-medium text-destructive' : 'sr-only')}>
+              <p id={fieldId(`${m}.text`)} tabIndex={-1} role="status" className={cn('text-sm outline-none', problem ? 'font-medium text-destructive' : 'sr-only')}>
                 {problem ?? `${m === 'light' ? 'Light' : 'Dark'} colours are easy to read.`}
               </p>
               <div className="grid gap-4">
@@ -414,7 +457,11 @@ function ColorField({
       <p aria-live="polite" className="sr-only">
         {rejected !== null && !textInvalid ? hexProblem : ''}
       </p>
-      <FieldError id={`${id}-error`} errors={error ? [{ message: error }] : []} />
+      {error ? (
+        <p id={`${id}-error`} className="text-sm text-destructive">
+          {error}
+        </p>
+      ) : null}
     </Field>
   )
 }

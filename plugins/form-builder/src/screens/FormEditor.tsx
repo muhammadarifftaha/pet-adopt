@@ -84,12 +84,15 @@ export function FormEditor({
   form,
   readOnly = false,
   canSeeResponses = true,
+  canRouteResponses = true,
   templates = { notification: [], confirmation: [] },
   captcha = { active: false, href: null },
 }: {
   form: EditorForm
   readOnly?: boolean
   canSeeResponses?: boolean
+  /** May choose where responses are emailed, and delete a form that has responses (`personalData:edit`). */
+  canRouteResponses?: boolean
   templates?: TemplateChoices
   /** The forms' captcha (Spam protection screen): on or off, and its link (null: no access). */
   captcha?: { active: boolean; href: string | null }
@@ -533,9 +536,11 @@ export function FormEditor({
           </div>
           <div className="flex flex-col gap-2">
             <Label htmlFor="fb-settings-notifyEmail">Email new responses to</Label>
-            <Input id="fb-settings-notifyEmail" type="email" autoComplete="email" value={settings.notifyEmail ?? ''} onChange={(e) => setSettings({ ...settings, notifyEmail: e.target.value })} aria-describedby={described('fb-settings-notifyEmail-hint', errors['settings.notifyEmail'] && 'fb-settings-notifyEmail-error')} aria-invalid={errors['settings.notifyEmail'] ? true : undefined} />
+            <Input id="fb-settings-notifyEmail" type="email" autoComplete="email" readOnly={!canRouteResponses || undefined} value={settings.notifyEmail ?? ''} onChange={(e) => setSettings({ ...settings, notifyEmail: e.target.value })} aria-describedby={described('fb-settings-notifyEmail-hint', errors['settings.notifyEmail'] && 'fb-settings-notifyEmail-error')} aria-invalid={errors['settings.notifyEmail'] ? true : undefined} />
             <p id="fb-settings-notifyEmail-hint" className="text-sm text-muted-foreground">
-              Optional. Needs the site&apos;s email to be set up (Email, Sending).
+              {canRouteResponses
+                ? 'Optional. Needs the site’s email to be set up (Email, Sending).'
+                : 'Only admins and editors can choose this address, because it receives every response.'}
             </p>
             {errorText('fb-settings-notifyEmail-error', errors['settings.notifyEmail'])}
           </div>
@@ -602,6 +607,9 @@ export function FormEditor({
         <p role="status" className="text-sm text-muted-foreground">
           {status}
         </p>
+        {!canRouteResponses && form.responses > 0 ? (
+          <p className="ml-auto text-sm text-muted-foreground">This form has responses, so only admins and editors can delete it.</p>
+        ) : (
         <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
           <AlertDialogTrigger render={<Button type="button" variant="destructive" className="ml-auto" />}>Delete form</AlertDialogTrigger>
           <AlertDialogContent>
@@ -620,6 +628,7 @@ export function FormEditor({
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
+        )}
       </div>
       )}
     </div>

@@ -14,7 +14,7 @@ import { pageItems } from "@/lib/pagination";
 // in a new tab or copied; a plain click is intercepted and changes the page in place instead.
 // Renders nothing when there is only one page. No "use client": it has no hooks of its own and is
 // only rendered by FilterBar (a client component), so its function props never cross from a server.
-export default function PetPagination({
+export function PetPagination({
   page,
   totalPages,
   hrefFor,

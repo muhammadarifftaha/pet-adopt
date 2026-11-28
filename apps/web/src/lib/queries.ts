@@ -148,7 +148,6 @@ export async function queryPets(filters: PetFilters = {}): Promise<PetPage> {
   return safely(() => pets.queryPets(publicFilters(filters)), EMPTY_PAGE)
 }
 
-/** Pet cards for page-builder grids. No paging, so it skips the extra COUNT query. */
 /**
  * A pet for the Pet spotlight and the profile layouts: the card fields, a short plain excerpt of the
  * description (`story`), and the profile details, with option values already turned into labels.
@@ -324,16 +323,17 @@ export async function queryCatalog(params: CatalogParams = {}): Promise<CatalogD
   }
 }
 
+/** Pet cards for page-builder grids. No paging, so it skips the extra COUNT query. */
 export async function queryPetCards(filters: PetFilters = {}): Promise<PetCardData[]> {
   return safely(async () => (await pets.queryPetList(publicFilters(filters))).map(toPetCard), [] as PetCardData[])
 }
 
-/** Distinct states and cities of listed pets, for filter dropdowns. */
 /** Species of the pets visitors can see, for the catalog's filter. */
 export async function getSpeciesOptions(): Promise<Option[]> {
   return safely(() => pets.getSpeciesOptions(), [] as Option[])
 }
 
+/** Distinct states and cities of listed pets, for filter dropdowns. */
 export async function getLocationOptions(): Promise<{ states: string[]; cities: string[] }> {
   return safely(() => pets.getLocationOptions(), { states: [] as string[], cities: [] as string[] })
 }

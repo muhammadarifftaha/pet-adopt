@@ -25,7 +25,7 @@ import { toE164, validatePhone } from '@/lib/phone'
 
 import { getMediaByIds } from './media'
 import { findPlaceCountry } from './places'
-import { asRecord, Fields, ValidationError, type FieldErrors } from './result'
+import { asRecord, Fields, isForeignKeyViolation, ValidationError, type FieldErrors } from './result'
 import type { MediaItem, SiteSetting } from './types'
 
 type SettingsRow = typeof S.siteSettings.$inferSelect
@@ -199,11 +199,13 @@ function mergeCustomTheme(stored: SiteSetting['customTheme'], sent: Record<strin
   return merged as CustomTheme
 }
 
-/** Admin only (checked by the caller). Keys that are left out stay as they are, at every level. */
+/**
+ * Admins and developers (`settings:edit`, checked by the caller). Keys that are left out stay as
+ * they are, at every level.
+ */
 export async function updateSettings(raw: unknown): Promise<SiteSetting> {
   const input = asRecord(raw)
-  const { db, t } = await getDatabase()
-  const [stored] = await db.select().from(t.siteSettings).where(eq(t.siteSettings.id, SETTINGS_ID)).limit(1)
+  const { db, t, withTransaction } = await getDatabase()
 
   const f = new Fields(input)
   const v: Partial<typeof S.siteSettings.$inferInsert> = {}
@@ -235,27 +237,9 @@ export async function updateSettings(raw: unknown): Promise<SiteSetting> {
 
   const errors: FieldErrors = { ...f.errors }
 
-  if (input.customTheme !== undefined) {
-    v.customTheme = input.customTheme === null ? null : mergeCustomTheme(stored?.customTheme as SiteSetting['customTheme'], parseCustomTheme(input.customTheme, errors))
-  }
-
-  // Text must stay readable on the background and on cards, in each mode. That depends on the
-  // preset, the brand colour AND the custom colours together, and changing any one of them can
-  // break a combination that was fine, so check the effective result whenever any of them is sent.
-  if (['theme', 'primaryColor', 'customize', 'customTheme'].some((key) => input[key] !== undefined)) {
-    const effective: ThemeSettings = {
-      theme: v.theme ?? stored?.theme,
-      primaryColor: v.primaryColor !== undefined ? v.primaryColor : stored?.primaryColor,
-      customize: v.customize ?? stored?.customize ?? false,
-      customTheme: (v.customTheme !== undefined ? v.customTheme : stored?.customTheme) as ThemeSettings['customTheme'],
-    }
-    if (effective.customize) {
-      for (const mode of MODES) {
-        const problem = contrastProblem(effective, mode)
-        if (problem) errors[`customTheme.${mode}.text`] ??= problem
-      }
-    }
-  }
+  // The custom theme keys that were sent; they are merged into the stored ones below.
+  const themePatch =
+    input.customTheme === undefined ? undefined : input.customTheme === null ? null : parseCustomTheme(input.customTheme, errors)
 
   // null clears a list, like it clears any other field.
   const list = (key: string): unknown[] | undefined => {
@@ -293,6 +277,38 @@ export async function updateSettings(raw: unknown): Promise<SiteSetting> {
     })
   }
 
+  // Text must stay readable on the background and on cards, in each mode. That depends on the
+  // preset, the brand colour AND the custom colours together, and changing any one of them can
+  // break a combination that was fine, so check the effective result whenever any of them is sent.
+  const checksContrast = ['theme', 'primaryColor', 'customize', 'customTheme'].some((key) => input[key] !== undefined)
+  type StoredTheme = { theme: string; primaryColor: string | null; customize: boolean; customTheme: unknown }
+  const addContrastErrors = (stored: StoredTheme | undefined) => {
+    if (!checksContrast) return
+    const customTheme =
+      themePatch === undefined
+        ? stored?.customTheme
+        : themePatch === null
+          ? null
+          : mergeCustomTheme(stored?.customTheme as SiteSetting['customTheme'], themePatch)
+    const effective: ThemeSettings = {
+      theme: v.theme ?? stored?.theme,
+      primaryColor: v.primaryColor !== undefined ? v.primaryColor : stored?.primaryColor,
+      customize: v.customize ?? stored?.customize ?? false,
+      customTheme: customTheme as ThemeSettings['customTheme'],
+    }
+    if (!effective.customize) return
+    for (const mode of MODES) {
+      const problem = contrastProblem(effective, mode)
+      if (problem) errors[`customTheme.${mode}.text`] ??= problem
+    }
+  }
+  // A first look without the lock, so contrast problems come back with every other error in one
+  // round; the check is repeated on the locked copy below.
+  if (checksContrast) {
+    const [stored] = await db.select().from(t.siteSettings).where(eq(t.siteSettings.id, SETTINGS_ID)).limit(1)
+    addContrastErrors(stored)
+  }
+
   if (Object.keys(errors).length) throw new ValidationError(errors)
   const chosen = [v.logoId, v.faviconId].filter((id): id is number => Boolean(id))
   const images = chosen.length ? await getMediaByIds(chosen) : new Map<number, MediaItem>()
@@ -312,8 +328,33 @@ export async function updateSettings(raw: unknown): Promise<SiteSetting> {
   }
   if (Object.keys(errors).length) throw new ValidationError(errors)
 
-  await db.insert(t.siteSettings).values({ id: SETTINGS_ID }).onConflictDoNothing()
-  await db.update(t.siteSettings).set({ ...v, updatedAt: new Date() }).where(eq(t.siteSettings.id, SETTINGS_ID))
+  try {
+    // One save at a time: the custom theme is merged into the stored copy, so two saves at once
+    // would both start from the same copy and the later one would drop the other's keys.
+    await withTransaction(
+      async (tx) => {
+        const [stored] = await tx.select().from(t.siteSettings).where(eq(t.siteSettings.id, SETTINGS_ID)).limit(1)
+        if (themePatch !== undefined) {
+          v.customTheme = themePatch === null ? null : mergeCustomTheme(stored?.customTheme as SiteSetting['customTheme'], themePatch)
+        }
+        addContrastErrors(stored)
+        if (Object.keys(errors).length) throw new ValidationError(errors)
+
+        await tx.insert(t.siteSettings).values({ id: SETTINGS_ID }).onConflictDoNothing()
+        await tx.update(t.siteSettings).set({ ...v, updatedAt: new Date() }).where(eq(t.siteSettings.id, SETTINGS_ID))
+      },
+      { lock: 'site-settings' },
+    )
+  } catch (error) {
+    // The logo, site icon or privacy page was deleted after the checks above.
+    if (!isForeignKeyViolation(error)) throw error
+    const gone: FieldErrors = {}
+    if (v.logoId) gone.logoId = 'That image no longer exists.'
+    if (v.faviconId) gone.faviconId = 'That image no longer exists.'
+    if (v.privacyPageId) gone.privacyPageId = 'That page no longer exists.'
+    if (!Object.keys(gone).length) throw error
+    throw new ValidationError(gone)
+  }
   safeRevalidate([['/', 'layout']])
   return getSettings()
 }
