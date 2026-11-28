@@ -3,6 +3,7 @@
 import React from "react";
 
 import { Button } from "@pet-adopt/ui/components/button";
+import { callAction } from "@/lib/admin/call-action";
 import { startProviderSignInAction } from "@/server/actions/auth-providers";
 import type { PublicProvider } from "@/server/auth-providers";
 
@@ -18,7 +19,8 @@ export function ProviderSignIn({ providers, redirectTo, error }: { providers: Pu
     if (pending) return;
     setPending(slug);
     setFailure(null);
-    const result = await startProviderSignInAction({ provider: slug, redirectTo });
+    // callAction: a call that never arrives (network, redeploy) becomes a message, not a stuck button.
+    const result = await callAction(startProviderSignInAction({ provider: slug, redirectTo }));
     if (result.ok) {
       window.location.assign(result.data.url);
       return;

@@ -111,8 +111,35 @@ export async function saveCaptchaSettings(raw: unknown): Promise<CaptchaSettings
   return getCaptchaSettings()
 }
 
-export type VerifyOutcome = 'ok' | 'failed' | 'unavailable'
-type FetchLike = (url: string, init: { method: string; body: URLSearchParams; signal: AbortSignal }) => Promise<{ ok: boolean; json(): Promise<unknown> }>
+/**
+ * `misconfigured`: the service says the keys themselves are wrong (a secret revoked or rotated in its
+ * console, or not belonging to the site key). Retrying cannot fix that, so it is logged.
+ */
+export type VerifyOutcome = 'ok' | 'failed' | 'unavailable' | 'misconfigured'
+type FetchLike = (
+  url: string,
+  init: { method: string; body: URLSearchParams; signal: AbortSignal },
+) => Promise<{ ok: boolean; status?: number; json(): Promise<unknown> }>
+
+/** Error codes the services answer when the keys, not the visitor, are the problem. */
+const KEY_ERROR_CODES = new Set(['missing-input-secret', 'invalid-input-secret', 'invalid-parsed-secret', 'invalid-keys', 'sitekey-secret-mismatch', 'invalid-sitekey'])
+
+// A broken setup refuses every visitor, so it must reach the log, but a flood of visitors (or bots)
+// must not flood it: each kind of problem is logged at most once every 10 minutes per server.
+const PROBLEM_LOG_EVERY_MS = 10 * 60 * 1000
+const lastLogged = new Map<string, number>()
+function logProblem(kind: string, message: string): void {
+  const now = Date.now()
+  if (now - (lastLogged.get(kind) ?? 0) < PROBLEM_LOG_EVERY_MS) return
+  lastLogged.set(kind, now)
+  host().logError(new Error(message), 'form-builder: spam protection')
+}
+
+/** The service's `error-codes`, as printable short words only (they go into the log). */
+function errorCodes(answer: Record<string, unknown>): string[] {
+  const codes = answer['error-codes']
+  return Array.isArray(codes) ? codes.filter((code): code is string => typeof code === 'string' && /^[a-z0-9-]{1,60}$/i.test(code)).slice(0, 10) : []
+}
 
 let fetchImpl: FetchLike = (url, init) => fetch(url, init)
 const LOOPBACK = /^(localhost|.+\.localhost|127(\.\d{1,3}){3}|\[?::1\]?)$/i
@@ -141,7 +168,9 @@ export function setCaptchaFetchForChecks(fn: FetchLike | null): void {
 /**
  * Asks the service whether `token` (from the visitor's widget) is good. reCAPTCHA v3 also needs the
  * `submit` action and a score at or above the minimum. `unavailable`: the service could not be
- * reached or answered nonsense.
+ * reached or answered nonsense. `misconfigured`: the service refused the keys. Both are logged
+ * (at most every 10 minutes), and so is a token solved on another address, which on a working
+ * site usually means `NEXT_PUBLIC_SERVER_URL` does not match the address visitors use.
  */
 export async function verifyCaptchaToken(
   settings: { provider: CaptchaProvider; siteKey: string; secret: string; minScore: number },
@@ -152,22 +181,47 @@ export async function verifyCaptchaToken(
   const body = new URLSearchParams({ secret: settings.secret, response: token })
   if (client) body.set('remoteip', client)
   if (settings.provider === 'hcaptcha') body.set('sitekey', settings.siteKey)
+  const label = CAPTCHA_INFO[settings.provider].label
   let answer: Record<string, unknown>
   try {
     const response = await fetchImpl(VERIFY_URL[settings.provider], { method: 'POST', body, signal: AbortSignal.timeout(VERIFY_TIMEOUT_MS) })
-    if (!response.ok) return 'unavailable'
+    if (!response.ok) {
+      logProblem(`${settings.provider}:status`, `captcha: ${label} answered HTTP ${response.status ?? 'error'}; visitors' forms are refused until it answers`)
+      return 'unavailable'
+    }
     const json = await response.json()
-    if (!json || typeof json !== 'object') return 'unavailable'
+    if (!json || typeof json !== 'object') {
+      logProblem(`${settings.provider}:nonsense`, `captcha: ${label} gave an answer that is not JSON; visitors' forms are refused until it answers`)
+      return 'unavailable'
+    }
     answer = json as Record<string, unknown>
   } catch (error) {
-    host().logError(error, `captcha: ${CAPTCHA_INFO[settings.provider].label} could not be reached`)
+    host().logError(error, `captcha: ${label} could not be reached`)
     return 'unavailable'
   }
-  if (answer.success !== true) return 'failed'
+  if (answer.success !== true) {
+    const codes = errorCodes(answer)
+    if (codes.some((code) => KEY_ERROR_CODES.has(code))) {
+      logProblem(
+        `${settings.provider}:keys`,
+        `captcha: ${label} refused the saved keys (${codes.join(', ')}); every form is refused until the keys are fixed in Forms > Spam protection`,
+      )
+      return 'misconfigured'
+    }
+    return 'failed'
+  }
   // Every service names the site the captcha was solved on. It must be this one: otherwise a token
   // solved on someone else's page with this site key would pass (the services check the domain
   // themselves only while that is switched on in their settings).
-  if (!solvedOnThisSite(answer.hostname, host().siteUrl())) return 'failed'
+  const siteUrl = host().siteUrl()
+  if (!solvedOnThisSite(answer.hostname, siteUrl)) {
+    const solvedOn = typeof answer.hostname === 'string' && /^[a-z0-9.-]{1,253}$/i.test(answer.hostname) ? answer.hostname : 'no address'
+    logProblem(
+      `${settings.provider}:hostname`,
+      `captcha: a ${label} token was solved on ${solvedOn}, not on this site's address (${siteUrl}); if that is this site, NEXT_PUBLIC_SERVER_URL does not match the address visitors use`,
+    )
+    return 'failed'
+  }
   if (settings.provider === 'recaptcha-v3') {
     const score = typeof answer.score === 'number' ? answer.score : -1
     if (answer.action !== 'submit' || score * 100 < settings.minScore) return 'failed'
@@ -190,6 +244,8 @@ export async function checkCaptchaKeys(token: unknown, client: string | null): P
   if (!saved) throw new UserError('Save a service, its site key and its secret key first.')
   const outcome = await verifyCaptchaToken(saved.keys, token, client)
   if (outcome === 'unavailable') throw new UserError(`${CAPTCHA_INFO[saved.keys.provider].label} could not be reached. Try again in a moment.`)
+  if (outcome === 'misconfigured')
+    throw new UserError(`${CAPTCHA_INFO[saved.keys.provider].label} refused these keys: check that the secret key is current and belongs to this site key, then save it again.`)
   if (outcome === 'failed')
     throw new UserError('The keys did not pass: check that the secret key belongs to this site key, and that this site’s domain is allowed in the service’s settings.')
   const { db, t } = await openFormsDatabase()
@@ -216,6 +272,7 @@ export async function requireCaptcha(token: unknown, client: string | null): Pro
   const saved = await savedKeys()
   if (!saved) throw new UserError(CAPTCHA_UNAVAILABLE)
   const outcome = await verifyCaptchaToken(saved.keys, token, client)
-  if (outcome === 'unavailable') throw new UserError(CAPTCHA_UNAVAILABLE)
+  // Keys the service refuses cannot be fixed by the visitor retrying: say to try later or another way.
+  if (outcome === 'unavailable' || outcome === 'misconfigured') throw new UserError(CAPTCHA_UNAVAILABLE)
   if (outcome === 'failed') throw new UserError(CAPTCHA_FAILED)
 }

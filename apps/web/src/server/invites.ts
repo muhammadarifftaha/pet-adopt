@@ -106,6 +106,9 @@ export async function acceptInvite(raw: unknown): Promise<{ id: string; name: st
   const f = new Fields(input)
   const pass = newPassword(f, 'password', input)
   f.done()
+  // A made-up or used link stops here, before the slow hash (signed out, anyone can call this).
+  // The transaction below still claims the link; this only reads.
+  if (!(await isInviteTokenValid(token))) throw new UserError(EXPIRED)
 
   // Hashing is slow on purpose, so it happens before the transaction (SQLite has one connection).
   const hash = await (await getAuth()).$context.then((ctx) => ctx.password.hash(pass as string))

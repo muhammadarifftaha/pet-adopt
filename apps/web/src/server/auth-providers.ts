@@ -15,7 +15,7 @@ import { and, count, eq, inArray, max } from 'drizzle-orm'
 import { getDatabase } from '@/db/client'
 
 import { SITE_URL } from './auth'
-import { discoveryProblem, endpointProblem } from './provider-endpoints'
+import { DISCOVERY_UNREADABLE, discoveryProblem, endpointProblem } from './provider-endpoints'
 import { isLoopbackHost } from './email'
 import { asRecord, Fields, logError, UserError } from './result'
 import { open, seal } from './secret-box'
@@ -252,12 +252,41 @@ export async function deleteAuthProvider(id: number): Promise<{ name: string; sl
   })
 }
 
-/** Changes whenever a provider is added, changed or removed (auth.ts rebuilds Better Auth then). */
+// A provider whose discovery document could not be read (a timeout, an error page, a network blip)
+// is left out, but unlike one refused for a private address or a redirect it may work a moment
+// later. So while one is left out, the version below changes once each retry falls due, and auth.ts
+// rebuilds Better Auth then: first after 30 seconds, then twice as long each time up to 10 minutes,
+// so a document that stays unreadable is not fetched on a live request every 30 seconds forever.
+const RETRY_FIRST_MS = 30_000
+const RETRY_MAX_MS = 10 * 60_000
+const retry: { at: number | null; delay: number; round: number } = { at: null, delay: RETRY_FIRST_MS, round: 0 }
+
+// A skipped provider is logged at most once an hour for the same reason (a rebuild can run often).
+const SKIP_LOG_MS = 60 * 60_000
+const skipLogged = new Map<string, number>()
+
+function logSkip(slug: string, problem: string): void {
+  const key = `${slug}\n${problem}`
+  const last = skipLogged.get(key)
+  if (last !== undefined && Date.now() - last < SKIP_LOG_MS) return
+  skipLogged.set(key, Date.now())
+  logError(new Error(problem), `sign-in provider "${slug}" skipped`)
+}
+
+/**
+ * Changes whenever a provider is added, changed or removed (auth.ts rebuilds Better Auth then), and
+ * when a retry of a provider left out for an unreadable discovery document falls due (see above).
+ */
 export async function providersVersion(): Promise<string> {
   const { db, t } = await getDatabase()
   const [row] = await db.select({ n: count(), latest: max(t.authProviders.updatedAt) }).from(t.authProviders)
   const latest = row?.latest ? new Date(row.latest).getTime() : 0
-  return `${row?.n ?? 0}:${latest}`
+  // Claimed here, so the rebuild this starts (which reads the version too) sees the same round.
+  if (retry.at !== null && Date.now() >= retry.at) {
+    retry.round++
+    retry.at = Date.now() + retry.delay
+  }
+  return `${row?.n ?? 0}:${latest}:${retry.round}`
 }
 
 /** The enabled providers as Better Auth genericOAuth configs. A secret that cannot be opened skips its provider. */
@@ -265,12 +294,13 @@ export async function providerConfigs() {
   const { db, t } = await getDatabase()
   const rows = await db.select().from(t.authProviders).where(eq(t.authProviders.enabled, true))
   const configs = []
+  let unreadable = false
   for (const row of rows) {
     let clientSecret: string | undefined
     if (row.clientSecretEncrypted) {
       const opened = open(row.clientSecretEncrypted, SECRET_PURPOSE)
       if (opened === null) {
-        logError(new Error('its client secret cannot be opened (was BETTER_AUTH_SECRET changed?)'), `sign-in provider "${row.slug}" skipped`)
+        logSkip(row.slug, 'its client secret cannot be opened (was BETTER_AUTH_SECRET changed?)')
         continue
       }
       clientSecret = opened
@@ -283,7 +313,9 @@ export async function providerConfigs() {
           ? await discoveryProblem(row.discoveryUrl, { strict: true })
           : null
     if (problem) {
-      logError(new Error(problem), `sign-in provider "${row.slug}" skipped`)
+      logSkip(row.slug, problem)
+      // Only a document that could not be read is worth another try; a redirect or a private address is not.
+      if (problem === DISCOVERY_UNREADABLE) unreadable = true
       continue
     }
     configs.push({
@@ -301,6 +333,13 @@ export async function providerConfigs() {
       disableImplicitSignUp: true,
       overrideUserInfo: false,
     })
+  }
+  if (unreadable) {
+    retry.delay = retry.at === null ? RETRY_FIRST_MS : Math.min(retry.delay * 2, RETRY_MAX_MS)
+    retry.at = Date.now() + retry.delay
+  } else {
+    retry.at = null
+    retry.delay = RETRY_FIRST_MS
   }
   return configs
 }

@@ -52,7 +52,10 @@ export function ResponsesView({
   const [confirmOpen, setConfirmOpen] = useState(false)
 
   const allIds = list.items.map((item) => item.id)
-  const allSelected = allIds.length > 0 && allIds.every((id) => selected.includes(id))
+  // Only what is on screen can be acted on: the screen is remounted per page (Responses.tsx), and this
+  // also drops ids that left the page after a refresh, so Delete never removes a response nobody sees.
+  const picked = selected.filter((id) => allIds.includes(id))
+  const allSelected = allIds.length > 0 && allIds.every((id) => picked.includes(id))
   const toggle = (id: number, on: boolean) => setSelected((current) => (on ? [...new Set([...current, id])] : current.filter((x) => x !== id)))
 
   function act(fn: () => Promise<{ ok: true; data: number } | { ok: false; error: string }>, done: (n: number) => string) {
@@ -132,22 +135,22 @@ export function ResponsesView({
               <Checkbox id="fb-select-all" checked={allSelected} onCheckedChange={(checked) => setSelected(checked === true ? allIds : [])} />
               <Label htmlFor="fb-select-all">Select all on this page</Label>
             </div>
-            <span className="text-sm text-muted-foreground">{selected.length} selected</span>
+            <span className="text-sm text-muted-foreground">{picked.length} selected</span>
             <Button
               type="button"
               variant="outline"
               size="sm"
               className="ml-auto"
-              aria-disabled={pending || !selected.length || undefined}
-              onClick={() => selected.length > 0 && act(() => markResponsesReadAction(form.id, selected), (n) => `${plural(n)} marked as read.`)}
+              aria-disabled={pending || !picked.length || undefined}
+              onClick={() => picked.length > 0 && act(() => markResponsesReadAction(form.id, picked), (n) => `${plural(n)} marked as read.`)}
             >
               Mark as read
             </Button>
-            <AlertDialog open={confirmOpen} onOpenChange={(open) => setConfirmOpen(open && selected.length > 0)}>
-              <AlertDialogTrigger render={<Button type="button" variant="destructive" size="sm" aria-disabled={pending || !selected.length || undefined} />}>Delete</AlertDialogTrigger>
+            <AlertDialog open={confirmOpen} onOpenChange={(open) => setConfirmOpen(open && picked.length > 0)}>
+              <AlertDialogTrigger render={<Button type="button" variant="destructive" size="sm" aria-disabled={pending || !picked.length || undefined} />}>Delete</AlertDialogTrigger>
               <AlertDialogContent>
                 <AlertDialogHeader>
-                  <AlertDialogTitle>Delete {plural(selected.length)}?</AlertDialogTitle>
+                  <AlertDialogTitle>Delete {plural(picked.length)}?</AlertDialogTitle>
                   <AlertDialogDescription>They are removed for good, including from the CSV. Download it first if you need a copy.</AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
@@ -158,7 +161,7 @@ export function ResponsesView({
                     onClick={() => {
                       if (pending) return
                       setConfirmOpen(false)
-                      act(() => deleteResponsesAction(form.id, selected), (n) => `${plural(n)} deleted.`)
+                      act(() => deleteResponsesAction(form.id, picked), (n) => `${plural(n)} deleted.`)
                     }}
                   >
                     Delete

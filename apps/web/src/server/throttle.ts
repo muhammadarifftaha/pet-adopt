@@ -38,6 +38,8 @@ export const PASSWORD_CHANGE_RULE: Throttle = { max: 5, windowMs: 10 * 60 * 1000
 /** "Email me a reset link": per client, and per email overall so nobody can flood an inbox. */
 export const RESET_CLIENT_RULE: Throttle = { max: 10, windowMs: 15 * 60 * 1000 }
 export const RESET_EMAIL_RULE: Throttle = { max: 3, windowMs: 60 * 60 * 1000 }
+/** Using a reset or invite link (signed out): per client, because each try may hash a password. */
+export const LINK_USE_RULE: Throttle = { max: 10, windowMs: 15 * 60 * 1000 }
 
 /**
  * The header your reverse proxy sets to the real client address (default `x-forwarded-for`, or for
@@ -135,6 +137,7 @@ async function purgeExpired(): Promise<void> {
           like(t.rateLimits.key, 'login:%'),
           like(t.rateLimits.key, 'chpw:%'),
           like(t.rateLimits.key, 'pwreset:%'),
+          like(t.rateLimits.key, 'linkuse:%'),
           like(t.rateLimits.key, 'emailtest:%'),
           like(t.rateLimits.key, 'plugin:%'),
         ),
@@ -218,6 +221,17 @@ export async function guardPasswordChange(userId: string): Promise<{ keys: strin
   const key = `chpw:${userId}`
   await consumeAttempt(key, PASSWORD_CHANGE_RULE)
   return { keys: [key] }
+}
+
+/**
+ * Call before using a reset or invite link (someone signed out sets a password). Throws a UserError
+ * when this client tried too often: each try can cost a deliberately slow password hash. Without a
+ * client address there is nothing to count by (as for reset requests); the token check before the
+ * hash still keeps made-up links cheap.
+ */
+export async function guardLinkUse(headers: Headers): Promise<void> {
+  const address = clientAddress(headers)
+  if (address) await consumeAttempt(`linkuse:ip:${address}`, LINK_USE_RULE)
 }
 
 /**

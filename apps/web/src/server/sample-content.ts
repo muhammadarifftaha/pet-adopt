@@ -6,7 +6,8 @@
 import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 
-import { and, count, eq, inArray, isNull, notInArray } from 'drizzle-orm'
+import { count, eq, inArray, max } from 'drizzle-orm'
+import { isEqual } from 'es-toolkit'
 import sharp from 'sharp'
 
 import { getDatabase } from '@/db/client'
@@ -16,6 +17,7 @@ import { mix, resolveTheme } from '@/lib/theme'
 
 import { deletePage, publishPage, savePageDetails, archivePage } from './pages'
 import { deletePet, savePet } from './pets'
+import { logError, UserError } from './result'
 import { getSettings } from './settings'
 import { removeUpload, saveUpload } from './uploads'
 
@@ -106,8 +108,36 @@ const RETIRED_SAMPLES = [
   'Pumpkin', 'Shadow', 'Ginger', 'Oreo', 'Tiger', 'Maple', 'Ember', 'Daisy', 'Bruno', 'Coco', 'Max', 'Bella', 'Lucky', 'Simba', 'Ziggy', 'Rusty', 'Snowball', 'Thumper', 'Olive', 'Kiwi', 'Sunny', 'Pip', 'Nibbles', 'Pebbles', 'Peanut', 'Hazel', 'Shelly',
 ]
 
-/** The slugs of every sample pet, current and retired. */
-const sampleSlugs = () => [...samples.map((s) => s.name), ...RETIRED_SAMPLES].map((name) => slugify(name))
+/** Every sample pet's name (current and retired) by its slug. */
+const sampleNames = () => new Map([...samples.map((s) => s.name), ...RETIRED_SAMPLES].map((name) => [slugify(name), name]))
+
+/** The alt text of a sample pet's placeholder picture (the same in every version of the samples). */
+const placeholderAlt = (name: string) => `Placeholder picture for ${name}`
+
+/**
+ * The sample pets on the site. A name is not enough: Bella, Max or Luna are common names for real
+ * pets. A sample has a sample's slug and every one of its photos is the placeholder picture made for
+ * it (its alt text says so). A pet whose photos the owner changed, or whose pictures were described
+ * again, counts as theirs and is never touched.
+ */
+async function findSamplePets(): Promise<Array<{ id: number; slug: string; name: string; photoIds: number[] }>> {
+  const { db, t } = await getDatabase()
+  const names = sampleNames()
+  const candidates = await db.select({ id: t.pets.id, slug: t.pets.slug }).from(t.pets).where(inArray(t.pets.slug, [...names.keys()]))
+  if (!candidates.length) return []
+  const photos = await db
+    .select({ petId: t.petPhotos.petId, mediaId: t.petPhotos.mediaId, alt: t.media.alt })
+    .from(t.petPhotos)
+    .leftJoin(t.media, eq(t.media.id, t.petPhotos.mediaId))
+    .where(inArray(t.petPhotos.petId, candidates.map((pet) => pet.id)))
+  const found = []
+  for (const pet of candidates) {
+    const name = names.get(pet.slug)!
+    const own = photos.filter((photo) => photo.petId === pet.id)
+    if (own.length && own.every((photo) => photo.alt === placeholderAlt(name))) found.push({ ...pet, name, photoIds: own.map((photo) => photo.mediaId) })
+  }
+  return found
+}
 
 // Behaviour and health details for the samples, so the extra pet fields have something to show.
 const extras: Record<string, Record<string, unknown>> = {
@@ -129,17 +159,16 @@ function ageFrom(text: string) {
 export async function addSamplePets(log: (line: string) => void = () => {}): Promise<number> {
   let added = 0
   const { db, t } = await getDatabase()
-  const currentSlugs = samples.map((s) => slugify(s.name))
 
   // Any pet that is not one of our samples (current or retired) means this is a real site: leave its
   // pets alone.
-  const [others] = await db.select({ n: count() }).from(t.pets).where(notInArray(t.pets.slug, sampleSlugs()))
-  if (others.n > 0) {
+  const existing = await findSamplePets()
+  const [all] = await db.select({ n: count() }).from(t.pets)
+  if (all.n > existing.length) {
     log('Real pets exist, skipping sample pets.')
     return 0
   }
 
-  const existing = await db.select({ slug: t.pets.slug }).from(t.pets).where(inArray(t.pets.slug, currentSlugs))
   // The pictures take the site's colours as they are now (the setup's theme step comes first).
   const light = resolveTheme(await getSettings()).light
   const colors = { primary: light['--primary'] ?? '#e8590c', bg: light['--bg'] ?? '#ffffff' }
@@ -149,7 +178,7 @@ export async function addSamplePets(log: (line: string) => void = () => {}): Pro
     if (have.has(slugify(sample.name))) continue
 
     const buffer = await samplePicture(index, colors)
-    const media = await saveUpload({ data: buffer, alt: `Placeholder picture for ${sample.name}` })
+    const media = await saveUpload({ data: buffer, alt: placeholderAlt(sample.name) })
     try {
       await savePet(null, {
         name: sample.name,
@@ -180,10 +209,10 @@ export async function addSamplePets(log: (line: string) => void = () => {}): Pro
   }
 
   // Sample pets seeded before ages were birth dates get one now, so they age with the calendar.
-  const undated = await db
-    .select({ id: t.pets.id, slug: t.pets.slug })
-    .from(t.pets)
-    .where(and(inArray(t.pets.slug, currentSlugs), isNull(t.pets.birthDate)))
+  const sampleIds = existing.map((pet) => pet.id)
+  const undated = sampleIds.length
+    ? (await db.select({ id: t.pets.id, slug: t.pets.slug, birthDate: t.pets.birthDate }).from(t.pets).where(inArray(t.pets.id, sampleIds))).filter((pet) => !pet.birthDate)
+    : []
   for (const pet of undated) {
     const sample = samples.find((s) => slugify(s.name) === pet.slug)
     if (!sample) continue
@@ -193,54 +222,125 @@ export async function addSamplePets(log: (line: string) => void = () => {}): Pro
   return added
 }
 
+const ABOUT_SLUG = 'about'
+const ABOUT_TITLE = 'About'
+
+/** The sample About page's layout. Its block ids are fixed (the page builder makes random ones). */
+const ABOUT_LAYOUT = {
+  root: { props: {} },
+  zones: {},
+  content: [
+    { type: 'TextSection', props: { id: 'about-text', heading: 'About us', body: 'We are a small rescue helping cats, dogs and rabbits find loving homes.\n\nEvery pet is vaccinated, checked by a vet and matched with the right family.', align: 'left', background: 'none', spacing: 'md' } },
+    { type: 'Testimonials', props: { id: 'about-stories', heading: 'Happy tails', background: 'tint', items: [{ quote: 'Adopting Mochi was the best decision we ever made.', name: 'The Tan family', detail: 'Adopted Mochi' }] } },
+    { type: 'Faq', props: { id: 'about-faq', heading: 'Frequently asked questions', background: 'none', items: [{ question: 'How does adoption work?', answer: 'Message us on WhatsApp, meet the pet, and we will guide you through the next steps.' }, { question: 'Is there an adoption fee?', answer: 'We ask for a small contribution towards vet costs. Ask us for details.' }] } },
+    { type: 'ContactInfo', props: { id: 'about-contact', heading: 'Visit us', showAddress: true, showHours: true, showWhatsApp: true, mapEmbedUrl: '', background: 'none' } },
+  ],
+}
+
+/**
+ * Whether a layout is still the sample About page's: the same blocks with the same ids, in the same
+ * order, and the same heading and text in each (only the typed text: the save checks may tidy the
+ * choices if a block's options change).
+ */
+const TYPED_TEXT = ['heading', 'body'] as const
+
+function isSampleAboutLayout(data: unknown): boolean {
+  const content = (data as { content?: unknown } | null)?.content
+  if (!Array.isArray(content) || content.length !== ABOUT_LAYOUT.content.length) return false
+  return ABOUT_LAYOUT.content.every((block, index) => {
+    const stored = content[index] as { type?: unknown; props?: Record<string, unknown> } | null
+    if (stored?.type !== block.type || !stored.props) return false
+    const props: Record<string, unknown> = block.props
+    return stored.props.id === props.id && TYPED_TEXT.every((key) => stored.props![key] === props[key])
+  })
+}
+
+/**
+ * The sample About page while nobody has changed it: at /about, titled About, the sample layout both
+ * live and in the draft, no settings waiting to be published, and no version after the first (every
+ * edit, settings included, opens a new version). Anything else is the owner's page and stays.
+ */
+async function findSampleAboutPage(): Promise<number | null> {
+  const { db, t } = await getDatabase()
+  const [page] = await db
+    .select({ id: t.pages.id, title: t.pages.title, draft: t.pages.puckDraft, published: t.pages.puckPublished, detailsDraft: t.pages.detailsDraft })
+    .from(t.pages)
+    .where(eq(t.pages.slug, ABOUT_SLUG))
+    .limit(1)
+  if (!page || page.title !== ABOUT_TITLE || page.detailsDraft != null) return null
+  if (!isSampleAboutLayout(page.published) || !isEqual(page.draft, page.published)) return null
+  const [versions] = await db.select({ newest: max(t.pageVersions.number) }).from(t.pageVersions).where(eq(t.pageVersions.pageId, page.id))
+  return (versions?.newest ?? 0) <= 1 ? page.id : null
+}
+
 /** Creates and publishes the sample About page, unless a page at /about exists. */
 export async function addSampleAboutPage(log: (line: string) => void = () => {}): Promise<boolean> {
   const { db, t } = await getDatabase()
-  const [existing] = await db.select({ n: count() }).from(t.pages).where(eq(t.pages.slug, 'about'))
+  const [existing] = await db.select({ n: count() }).from(t.pages).where(eq(t.pages.slug, ABOUT_SLUG))
   if (existing.n > 0) {
     log('An "about" page already exists, skipping.')
     return false
   }
 
-  const { id } = await savePageDetails(null, { title: 'About', slug: 'about' })
-  await publishPage(id, {
-    root: { props: {} },
-    zones: {},
-    content: [
-      { type: 'TextSection', props: { id: 'about-text', heading: 'About us', body: 'We are a small rescue helping cats, dogs and rabbits find loving homes.\n\nEvery pet is vaccinated, checked by a vet and matched with the right family.', align: 'left', background: 'none', spacing: 'md' } },
-      { type: 'Testimonials', props: { id: 'about-stories', heading: 'Happy tails', background: 'tint', items: [{ quote: 'Adopting Mochi was the best decision we ever made.', name: 'The Tan family', detail: 'Adopted Mochi' }] } },
-      { type: 'Faq', props: { id: 'about-faq', heading: 'Frequently asked questions', background: 'none', items: [{ question: 'How does adoption work?', answer: 'Message us on WhatsApp, meet the pet, and we will guide you through the next steps.' }, { question: 'Is there an adoption fee?', answer: 'We ask for a small contribution towards vet costs. Ask us for details.' }] } },
-      { type: 'ContactInfo', props: { id: 'about-contact', heading: 'Visit us', showAddress: true, showHours: true, showWhatsApp: true, mapEmbedUrl: '', background: 'none' } },
-    ],
-  })
+  const { id } = await savePageDetails(null, { title: ABOUT_TITLE, slug: ABOUT_SLUG })
+  await publishPage(id, ABOUT_LAYOUT)
   log('Created the About page')
   return true
 }
 
 /** Whether any sample pet (current or retired) is on the site. */
 export async function hasSampleContent(): Promise<boolean> {
-  const { db, t } = await getDatabase()
-  const [row] = await db.select({ n: count() }).from(t.pets).where(inArray(t.pets.slug, sampleSlugs()))
-  return row.n > 0
+  return (await findSamplePets()).length > 0
 }
 
 /**
- * Takes the sample content out again: the sample pets, retired ones included (and their placeholder
- * pictures), and the
- * sample About page while it is still the one this file made. Returns how many pets went.
+ * Takes the sample content out again: the sample pets, retired ones included, and their placeholder
+ * pictures (a picture something else now uses stays in the media library), and the sample About page
+ * while nobody has changed it. Pets and pages the owner made or edited are never touched (see
+ * findSamplePets and findSampleAboutPage). When a part cannot be removed, the rest is still removed and
+ * `left` names what stayed, so the caller can log what went and then say what is left
+ * (sampleContentLeftMessage).
  */
-export async function removeSampleContent(): Promise<number> {
-  const { db, t } = await getDatabase()
-  const pets = await db.select({ id: t.pets.id }).from(t.pets).where(inArray(t.pets.slug, sampleSlugs()))
-  for (const pet of pets) {
-    const photos = await db.select({ mediaId: t.petPhotos.mediaId }).from(t.petPhotos).where(eq(t.petPhotos.petId, pet.id))
-    await deletePet(pet.id)
-    for (const photo of photos) await removeUpload(photo.mediaId).catch(() => undefined)
+export async function removeSampleContent(): Promise<{ pets: number; aboutPage: boolean; left: string[] }> {
+  const left: string[] = []
+  let removed = 0
+  let aboutPage = false
+  for (const pet of await findSamplePets()) {
+    try {
+      await deletePet(pet.id)
+      removed++
+    } catch (error) {
+      logError(error, `Could not remove the sample pet ${pet.id}`)
+      left.push(`the example pet ${pet.name}`)
+      continue
+    }
+    for (const mediaId of pet.photoIds) {
+      try {
+        await removeUpload(mediaId)
+      } catch (error) {
+        // Still in use somewhere else (the owner put it on a page): it stays, as it should.
+        if (error instanceof UserError) continue
+        logError(error, `Could not remove the placeholder picture ${mediaId}`)
+        left.push(`the placeholder picture for ${pet.name}`)
+      }
+    }
   }
-  const [about] = await db.select({ id: t.pages.id, title: t.pages.title }).from(t.pages).where(eq(t.pages.slug, 'about')).limit(1)
-  if (about && about.title === 'About') {
-    await archivePage(about.id).catch(() => undefined)
-    await deletePage(about.id).catch(() => undefined)
+  const aboutId = await findSampleAboutPage()
+  if (aboutId !== null) {
+    try {
+      await archivePage(aboutId)
+      await deletePage(aboutId)
+      aboutPage = true
+    } catch (error) {
+      logError(error, 'Could not remove the sample About page')
+      left.push('the About page')
+    }
   }
-  return pets.length
+  return { pets: removed, aboutPage, left }
+}
+
+/** The message for a removal that left something behind (see removeSampleContent). */
+export function sampleContentLeftMessage(result: { pets: number; left: string[] }): string {
+  const what = `${result.left.join(', ')} could not be removed. Try again.`
+  return result.pets ? `Removed ${result.pets} example pet${result.pets === 1 ? '' : 's'}, but ${what}` : what.charAt(0).toUpperCase() + what.slice(1)
 }

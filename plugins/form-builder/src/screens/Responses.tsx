@@ -16,7 +16,9 @@ export async function Responses({ id, page, user }: { id: string; page?: string 
   if (!form) notFound()
   const list = await listResponses(form.id, { page: Array.isArray(page) ? page[0] : page, limit: 20 })
   return (
+    // Keyed by page: the selection belongs to one page, and Newer/Older keep a client component's state.
     <ResponsesView
+      key={list.page}
       form={{ id: form.id, name: form.name }}
       list={list}
       canEdit={can(user.role, accessPermission('personalData', 'edit'))}

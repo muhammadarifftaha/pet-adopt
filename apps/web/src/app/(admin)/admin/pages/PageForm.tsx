@@ -27,6 +27,7 @@ import {
 } from "@pet-adopt/ui/components/field";
 import { Input } from "@pet-adopt/ui/components/input";
 import { Textarea } from "@pet-adopt/ui/components/textarea";
+import { callAction } from "@/lib/admin/call-action";
 import { slugify } from "@/lib/slugify";
 import { isSystemPageSlug, PET_PAGE_SLUG } from "@/puck/data";
 import { cn } from "@/lib/utils";
@@ -289,9 +290,18 @@ export function PageForm({ page }: { page: PageFormPage | null }) {
   });
   const showSummary = summaryOpen && (items.length > 0 || general !== null);
 
+  // Moves focus to the summary after a failed save, once it is on screen: React Hook Form can
+  // publish the errors one render after the failed submit, so wait for the summary itself.
+  const focusPending = React.useRef(false);
   React.useEffect(() => {
-    if (focusTick > 0) summaryRef.current?.focus();
+    if (focusTick > 0) focusPending.current = true;
   }, [focusTick]);
+  React.useEffect(() => {
+    if (focusPending.current && showSummary && summaryRef.current) {
+      focusPending.current = false;
+      summaryRef.current.focus();
+    }
+  });
 
   function problems() {
     setSummaryOpen(true);
@@ -314,7 +324,8 @@ export function PageForm({ page }: { page: PageFormPage | null }) {
     setSaving(true);
     setSaved(false);
     setGeneral(null);
-    const result = await savePageDetailsAction(page?.id ?? null, toPageInput(values));
+    // callAction: a call that never arrives (network, redeploy) becomes a message, not a stuck "Saving…".
+    const result = await callAction(savePageDetailsAction(page?.id ?? null, toPageInput(values)));
     setSaving(false);
 
     if (result.ok) {
@@ -348,7 +359,7 @@ export function PageForm({ page }: { page: PageFormPage | null }) {
     if (busy || !page) return;
     setBusy(kind);
     setNotice(null);
-    const result = await action();
+    const result = await callAction(action());
     setBusy(null);
     setNotice(result.ok ? { text: done, isError: false } : { text: result.error, isError: true });
     if (result.ok) router.refresh();

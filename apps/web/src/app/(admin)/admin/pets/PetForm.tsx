@@ -40,6 +40,7 @@ import {
   toPetInput,
   type TabId,
 } from "@/lib/admin/pet-form";
+import { callAction } from "@/lib/admin/call-action";
 import { SPECIES_CACHE_KEY, useInvalidatePets } from "@/lib/admin/pets-cache";
 import { unwrapResult } from "@/lib/admin/unwrap-client";
 import { GOOD_WITH, SEXES, SIZES, SPECIES, STATUSES, TEMPERAMENTS } from "@/lib/options";
@@ -132,7 +133,8 @@ export function PetForm({ pet, siteName, siteCountry }: { pet: Pet | null; siteN
     setSaved(false);
     setGeneral(null);
 
-    const result = await savePetAction(pet?.id ?? null, toPetInput(values));
+    // callAction: a call that never arrives (network, redeploy) becomes a message, not a stuck "Saving…".
+    const result = await callAction(savePetAction(pet?.id ?? null, toPetInput(values)));
     setSaving(false);
 
     if (result.ok) {

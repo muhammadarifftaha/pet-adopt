@@ -32,7 +32,10 @@ const PET_PAGE_CONFIG = petPageConfig as unknown as Config
 type Props = {
   pageId: number
   title: string
+  /** The draft's address: what the next publish will have (shown in the header). */
   slug: string
+  /** The address visitors reach today, for "View live" (differs from `slug` while an address change waits for a publish). */
+  liveSlug: string
   status: 'draft' | 'published'
   /** The page's `updatedAt` in ms when it was opened. Sent with every save so a stale tab cannot overwrite newer work. */
   version: number
@@ -44,8 +47,8 @@ type Props = {
   site: PuckSiteMetadata['site']
   /** CSS for the canvas in dark mode (built on the server from checked theme values), or null when the site has no dark mode. */
   darkCss: string | null
-  /** View-only roles (audit): everything can be looked at, nothing changed or saved. */
-  readOnly?: boolean
+  /** Everything can be looked at, nothing changed or saved: a view-only role (audit), or an archived page. */
+  readOnly?: ReadOnly
   /** Only for the Pet page template: the pets it can be previewed with, and the first one. */
   petPreview?: { choices: PetChoice[]; pet: PetPageData | null } | null
 }
@@ -58,9 +61,13 @@ type SaveKind = 'draft' | 'publish' | 'auto'
 /** Where the draft stands: everything saved, changes waiting for autosave, a save running, or autosave stopped after a failure. */
 type SaveState = 'saved' | 'unsaved' | 'saving' | 'paused'
 
+/** Why the builder is read-only, if it is: the person's role cannot change pages, or the page is archived. */
+type ReadOnly = false | 'role' | 'archived'
+
 type EditorState = {
   pageId: number
-  slug: string
+  /** The live address, for "View live". */
+  liveSlug: string
   status: string
   /** Save draft / Publish from the header (autosave goes through the same function). */
   save: (kind: 'draft' | 'publish') => void
@@ -74,9 +81,10 @@ type EditorState = {
   /** The theme's dark colours scoped to the canvas, or null without dark mode. */
   darkCss: string | null
   onDarkChange: (dark: boolean) => void
-  readOnly: boolean
-  /** The Pet page template's "Preview with" picker; null on every other page. */
-  petPicker: { choices: PetChoice[]; pet: PetPageData | null; onPick: (id: number) => void; loading: boolean } | null
+  readOnly: ReadOnly
+  /** The Pet page template's "Preview with" picker; null on every other page. `selectedId` is the
+   *  pet the select shows: the one just picked while it loads, else the one drawn. */
+  petPicker: { choices: PetChoice[]; pet: PetPageData | null; selectedId: number | null; onPick: (id: number) => void; loading: boolean } | null
 }
 const EditorContext = createContext<EditorState | null>(null)
 const useEditor = () => {
@@ -113,13 +121,15 @@ const VIEWPORTS = [
   { width: '100%' as const, height: 'auto' as const, icon: 'FullWidth' as const, label: 'Full width' },
 ]
 
-// The address "View live" opens, or null while there is none: the page is not live, or (Pet page
-// template, which has no address of its own) no pet is picked; then it opens the previewed pet's page.
+// The address "View live" opens, or null while there is none: the page is not live (or archived,
+// which takes it off the site), or (Pet page template, which has no address of its own) no pet is
+// picked; then it opens the previewed pet's page. Always the live address: an address change saved
+// in the page settings is not live until it is published.
 function useLivePath(): string | null {
-  const { slug, status, petPicker } = useEditor()
-  if (status !== 'published') return null
+  const { liveSlug, status, readOnly, petPicker } = useEditor()
+  if (status !== 'published' || readOnly === 'archived') return null
   if (petPicker) return petPicker.pet ? `/pets/${petPicker.pet.slug}` : null
-  return slug === 'home' ? '/' : `/${slug}`
+  return liveSlug === 'home' ? '/' : `/${liveSlug}`
 }
 
 // "View live" in Puck's left rail, beside Blocks and Outline. Puck's rail items are clickable divs
@@ -136,7 +146,7 @@ function ViewLiveIcon() {
   )
 }
 function ViewLivePanel() {
-  const { petPicker } = useEditor()
+  const { petPicker, readOnly } = useEditor()
   const href = useLivePath()
   return (
     <div className="editor-panel-note">
@@ -144,6 +154,8 @@ function ViewLivePanel() {
         <a href={href} target="_blank" rel="noreferrer">
           Open the live page
         </a>
+      ) : readOnly === 'archived' ? (
+        <p>This page is archived, so it is not on the site. Restore it in its page settings to bring it back.</p>
       ) : petPicker && petPicker.pet === null ? (
         <p>Pick a pet in “Preview with” (right sidebar) to open its page.</p>
       ) : (
@@ -204,7 +216,15 @@ function PetPicker() {
   return (
     <span className="editor-pet-picker">
       <label htmlFor={id}>Preview with</label>
-      <select id={id} value={petId ?? ''} disabled={petPicker.loading || !petPicker.choices.length} onChange={(event) => petPicker.onPick(Number(event.target.value))}>
+      {/* Never disabled while a pet loads: a disabled select drops keyboard focus, and an arrow key on
+          a closed select picks at once. The latest pick wins (see PageEditor). */}
+      <select
+        id={id}
+        value={petPicker.selectedId ?? ''}
+        disabled={!petPicker.choices.length}
+        aria-busy={petPicker.loading}
+        onChange={(event) => petPicker.onPick(Number(event.target.value))}
+      >
         {!petPicker.choices.length ? <option value="">No pets yet</option> : null}
         {petPicker.choices.map((choice) => (
           <option key={choice.id} value={choice.id}>
@@ -243,7 +263,9 @@ function HeaderActions() {
       </a>
       {readOnly ? (
         // No Save or Publish: say why, in the header where those buttons usually are.
-        <span className="editor-msg">View only: your role cannot change pages.</span>
+        <span className="editor-msg">
+          {readOnly === 'archived' ? 'View only: this page is archived. Restore it in its page settings to edit it.' : 'View only: your role cannot change pages.'}
+        </span>
       ) : (
         <>
           {/* Fixed minimum widths (editor.css), so changing labels never move Back or undo/redo. A paused
@@ -455,31 +477,54 @@ const OVERRIDES = { iframe: CanvasFrame, headerActions: HeaderActions, fields: F
 // Puck shows every field read-only (custom fields get `readOnly` too, see the pickers).
 const READ_ONLY = { drag: false, duplicate: false, delete: false, edit: false, insert: false }
 
-export function PageEditor({ pageId, title, slug, status: initialStatus, version: initialVersion, initialData, publishedData, detailsPending, site, darkCss, readOnly = false, petPreview = null }: Props) {
+export function PageEditor({ pageId, title, slug, liveSlug: initialLiveSlug, status: initialStatus, version: initialVersion, initialData, publishedData, detailsPending, site, darkCss, readOnly = false, petPreview = null }: Props) {
   const [status, setStatus] = useState(initialStatus)
+  // Publishing applies the page settings waiting with the draft, so the draft's address goes live.
+  const [liveSlug, setLiveSlug] = useState(initialLiveSlug)
   const { show, toast } = useEditorToast()
-  const onPublished = useCallback(() => setStatus('published'), [])
-  const saver = useDraftSaver({ pageId, initialVersion, initialData, publishedData, detailsPending, readOnly, show, onPublished })
+  const onPublished = useCallback(() => {
+    setStatus('published')
+    setLiveSlug(slug)
+  }, [slug])
+  const saver = useDraftSaver({ pageId, initialVersion, initialData, publishedData, detailsPending, readOnly: Boolean(readOnly), show, onPublished })
   const { save, saveState, running, nothingToPublish } = saver
   // How the canvas looks only; nothing about it is saved with the page.
   const [dark, setDark] = useState(false)
   // The Pet page template's preview pet (only how the canvas looks, like `dark`).
   const [pet, setPet] = useState<PetPageData | null>(petPreview?.pet ?? null)
+  // The pet asked for last, shown in the select while it loads.
+  const [pickedId, setPickedId] = useState<number | null>(petPreview?.pet?.id ?? null)
   const [loadingPet, startPetLoad] = useTransition()
+  const latestPetRequest = useRef(0)
+  // Loads a pet for the preview. Only the latest request counts (a quick run of arrow keys in the
+  // select sends several). A failure (an ended session, a lost connection) keeps the pet shown and
+  // says why. `keepIfGone`: a reload of the same pet that finds nothing keeps what is drawn.
+  const loadPet = useCallback(
+    (id: number, keepIfGone: boolean) => {
+      const request = ++latestPetRequest.current
+      setPickedId(id)
+      startPetLoad(async () => {
+        const result = await fetchPetPagePreviewAction(id).catch(() => ({ ok: false as const, error: 'Could not reach the server. Check your connection.' }))
+        if (request !== latestPetRequest.current) return
+        if (!result.ok) {
+          show({ ok: false, text: `Could not load the pet for the preview: ${result.error}` })
+          return
+        }
+        if (result.data || !keepIfGone) setPet(result.data)
+      })
+    },
+    [show],
+  )
   // Back from editing the pet in another tab ("Edit <name>"): load it again so the canvas shows the changes.
   const petIdForReload = pet?.id ?? null
   useEffect(() => {
     if (petIdForReload === null) return
     const reload = () => {
-      if (document.visibilityState !== 'visible') return
-      startPetLoad(async () => {
-        const fresh = await fetchPetPagePreviewAction(petIdForReload)
-        if (fresh) setPet(fresh)
-      })
+      if (document.visibilityState === 'visible') loadPet(petIdForReload, true)
     }
     document.addEventListener('visibilitychange', reload)
     return () => document.removeEventListener('visibilitychange', reload)
-  }, [petIdForReload])
+  }, [petIdForReload, loadPet])
   const choices = petPreview?.choices
   const petPicker = useMemo<EditorState['petPicker']>(
     () =>
@@ -487,18 +532,16 @@ export function PageEditor({ pageId, title, slug, status: initialStatus, version
         ? {
             choices,
             pet,
+            selectedId: loadingPet ? pickedId : (pet?.id ?? null),
             loading: loadingPet,
-            onPick: (id) =>
-              startPetLoad(async () => {
-                setPet(await fetchPetPagePreviewAction(id))
-              }),
+            onPick: (id) => loadPet(id, false),
           }
         : null,
-    [choices, pet, loadingPet],
+    [choices, pet, pickedId, loadingPet, loadPet],
   )
   const editor = useMemo<EditorState>(
-    () => ({ pageId, slug, status, save, saveState, running, nothingToPublish, dark: darkCss ? dark : null, darkCss, onDarkChange: setDark, readOnly, petPicker }),
-    [pageId, slug, status, save, saveState, running, nothingToPublish, darkCss, dark, readOnly, petPicker],
+    () => ({ pageId, liveSlug, status, save, saveState, running, nothingToPublish, dark: darkCss ? dark : null, darkCss, onDarkChange: setDark, readOnly, petPicker }),
+    [pageId, liveSlug, status, save, saveState, running, nothingToPublish, darkCss, dark, readOnly, petPicker],
   )
   // Blocks read site settings and fetch live pets through Puck's metadata. Memoised: Puck copies a
   // new metadata object into its store, so a fresh one on every render would redo that each time.

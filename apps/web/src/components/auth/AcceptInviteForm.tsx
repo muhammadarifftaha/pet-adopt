@@ -4,6 +4,7 @@ import Link from "next/link";
 import { Controller, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { newPasswordSchema, NewPasswordSchemaType } from "@/lib/zod-schema/auth";
+import { callAction } from "@/lib/admin/call-action";
 import { acceptInviteAction } from "@/server/actions/password-reset";
 import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from "@pet-adopt/ui/components/field";
 import { Input } from "@pet-adopt/ui/components/input";
@@ -32,7 +33,8 @@ export function AcceptInviteForm({
   });
 
   const onSubmit = async (values: NewPasswordSchemaType) => {
-    const result = await acceptInviteAction({ token, password: values.password });
+    // callAction: a call that never arrives (network, redeploy) becomes a message, not silence.
+    const result = await callAction(acceptInviteAction({ token, password: values.password }));
     if (result.ok) {
       setDone(true);
       return;
@@ -46,7 +48,7 @@ export function AcceptInviteForm({
     return (
       <Card className="w-full max-w-lg">
         <CardHeader>
-          <h2 className="text-lg font-semibold">You’re all set</h2>
+          <h1 className="text-lg font-semibold">You’re all set</h1>
           <p role="status">Your password is saved. Sign in with your email and the new password.</p>
         </CardHeader>
         <CardFooter>
@@ -64,7 +66,7 @@ export function AcceptInviteForm({
   return (
     <Card className="w-full max-w-lg">
       <CardHeader>
-        <h2 className="text-lg font-semibold">Welcome to {siteName}</h2>
+        <h1 className="text-lg font-semibold">Welcome to {siteName}</h1>
         <p>Hello {name}. Choose the password you will sign in with.</p>
       </CardHeader>
       <CardContent className="w-full">

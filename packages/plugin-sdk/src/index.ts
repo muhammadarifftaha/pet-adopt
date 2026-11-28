@@ -164,9 +164,9 @@ export type EmailMessage = {
  * whether it is set ("Set" / "Not set"), not what it is.
  */
 export type EmailStatus = {
-  /** The service, e.g. "Resend" or "SMTP". */
+  /** The service, e.g. "Postmark API". */
   provider: string
-  /** Everything it needs is set. While false the site does not offer email (reset links). */
+  /** Everything it needs is set. While false the site falls back to its built-in SMTP sender, if that is set up. */
   ready: boolean
   /** Non-secret settings to show, e.g. `{ label: 'Sender', value: 'Pet Adopt <no-reply@…>' }`. */
   details?: Array<{ label: string; value: string }>
@@ -283,7 +283,11 @@ export type Plugin = {
   screens?: PluginScreen[]
   /** Cards shown under the dashboard's numbers. */
   dashboardWidgets?: PluginWidget[]
-  /** Sends the site's email. Without one, "email me a reset link" is not offered. */
+  /**
+   * Sends the site's email through a service of its own (an HTTP API, for hosts that block SMTP
+   * ports) instead of the built-in SMTP settings (Email > Sending). At most one plugin may provide
+   * it; while it reports ready (or has no `status`) it is used instead of SMTP. Without one, the site uses SMTP.
+   */
   email?: EmailSender
   /** Its own tables and the migrations that create them. */
   storage?: PluginStorage
@@ -413,7 +417,10 @@ export type PluginBlockField =
 
 /** What a block's `render` receives besides its own options. */
 export type PluginBlockContext<Data = unknown> = {
-  /** What the block's loader returned; null when there is no loader, it returned nothing, or it failed. */
+  /**
+   * What the block's loader returned; null when there is no loader, it returned nothing, it failed,
+   * its result was larger than 1 MB, or it was not a JSON object or array.
+   */
   data: Data | null
   /** True inside the page builder, where a block with nothing to show should say why instead of vanishing. */
   editing: boolean
@@ -474,8 +481,13 @@ export type PluginBlock<Props extends Record<string, unknown> = Record<string, u
 }
 
 /**
- * Loads what a block shows. `props` are the block's saved options, unchecked: treat them as
- * untrusted. Return plain JSON (it crosses to the browser in the editor), or null for nothing.
+ * Loads what a block shows. `props` are the block's saved options, already checked against its
+ * `fields` (the right kinds, numbers inside min/max, select and radio values that are offered,
+ * `choice` values plain ids; anything else is replaced by its default). A `choice` may still name a
+ * record that no longer exists, so look it up and return null when it is gone. Return a plain JSON
+ * object or array, at most 1 MB (it crosses to the browser in the editor), or null for nothing:
+ * any other value, or a larger result, reaches `render` as `data: null`. A loader that throws is
+ * logged and also gives null.
  *
  * A later version of the SDK may call it with a second argument (what the site knows about the
  * page being drawn). Declare one parameter, or ignore the rest: do not pass a function that
@@ -559,8 +571,13 @@ export type PluginHost = {
   /** The visitor's address as the site's proxy reports it, or null when it cannot tell. */
   clientAddress(): Promise<string | null>
   /**
-   * Counts one attempt on `key` and throws a UserError ("Too many attempts...") once `rule.max` is
-   * passed within `rule.windowMs`. Keys are stored as `plugin:<key>`; start yours with the plugin name.
+   * Counts one attempt on `key` and throws a UserError ("Too many attempts...") on the attempt after
+   * the `rule.max`th. It is not a fixed window from the first attempt: the count starts again only
+   * once `rule.windowMs` passes with no attempt below the limit (each attempt under the limit moves
+   * the window to start from it). Once over the limit, the key stays refused until `rule.windowMs`
+   * after the attempt that reached it, however often it is tried meanwhile. So `{ max: 3, windowMs:
+   * one hour }` refuses a 4th attempt made within an hour of the 3rd. Keys are stored as
+   * `plugin:<key>`; start yours with the plugin name.
    */
   consumeAttempt(key: string, rule: RateRule): Promise<void>
   phone: {
@@ -574,7 +591,7 @@ export type PluginHost = {
    * are not adopted, by name (pending ones say so); `value` is the pet's id.
    */
   choices(source: ChoiceSource): Promise<Choice[]>
-  /** The site's email sender, or null while no email plugin is set up. */
+  /** The site's email sender (a ready email plugin, else the built-in SMTP sender), or null while neither is set up. */
   emailSender(): Promise<EmailSender | null>
   /** Logs an error without the values a failed database query carries. Never log error objects yourself. */
   logError(error: unknown, context?: string): void

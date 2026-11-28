@@ -13,6 +13,7 @@ import {
   requestPasswordResetAction,
   resetPasswordWithTokenAction,
 } from "@/server/actions/password-reset";
+import { callAction } from "@/lib/admin/call-action";
 import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from "@pet-adopt/ui/components/field";
 import { Input } from "@pet-adopt/ui/components/input";
 import { Button, buttonVariants } from "@pet-adopt/ui/components/button";
@@ -40,7 +41,11 @@ function RootError({ message }: { message?: string }) {
   );
 }
 
-export function RequestResetForm({ siteName }: { siteName: string }) {
+/**
+ * `heading`: "h1" when the form is the page's only card (the default); "h2" when it sits under
+ * another card that holds the page's <h1> (an expired link, then "ask for a new one below").
+ */
+export function RequestResetForm({ siteName, heading: Heading = "h1" }: { siteName: string; heading?: "h1" | "h2" }) {
   const [sent, setSent] = React.useState(false);
   const form = useForm<ResetRequestSchemaType>({
     resolver: zodResolver(resetRequestSchema),
@@ -48,7 +53,8 @@ export function RequestResetForm({ siteName }: { siteName: string }) {
   });
 
   const onSubmit = async (values: ResetRequestSchemaType) => {
-    const result = await requestPasswordResetAction(values);
+    // callAction: a call that never arrives (network, redeploy) becomes a message, not silence.
+    const result = await callAction(requestPasswordResetAction(values));
     if (result.ok) {
       setSent(true);
       return;
@@ -62,7 +68,7 @@ export function RequestResetForm({ siteName }: { siteName: string }) {
     return (
       <Card className="w-full max-w-lg">
         <CardHeader>
-          <h2 className="text-lg font-semibold">Check your email</h2>
+          <Heading className="text-lg font-semibold">Check your email</Heading>
           {/* role="status" so screen readers hear the change after submitting. */}
           <p role="status">
             If an account on {siteName} uses that address, a link to choose a new password is on its
@@ -82,7 +88,7 @@ export function RequestResetForm({ siteName }: { siteName: string }) {
   return (
     <Card className="w-full max-w-lg">
       <CardHeader>
-        <h2 className="text-lg font-semibold">Reset your password</h2>
+        <Heading className="text-lg font-semibold">Reset your password</Heading>
         <p>
           Enter the email you sign in to {siteName} with, and we will send you a link to choose a
           new password.
@@ -144,7 +150,7 @@ export function NewPasswordForm({
   });
 
   const onSubmit = async (values: NewPasswordSchemaType) => {
-    const result = await resetPasswordWithTokenAction({ token, password: values.password });
+    const result = await callAction(resetPasswordWithTokenAction({ token, password: values.password }));
     if (result.ok) {
       setDone(true);
       return;
@@ -158,7 +164,7 @@ export function NewPasswordForm({
     return (
       <Card className="w-full max-w-lg">
         <CardHeader>
-          <h2 className="text-lg font-semibold">Password changed</h2>
+          <h1 className="text-lg font-semibold">Password changed</h1>
           <p role="status">
             Your new password is set, and you have been signed out on every device. Sign in with
             the new password.
@@ -178,7 +184,7 @@ export function NewPasswordForm({
   return (
     <Card className="w-full max-w-lg">
       <CardHeader>
-        <h2 className="text-lg font-semibold">Choose a new password</h2>
+        <h1 className="text-lg font-semibold">Choose a new password</h1>
         <p>Saving it signs you out on every device, including any you have lost.</p>
       </CardHeader>
       <CardContent className="w-full">
@@ -243,12 +249,12 @@ export function NewPasswordForm({
   );
 }
 
-/** Shown for a link that has expired or was used, and when the site cannot send email. */
+/** Shown for a link that has expired or was used, and when the site cannot send email. Its title is the page's <h1>. */
 export function ResetUnavailable({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <Card className="w-full max-w-lg">
       <CardHeader>
-        <h2 className="text-lg font-semibold">{title}</h2>
+        <h1 className="text-lg font-semibold">{title}</h1>
         <p>{children}</p>
       </CardHeader>
       <CardFooter>

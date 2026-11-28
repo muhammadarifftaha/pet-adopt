@@ -25,12 +25,14 @@ export default async function EditPage({ params }: { params: Promise<{ id: strin
   const user = await getSessionUser()
   if (!user) redirect(`/admin/login?redirect=${encodeURIComponent(`/edit/${pageId}`)}`)
   if (!can(user.role, 'pages:view')) redirect('/admin')
-  // View-only roles (audit) get the builder read-only: they can look through every block and its
-  // settings, and nothing can be dragged, added, changed or saved (the server refuses saves too).
-  const readOnly = !can(user.role, 'pages:edit')
-
   const page = await getPageById(pageId)
   if (!page) notFound()
+
+  // View-only roles (audit) get the builder read-only: they can look through every block and its
+  // settings, and nothing can be dragged, added, changed or saved (the server refuses saves too).
+  // An archived page is read-only for everyone (the server refuses its saves), until it is restored.
+  const archived = page.archivedAt != null
+  const readOnly = archived ? 'archived' : can(user.role, 'pages:edit') ? false : 'role'
 
   const settings = await getSettings()
   // The builder always opens the latest draft; a page that was never edited starts from what is live.
@@ -54,6 +56,8 @@ export default async function EditPage({ params }: { params: Promise<{ id: strin
       // The draft's settings: what the next publish will have.
       title={page.draftDetails?.title ?? page.title}
       slug={page.draftDetails?.slug ?? page.slug}
+      // The address visitors reach today ("View live"): a pending address change is not live yet.
+      liveSlug={page.slug}
       status={page.status}
       version={page.updatedAt.getTime()}
       initialData={initialData}

@@ -44,7 +44,8 @@ export default async function ResetPasswordPage({
         <ResetUnavailable title="This link no longer works">
           Reset links work once, for one hour. {canEmail ? "Ask for a new one below." : ASK_ADMIN}
         </ResetUnavailable>
-        {canEmail && <RequestResetForm siteName={settings.siteName} />}
+        {/* The card above holds the page's <h1>. */}
+        {canEmail && <RequestResetForm siteName={settings.siteName} heading="h2" />}
       </>
     );
   }

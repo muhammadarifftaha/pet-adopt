@@ -366,7 +366,7 @@ export async function deleteUser(id: string): Promise<{ id: string; label: strin
   // Outside the transaction: storage and counters.
   await deleteAvatarFile(removed.image)
   const { forgetAttemptsOf } = await import('./throttle')
-  await forgetAttemptsOf(id, removed.email).catch(() => undefined)
+  await forgetAttemptsOf(id, removed.email).catch((error) => logError(error, 'could not forget the attempt counters of a deleted account'))
   return removed.ghost
 }
 
@@ -377,12 +377,22 @@ export async function deleteUser(id: string): Promise<{ id: string; label: strin
 export async function purgeDueDeletions(now = new Date()): Promise<number> {
   const { db, t } = await getDatabase()
   const due = await db
-    .select({ id: t.users.id })
+    .select({ id: t.users.id, deleteAfter: t.users.deleteAfter })
     .from(t.users)
     .where(and(isNotNull(t.users.archivedAt), isNotNull(t.users.deleteAfter), lte(t.users.deleteAfter, now)))
   const { quoted, recordActivity } = await import('./activity')
-  for (const { id } of due) {
-    const ghost = await deleteUser(id)
+  let deleted = 0
+  // One account that cannot be deleted must not keep the others past their date: each is tried on
+  // its own, a failure is logged with the account id (no personal data) and tried again next time.
+  for (const { id, deleteAfter } of due) {
+    let ghost: { id: string; label: string }
+    try {
+      ghost = await deleteUser(id)
+    } catch (error) {
+      logError(error, `could not delete account ${id} (due since ${deleteAfter?.toISOString() ?? 'unknown'})`)
+      continue
+    }
+    deleted++
     await recordActivity({
       actor: null,
       action: 'user.delete',
@@ -392,7 +402,7 @@ export async function purgeDueDeletions(now = new Date()): Promise<number> {
       client: null,
     })
   }
-  return due.length
+  return deleted
 }
 
 const purgeHolder = ((globalThis as { __petAdoptDeletionPurge?: { at: number } }).__petAdoptDeletionPurge ??= { at: 0 })

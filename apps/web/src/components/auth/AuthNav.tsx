@@ -24,9 +24,9 @@ import { cn } from "@/lib/utils";
 //  - Keep the order and wording the same on every page that shows this nav (3.2.3 Consistent
 //    Navigation).
 //
-// Also recommended for the page that renders this (in the layout, not here): a "Skip to main
-// content" link as the first focusable element, pointing at <main id="main-content" tabIndex={-1}>
-// (2.4.1 Bypass Blocks), and exactly one <h1> per page.
+// The (auth) layout that renders this provides the rest: a "Skip to main content" link as the first
+// focusable element, pointing at <main id="main-content" tabIndex={-1}> (2.4.1 Bypass Blocks), and
+// each screen's card title is its one <h1>.
 
 type Item = {
   href: string;

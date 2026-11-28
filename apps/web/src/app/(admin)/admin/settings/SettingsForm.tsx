@@ -21,6 +21,7 @@ import { Input } from '@pet-adopt/ui/components/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@pet-adopt/ui/components/select'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@pet-adopt/ui/components/tabs'
 import { Textarea } from '@pet-adopt/ui/components/textarea'
+import { callAction } from '@/lib/admin/call-action'
 import { SOCIAL_PLATFORMS } from '@/lib/options'
 import { cn } from '@/lib/utils'
 import {
@@ -277,9 +278,18 @@ export function SettingsForm({
   }
   const showSummary = summaryOpen && (items.length > 0 || general !== null)
 
+  // Moves focus to the summary after a failed save, once it is on screen: React Hook Form can
+  // publish the errors one render after the failed submit, so wait for the summary itself.
+  const focusPending = React.useRef(false)
   React.useEffect(() => {
-    if (focusTick > 0) summaryRef.current?.focus()
+    if (focusTick > 0) focusPending.current = true
   }, [focusTick])
+  React.useEffect(() => {
+    if (focusPending.current && showSummary && summaryRef.current) {
+      focusPending.current = false
+      summaryRef.current.focus()
+    }
+  })
 
   function problems() {
     setSummaryOpen(true)
@@ -303,7 +313,8 @@ export function SettingsForm({
     setSaving(true)
     setSaved(false)
     setGeneral(null)
-    const result = await updateSettingsAction(toSettingsInput(values))
+    // callAction: a call that never arrives (network, redeploy) becomes a message, not a stuck "Saving…".
+    const result = await callAction(updateSettingsAction(toSettingsInput(values)))
     setSaving(false)
     if (result.ok) {
       setSummaryOpen(false)

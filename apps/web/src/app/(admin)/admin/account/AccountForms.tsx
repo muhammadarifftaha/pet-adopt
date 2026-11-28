@@ -9,6 +9,7 @@ import { Button } from '@pet-adopt/ui/components/button'
 import { Card, CardContent, CardFooter, CardHeader } from '@pet-adopt/ui/components/card'
 import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from '@pet-adopt/ui/components/field'
 import { Input } from '@pet-adopt/ui/components/input'
+import { callAction } from '@/lib/admin/call-action'
 import { changePasswordSchema, profileSchema, type ChangePasswordSchemaType, type ProfileSchemaType } from '@/lib/zod-schema/auth'
 import { changePasswordAction, updateProfileAction } from '@/server/actions/auth'
 import type { SessionUser } from '@/server/types'
@@ -63,7 +64,8 @@ function NameForm({ user }: { user: SessionUser }) {
 
   const onSubmit = async (values: ProfileSchemaType) => {
     setSaved(false)
-    const result = await updateProfileAction({ name: values.name })
+    // callAction: a call that never arrives (network, redeploy) becomes a message on the form.
+    const result = await callAction(updateProfileAction({ name: values.name }))
     if (!result.ok) return showFailure(form, result, ['name'])
     form.reset({ name: values.name.trim() })
     setSaved(true)
@@ -116,7 +118,7 @@ function PasswordForm({ user, minLength }: { user: SessionUser; minLength: numbe
 
   const onSubmit = async (values: ChangePasswordSchemaType) => {
     setSaved(false)
-    const result = await changePasswordAction({ currentPassword: values.currentPassword, newPassword: values.newPassword })
+    const result = await callAction(changePasswordAction({ currentPassword: values.currentPassword, newPassword: values.newPassword }))
     if (!result.ok) return showFailure(form, result, ['currentPassword', 'newPassword'])
     form.reset()
     setSaved(true)

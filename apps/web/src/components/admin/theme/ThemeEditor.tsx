@@ -27,6 +27,7 @@ import {
   type Mode,
   type PresetKey,
 } from '@/lib/theme'
+import { callAction } from '@/lib/admin/call-action'
 import { cn } from '@/lib/utils'
 import { activateThemeAction, updateThemeAction } from '@/server/actions/themes'
 import type { ThemeRecord } from '@/server/types'
@@ -117,7 +118,8 @@ export function ThemeEditor({ theme, isActive }: { theme: ThemeRecord; isActive:
     setSaving(true)
     setGeneral(null)
     setErrors({})
-    const result = await updateThemeAction(theme.id, { name: name.trim(), base, customTheme: settings })
+    // callAction: a call that never arrives (network, redeploy) becomes a message, not a stuck "Saving…".
+    const result = await callAction(updateThemeAction(theme.id, { name: name.trim(), base, customTheme: settings }))
     if (!result.ok) {
       setSaving(false)
       setErrors(result.fieldErrors ?? {})
@@ -125,7 +127,7 @@ export function ThemeEditor({ theme, isActive }: { theme: ThemeRecord; isActive:
       return
     }
     if (andUse) {
-      const used = await activateThemeAction({ themeId: theme.id })
+      const used = await callAction(activateThemeAction({ themeId: theme.id }))
       if (!used.ok) {
         setSaving(false)
         setGeneral(used.error)
@@ -331,13 +333,27 @@ function ColorField({
   const shown = value ?? fallback
   const [text, setText] = React.useState(shown)
   const [synced, setSynced] = React.useState(shown)
+  // Text that was not a colour code when the person left the box: the box went back to the colour
+  // in use, and this says why.
+  const [rejected, setRejected] = React.useState<string | null>(null)
   // Follow outside changes (picker, reset, a different base preset) without an effect.
   if (synced !== shown) {
     setSynced(shown)
     setText(shown)
+    setRejected(null)
   }
   const hexId = `${id}-hex`
+  const hexProblemId = `${hexId}-problem`
+  const textInvalid = text !== '' && !HEX.test(text)
+  // Only a colour code changes the theme, so the person is told while the text is not one, and
+  // again if they leave the box with it (WCAG 3.3.1: not by the red outline alone).
+  const hexProblem = textInvalid
+    ? `Use # and six digits or letters a to f, such as #1a2b3c. Until then the colour stays ${shown}.`
+    : rejected !== null
+      ? `${rejected === '' ? 'The box was empty' : `“${rejected}” is not a colour code`}, so the colour stays ${shown}.`
+      : ''
   const describedBy = [`${id}-description`, error ? `${id}-error` : ''].filter(Boolean).join(' ')
+  const hexDescribedBy = [describedBy, hexProblem ? hexProblemId : ''].filter(Boolean).join(' ')
   return (
     <Field data-invalid={error ? true : undefined}>
       <FieldLabel htmlFor={id}>{label}</FieldLabel>
@@ -363,12 +379,21 @@ function ColorField({
           maxLength={7}
           spellCheck={false}
           className="w-28 font-mono"
-          aria-invalid={Boolean(error) || (text !== '' && !HEX.test(text))}
-          aria-describedby={describedBy}
+          aria-invalid={Boolean(error) || textInvalid}
+          aria-describedby={hexDescribedBy}
           onChange={(event) => {
             const next = event.target.value.trim()
             setText(next)
+            setRejected(null)
             if (HEX.test(next)) onChange(next)
+          }}
+          onBlur={() => {
+            // Leaving the box with something that is not a colour: show the colour that will be
+            // saved again, so the box never claims a value the theme does not have.
+            if (text !== shown && !HEX.test(text)) {
+              setRejected(text)
+              setText(shown)
+            }
           }}
         />
         {value ? (
@@ -379,6 +404,16 @@ function ColorField({
           </Button>
         ) : null}
       </div>
+      {hexProblem ? (
+        <p id={hexProblemId} className="text-sm text-destructive">
+          {hexProblem}
+        </p>
+      ) : null}
+      {/* Focus has moved on when the box goes back, so say it politely. Always in the page (and not
+          display:none), so screen readers notice the change. */}
+      <p aria-live="polite" className="sr-only">
+        {rejected !== null && !textInvalid ? hexProblem : ''}
+      </p>
       <FieldError id={`${id}-error`} errors={error ? [{ message: error }] : []} />
     </Field>
   )

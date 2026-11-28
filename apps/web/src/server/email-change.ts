@@ -28,6 +28,7 @@ import { getDatabase } from '@/db/client'
 import { getAuth, SITE_URL } from './auth'
 import { getEmailSender } from './email'
 import { renderPurposeEmail } from './email-templates'
+import { cancelPendingLinks } from './pending-links'
 import { asRecord, Fields, logError, UserError, ValidationError } from './result'
 import { clearAttempts, consumeAttempt, guardPasswordChange } from './throttle'
 
@@ -255,6 +256,9 @@ export async function confirmEmailChange(token: unknown): Promise<{ id: string; 
           if (taken) throw new UserError('Another account started using that email in the meantime. Ask an admin.')
         }
         await tx.update(t.users).set({ email: pending.email, emailVerified: true, updatedAt: new Date() }).where(eq(t.users.id, user.id))
+        // Reset links already sent to the old address must not outlive it (as with an admin's
+        // change, users.ts): the old mailbox may be why the address is changing.
+        if (pending.email !== user.email) await cancelPendingLinks(tx, t, user.id, ['password-reset'])
         return { id: user.id, name: user.name, role: user.role, from: user.email, to: pending.email }
       },
       { lock: 'users:admins' },

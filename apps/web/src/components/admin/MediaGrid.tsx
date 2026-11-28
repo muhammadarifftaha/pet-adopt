@@ -101,6 +101,8 @@ export function MediaGrid({
       const result = await deleteManyMediaAction(ids)
       if (!result.ok) {
         setOutcome({ text: '', problems: [result.error], key: Date.now() })
+        // Some images may have gone before the failure: show the library as it now is.
+        void invalidateMedia()
         return
       }
       const { deleted, failed } = result.data

@@ -4,6 +4,7 @@ import Link from "next/link";
 
 import { Button, buttonVariants } from "@pet-adopt/ui/components/button";
 import { Card, CardFooter, CardHeader } from "@pet-adopt/ui/components/card";
+import { callAction } from "@/lib/admin/call-action";
 import { confirmEmailChangeAction } from "@/server/actions/email-change";
 
 /**
@@ -18,7 +19,8 @@ export function ConfirmEmailForm({ token, name, email, isChange }: { token: stri
   function confirm() {
     if (pending) return;
     startTransition(async () => {
-      const result = await confirmEmailChangeAction({ token });
+      // callAction: a call that never arrives (network, redeploy) becomes a message, not an error page.
+      const result = await callAction(confirmEmailChangeAction({ token }));
       if (result.ok) setDone(true);
       else setError(result.error);
     });
@@ -28,7 +30,7 @@ export function ConfirmEmailForm({ token, name, email, isChange }: { token: stri
     return (
       <Card className="w-full max-w-lg">
         <CardHeader>
-          <h2 className="text-lg font-semibold">{isChange ? "Email changed" : "Email confirmed"}</h2>
+          <h1 className="text-lg font-semibold">{isChange ? "Email changed" : "Email confirmed"}</h1>
           <p role="status">{isChange ? `From now on, sign in with ${email}. Your password stays the same.` : "Thank you. You can make changes in the admin now."}</p>
         </CardHeader>
         <CardFooter className="justify-end">
@@ -43,7 +45,7 @@ export function ConfirmEmailForm({ token, name, email, isChange }: { token: stri
   return (
     <Card className="w-full max-w-lg">
       <CardHeader>
-        <h2 className="text-lg font-semibold">{isChange ? "Confirm your new email" : "Confirm your email"}</h2>
+        <h1 className="text-lg font-semibold">{isChange ? "Confirm your new email" : "Confirm your email"}</h1>
         <p>
           {isChange ? (
             <>
