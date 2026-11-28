@@ -1,6 +1,6 @@
 {
   "name": "@pet-adopt/plugin-instagram-feed",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Show an Instagram profile and its latest posts as a block in the page builder.",
   "license": "MIT",
   "repository": {
@@ -8,7 +8,7 @@
     "url": "git+https://github.com/muhammadarifftaha/pet-adopt.git",
     "directory": "plugins/instagram-feed"
   },
-  "homepage": "https://github.com/muhammadarifftaha/pet-adopt/tree/main/plugins/instagram-feed#readme",
+  "homepage": "https://pet-adopt.dev/docs/admin/instagram-feed",
   "bugs": "https://github.com/muhammadarifftaha/pet-adopt/issues",
   "keywords": [
     "pet-adopt",

@@ -1,6 +1,6 @@
 {
   "name": "@pet-adopt/plugin-sdk",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Types and helpers for writing Pet Adopt plugins: definePlugin, defineConfig, screens, widgets, email.",
   "license": "MIT",
   "repository": {
@@ -8,7 +8,7 @@
     "url": "git+https://github.com/muhammadarifftaha/pet-adopt.git",
     "directory": "packages/plugin-sdk"
   },
-  "homepage": "https://github.com/muhammadarifftaha/pet-adopt/tree/main/packages/plugin-sdk#readme",
+  "homepage": "https://pet-adopt.dev/docs/developers/plugins",
   "bugs": "https://github.com/muhammadarifftaha/pet-adopt/issues",
   "keywords": [
     "pet-adopt",

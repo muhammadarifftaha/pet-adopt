@@ -82,7 +82,7 @@ try {
 console.log(`Wrote ${target} with a new BETTER_AUTH_SECRET.`)
 if (production) {
   console.log('Before the first build, set in it: NEXT_PUBLIC_SERVER_URL, DATABASE_URL and the S3_* storage settings.')
-  console.log('The settings page of the docs (apps/docs/content/docs/developers/deployment/settings.mdx) goes through each one.')
+  console.log('The settings page of the docs (https://pet-adopt.dev/docs/developers/deployment/settings) goes through each one.')
 } else {
   console.log('Next: docker compose up -d garage mailpit, then pnpm dev.')
   console.log('The server prints a setup link in its log; open it to create the first account.')

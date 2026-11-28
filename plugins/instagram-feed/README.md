@@ -14,7 +14,7 @@
 
 ## Installing
 
-> **Not published yet:** this package is not on npm yet; it will be published with the first release. In the Pet Adopt repository it is already installed as a workspace package (see [In this repository](#in-this-repository)), so a site cloned from it has steps 1 to 3 done, step 4 happens with the usual `pnpm migrate` (or `pnpm build`), and step 5 is yours to do.
+> **In the Pet Adopt repository** it is already installed as a workspace package (see [In this repository](#in-this-repository)), so a site cloned from it has steps 1 to 3 done, step 4 happens with the usual `pnpm migrate` (or `pnpm build`), and step 5 is yours to do.
 
 ### From npm, in a site
 
@@ -221,7 +221,7 @@ It stores no pictures and nothing about visitors.
 
 ## For developers
 
-The package on npm is compiled JavaScript with type declarations; files keep their `'use client'` and `'use server'` first lines. The source is in [`plugins/instagram-feed`](https://github.com/muhammadarifftaha/pet-adopt/tree/main/plugins/instagram-feed) in the Pet Adopt repository. [The plugin guide's page on blocks](https://github.com/muhammadarifftaha/pet-adopt/blob/main/apps/docs/content/docs/developers/plugins/blocks.mdx) uses its block as an example of a plugin block.
+The package on npm is compiled JavaScript with type declarations; files keep their `'use client'` and `'use server'` first lines. The source is in [`plugins/instagram-feed`](https://github.com/muhammadarifftaha/pet-adopt/tree/main/plugins/instagram-feed) in the Pet Adopt repository. [The plugin guide's page on blocks](https://pet-adopt.dev/docs/developers/plugins/blocks) uses its block as an example of a plugin block.
 
 | File | What it is |
 | --- | --- |
@@ -264,7 +264,7 @@ Commit `drizzle/` and the regenerated `migrations.ts`. Table and index names mus
 
 **Checks:** `pnpm typecheck` and `pnpm lint` cover this package. The end-to-end backend check (`pnpm check:backend` in `apps/web`) answers Instagram's calls with a fake, so it needs no network and no real account.
 
-**Building the package:** `pnpm pack` in this folder compiles `dist/` first (`build:package`) and writes the tarball. [The release runbook](https://github.com/muhammadarifftaha/pet-adopt/blob/main/apps/docs/content/docs/developers/contributing/releasing.mdx) says how it is published.
+**Building the package:** `pnpm pack` in this folder compiles `dist/` first (`build:package`) and writes the tarball. [The release runbook](https://pet-adopt.dev/docs/developers/contributing/releasing) says how it is published.
 
 ## Licence
 

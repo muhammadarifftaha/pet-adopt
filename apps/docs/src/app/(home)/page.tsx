@@ -1,7 +1,10 @@
+import type { Metadata } from 'next'
 import Link from 'next/link'
 import { Code, LayoutDashboard } from 'lucide-react'
 
 import { repoUrl } from '@/lib/shared'
+
+export const metadata: Metadata = { alternates: { canonical: '/' } }
 
 const SECTIONS = [
   {

@@ -11,7 +11,7 @@ import {
 import { createRelativeLink } from 'fumadocs-ui/mdx'
 
 import { getMDXComponents } from '@/components/mdx'
-import { gitConfig, repoUrl } from '@/lib/shared'
+import { appName, gitConfig, repoUrl } from '@/lib/shared'
 import { source } from '@/lib/source'
 
 export default async function Page(props: PageProps<'/docs/[[...slug]]'>) {
@@ -53,5 +53,8 @@ export async function generateMetadata(props: PageProps<'/docs/[[...slug]]'>): P
   return {
     title: page.data.title,
     description: page.data.description,
+    alternates: { canonical: page.url },
+    // Next replaces the layout's openGraph as a whole, so the page repeats the site's part.
+    openGraph: { siteName: appName, type: 'article', locale: 'en_GB', url: page.url, title: page.data.title, description: page.data.description },
   }
 }

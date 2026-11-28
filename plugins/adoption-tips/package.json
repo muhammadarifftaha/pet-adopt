@@ -1,6 +1,6 @@
 {
   "name": "@pet-adopt/plugin-adoption-tips",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "Example plugin: an admin screen and a dashboard card with adoption tips.",
   "license": "MIT",
