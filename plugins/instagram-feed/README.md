@@ -14,32 +14,33 @@
 
 ## Installing
 
-> **Not published yet:** this package lives in the Pet Adopt repository (`plugins/instagram-feed`) and is not on npm yet; it will be published with the other plugins later. In this repository it is already installed: steps 1 to 3 are done, step 4 happens with the usual `pnpm migrate` (or `pnpm build`), and step 5 is yours to do.
+> **Not published yet:** this package is not on npm yet; it will be published with the first release. In the Pet Adopt repository it is already installed as a workspace package (see [In this repository](#in-this-repository)), so a site cloned from it has steps 1 to 3 done, step 4 happens with the usual `pnpm migrate` (or `pnpm build`), and step 5 is yours to do.
 
-The steps below are for a workspace plugin, inside a clone of the repository.
+### From npm, in a site
 
-**1. Add the package** to the web app, from the repository's root folder:
+From the site's root folder:
+
+**1. Add the package** to the web app:
 
 ```bash
-pnpm --filter @pet-adopt/web add @pet-adopt/plugin-instagram-feed@workspace:*
+pnpm --filter @pet-adopt/web add @pet-adopt/plugin-instagram-feed
 ```
 
-It depends on the workspace's own `@pet-adopt/plugin-sdk` and `@pet-adopt/ui`, and uses the web app's `next`, `react`, `react-dom`, `react-icons` and `drizzle-orm`. The web app compiles its TypeScript source; `next.config.ts` needs no change.
+`@pet-adopt/plugin-sdk` and `@pet-adopt/ui` are peer dependencies: the plugin uses the site's own copies, which every Pet Adopt site has. So are the packages the web app already installs (`next`, `react`, `react-icons` and `drizzle-orm`).
 
 **2. List the plugin** in `apps/web/pet-adopt.config.ts`: add the import, and add `instagramFeed()` to the list beside the plugins already there.
 
 ```ts
 import { defineConfig } from '@pet-adopt/plugin-sdk'
-import { adoptionTips } from '@pet-adopt/plugin-adoption-tips'
 import { formBuilder } from '@pet-adopt/plugin-form-builder'
 import { instagramFeed } from '@pet-adopt/plugin-instagram-feed'
 
 export default defineConfig({
-  plugins: [adoptionTips(), formBuilder(), instagramFeed()],
+  plugins: [formBuilder(), instagramFeed()],
 })
 ```
 
-**3. List the block** in `apps/web/pet-adopt.blocks.ts`: add the import, and put `instagramFeedBlock` in the list beside the form builder's `formBlock` (keep it). The page builder runs in the browser, so the block is imported from its own entry point, never from the plugin itself:
+**3. List the block** in `apps/web/pet-adopt.blocks.ts`: add the import, and put `instagramFeedBlock` in the list beside the blocks already there (such as the form builder's `formBlock`). The page builder runs in the browser, so the block is imported from its own entry point, never from the plugin itself:
 
 ```ts
 import { defineBlocks } from '@pet-adopt/plugin-sdk'
@@ -71,9 +72,19 @@ CSP_IMG_SRC="https://*.cdninstagram.com https://*.fbcdn.net"
 - **Without it,** the grid shows empty squares and the browser's console names the blocked address.
 - **What it means for visitors:** their browsers contact Instagram's servers to load the pictures, so Instagram sees their address. Say so in your privacy policy.
 
-The admin screen's styles need nothing more: `packages/ui/src/styles/globals.css` already looks for class names in every folder under `plugins/`.
+**The admin screen's styles** need nothing more in a Pet Adopt site: `packages/ui/src/styles/globals.css` already has the line that lets Tailwind read installed `@pet-adopt/plugin-*` packages:
+
+```css
+@source "../../../../apps/web/node_modules/@pet-adopt/plugin-*/dist";
+```
+
+Without it the screen works but looks unstyled in places.
 
 **Removing the plugin:** take it out of `pet-adopt.config.ts` and its block out of `pet-adopt.blocks.ts` (then, if you like, `pnpm --filter @pet-adopt/web remove @pet-adopt/plugin-instagram-feed`). Its tables and data stay; pages that used the block simply stop showing it. `CSP_IMG_SRC` can go too.
+
+### In this repository
+
+The plugin is the workspace package in `plugins/instagram-feed`, already added to the web app (`pnpm --filter @pet-adopt/web add @pet-adopt/plugin-instagram-feed@workspace:*`) and listed in both `apps/web/pet-adopt.config.ts` and `apps/web/pet-adopt.blocks.ts`. The web app compiles its TypeScript source; `next.config.ts` needs no change, and Tailwind reads it through the `@source "../../../../plugins";` line. Step 4 happens with the usual `pnpm migrate` (or `pnpm build`), and step 5 is still yours to do.
 
 ## Connecting an account
 
@@ -210,7 +221,7 @@ It stores no pictures and nothing about visitors.
 
 ## For developers
 
-The source is in [`plugins/instagram-feed`](https://github.com/muhammadarifftaha/pet-adopt/tree/main/plugins/instagram-feed) in the Pet Adopt repository.
+The package on npm is compiled JavaScript with type declarations; files keep their `'use client'` and `'use server'` first lines. The source is in [`plugins/instagram-feed`](https://github.com/muhammadarifftaha/pet-adopt/tree/main/plugins/instagram-feed) in the Pet Adopt repository. [docs/plugins.md](https://github.com/muhammadarifftaha/pet-adopt/blob/main/docs/plugins.md#page-builder-blocks) uses its block as an example of a plugin block.
 
 | File | What it is |
 | --- | --- |
@@ -253,6 +264,7 @@ Commit `drizzle/` and the regenerated `migrations.ts`. Table and index names mus
 
 **Checks:** `pnpm typecheck` and `pnpm lint` cover this package. The end-to-end backend check (`pnpm check:backend` in `apps/web`) answers Instagram's calls with a fake, so it needs no network and no real account.
 
+**Building the package:** `pnpm pack` in this folder compiles `dist/` first (`build:package`) and writes the tarball. [docs/releasing.md](https://github.com/muhammadarifftaha/pet-adopt/blob/main/docs/releasing.md) says how it is published.
 
 ## Licence
 

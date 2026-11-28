@@ -1,6 +1,6 @@
 # Form builder
 
-`@pet-adopt/plugin-form-builder`: build forms for a Pet Adopt site (adoption applications, volunteer sign-ups, questions) and read what visitors send, in the admin.
+`@pet-adopt/plugin-form-builder`: a plugin for [Pet Adopt](https://github.com/muhammadarifftaha/pet-adopt), an open-source storefront for adoptable pets. Build forms for the site (adoption applications, volunteer sign-ups, questions) and read what visitors send, in the admin.
 
 - **Forms:** a form editor with ten question types, and the **Form** block to place a form on any page.
 - **Responses:** stored in the site's own database, read and downloaded (CSV) in the admin.
@@ -10,9 +10,24 @@
 
 ## Installing
 
-It ships with Pet Adopt and is switched on in `apps/web/pet-adopt.config.ts`:
+> **Not published yet:** this package is not on npm yet; it will be published with the first release. In the Pet Adopt repository it is already installed as a workspace package (see [In this repository](#in-this-repository)), so a site cloned from it has the plugin and its block already.
+
+### From npm, in a site
+
+From the site's root folder:
+
+**1. Add the package** to the web app:
+
+```bash
+pnpm --filter @pet-adopt/web add @pet-adopt/plugin-form-builder
+```
+
+`@pet-adopt/plugin-sdk` and `@pet-adopt/ui` are peer dependencies: the plugin uses the site's own copies, which every Pet Adopt site has. So are the packages the web app already installs (`next`, `react`, `react-icons` and `drizzle-orm`).
+
+**2. List the plugin** in `apps/web/pet-adopt.config.ts`, beside the plugins already there:
 
 ```ts
+import { defineConfig } from '@pet-adopt/plugin-sdk'
 import { formBuilder } from '@pet-adopt/plugin-form-builder'
 
 export default defineConfig({
@@ -20,7 +35,7 @@ export default defineConfig({
 })
 ```
 
-Its **Form** block is listed separately, in `apps/web/pet-adopt.blocks.ts` (that file is loaded by the browser, so the block comes from its own entry point, never from the plugin itself). Keep any other blocks already in the list:
+**3. List the Form block** in `apps/web/pet-adopt.blocks.ts`, keeping any other blocks already in the list. That file is loaded by the browser, so the block comes from its own entry point, never from the plugin itself:
 
 ```ts
 import { defineBlocks } from '@pet-adopt/plugin-sdk'
@@ -29,9 +44,31 @@ import { formBlock } from '@pet-adopt/plugin-form-builder/block'
 export default defineBlocks([formBlock])
 ```
 
-The plugin has its own database tables. Their migrations run by themselves on a local SQLite file, and with `pnpm migrate` (or `pnpm build`) on PostgreSQL and hosted libSQL.
-- **Before migrating:** until they've run, the plugin's screens explain what to run instead of failing.
-- **Removing the plugin** from the config keeps its tables and data.
+Both steps are needed: step 2 gives the screens, the tables and what the block loads; step 3 puts the block in the page builder.
+
+**4. Check that the admin's CSS finds the plugin.** Tailwind only writes the class names it can find, and it does not look inside `node_modules` by itself. The site's `packages/ui/src/styles/globals.css` needs this line, which Pet Adopt sites have already:
+
+```css
+@source "../../../../apps/web/node_modules/@pet-adopt/plugin-*/dist";
+```
+
+Without it the screens work but look unstyled in places.
+
+**5. Create its tables.** The plugin has its own database tables.
+
+```bash
+pnpm migrate
+```
+
+- **A local SQLite file** needs nothing: the tables are made when the site starts.
+- **PostgreSQL and hosted libSQL** need `pnpm migrate`. `pnpm build` runs it too.
+- **Before migrating:** until it has run, the plugin's screens explain what to run instead of failing, and Form blocks show nothing on the site.
+
+**Removing the plugin:** take it out of `pet-adopt.config.ts` and its block out of `pet-adopt.blocks.ts` (then, if you like, `pnpm --filter @pet-adopt/web remove @pet-adopt/plugin-form-builder`). Its tables and data stay; pages that used the block stop showing it.
+
+### In this repository
+
+The plugin is the workspace package in `plugins/form-builder`, already added to the web app (`pnpm --filter @pet-adopt/web add @pet-adopt/plugin-form-builder@workspace:*`) and listed in both `apps/web/pet-adopt.config.ts` and `apps/web/pet-adopt.blocks.ts`. The web app compiles its TypeScript source, and Tailwind reads it through the `@source "../../../../plugins";` line. Its tables are made like any plugin's: on start with a local SQLite file, with `pnpm migrate` (or `pnpm build`) on PostgreSQL and hosted libSQL.
 
 ## Using it
 
@@ -140,32 +177,35 @@ Its own tables, all named `plugin_form_builder_*`, in the site's database (SQLit
 
 ## For developers
 
+The package on npm is compiled JavaScript with type declarations. The source is in [`plugins/form-builder`](https://github.com/muhammadarifftaha/pet-adopt/tree/main/plugins/form-builder) in the Pet Adopt repository.
+
 | File | What it is |
 | --- | --- |
-| `src/index.tsx` | The plugin: screens, dashboard card, storage, email templates |
+| `src/index.tsx` | The plugin: screens, dashboard card, storage, email templates, and the Form block's loader (`blockLoaders`) |
+| `src/names.ts` | The plugin's and the block's names, shared by both halves |
 | `src/fields.ts` | The question model and its checks (`validateFormFields`, `validateFormSettings`, `validateAnswers`). Pure, also used in the browser |
 | `src/server.ts` | The rules: forms, responses, CSV, sending a response, emails |
 | `src/actions.ts` | Server actions for the admin screens, `listFormChoicesAction` for the Form block's picker, and `submitFormAction` for the visitor's form. Each checks permission through `host()` |
 | `src/block.tsx`, `public-form.tsx`, `block-css.ts` | The page builder's **Form** block, the visitor's form it draws, and its CSS. Its loader is `loadFormBlock` in `src/server.ts` |
 | `src/captcha.ts`, `captcha-providers.ts`, `captcha-widget.tsx` | Spam protection: settings and verification, the services, the visitor's widget |
 | `src/email-templates.ts` | The two default templates |
-| `src/storage.ts`, `schema/`, `migrations.ts`, `drizzle/` | Its tables and migrations |
+| `src/storage.ts`, `schema/`, `migrations.ts`, `drizzle/` | Its tables and migrations. The SQL is inlined in `migrations.ts`, so the package needs no SQL files |
 | `src/screens/` | Admin screens, built with `@pet-adopt/ui` |
 
 **Entry points** (`package.json` `exports`):
 
 | Import | Gives |
 | --- | --- |
-| `.` | The plugin itself |
-| `./block` | The Form block, for `pet-adopt.blocks.ts` (loaded by the browser) |
-| `./fields` | The question model |
-| `./server` | The rules |
-| `./actions` | The server actions |
-| `./captcha` | The widget |
+| `@pet-adopt/plugin-form-builder` | The plugin itself (server) |
+| `@pet-adopt/plugin-form-builder/block` | `formBlock`, for `pet-adopt.blocks.ts` (loaded by the browser) |
+| `@pet-adopt/plugin-form-builder/fields` | The question model |
+| `@pet-adopt/plugin-form-builder/server` | The rules |
+| `@pet-adopt/plugin-form-builder/actions` | The server actions |
+| `@pet-adopt/plugin-form-builder/captcha` | The widget |
 
-The Form block used to be built into the site. It keeps the same name (`FormBlock`) and options, so pages saved before the move still show their forms.
+The Form block used to be built into the site. It keeps the same name (`FormBlock`) and options, so pages saved before the move still show their forms. [docs/plugins.md](https://github.com/muhammadarifftaha/pet-adopt/blob/main/docs/plugins.md#page-builder-blocks) uses it as an example of a plugin block.
 
-**How it talks to the site:** it imports nothing from the app, only `@pet-adopt/plugin-sdk`. Everything it needs comes through `host()`:
+**How it talks to the site:** it imports nothing from the app, only [`@pet-adopt/plugin-sdk`](https://github.com/muhammadarifftaha/pet-adopt/tree/main/packages/plugin-sdk) and the site's UI package. Everything it needs comes through `host()`:
 - permissions;
 - rate limits;
 - the site's pet list;
@@ -173,6 +213,12 @@ The Form block used to be built into the site. It keeps the same name (`FormBloc
 - the activity log;
 - encrypted secrets;
 - the privacy policy.
+
+**The compiled package** is made for a Pet Adopt site: Next.js bundles it, and the site's scripts load it with `tsx`. Files keep their `'use client'` and `'use server'` first lines.
+
+### Working on it in the repository
+
+Inside the Pet Adopt repository the package exports its TypeScript source and the app compiles it.
 
 **After changing its tables:** edit both `schema/sqlite.ts` and `schema/pg.ts`, then run, from the repo root:
 
@@ -182,4 +228,10 @@ pnpm plugin:generate plugins/form-builder <change_name>
 
 Commit `drizzle/` and the regenerated `migrations.ts`. Table and index names must start with `plugin_form_builder_`, and must not point at the site's own tables.
 
-**Checks:** `pnpm typecheck` and `pnpm lint` cover this package. The end-to-end backend check (`pnpm check:backend` in `apps/web`) exercises forms, answers, limits, CSV, the spam trap and captcha. The captcha's verify calls are answered by a fake there, so it needs no network.
+**Checks:** `pnpm typecheck` and `pnpm lint` cover this package. The end-to-end backend check (`pnpm check:backend` in `apps/web`) exercises forms, answers, limits, CSV, the spam trap, captcha and the Form block. The captcha's verify calls are answered by a fake there, so it needs no network.
+
+**Building the package:** `pnpm pack` in this folder compiles `dist/` first (`build:package`) and writes the tarball. [docs/releasing.md](https://github.com/muhammadarifftaha/pet-adopt/blob/main/docs/releasing.md) says how it is published.
+
+## Licence
+
+MIT
