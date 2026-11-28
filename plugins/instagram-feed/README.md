@@ -221,7 +221,7 @@ It stores no pictures and nothing about visitors.
 
 ## For developers
 
-The package on npm is compiled JavaScript with type declarations; files keep their `'use client'` and `'use server'` first lines. The source is in [`plugins/instagram-feed`](https://github.com/muhammadarifftaha/pet-adopt/tree/main/plugins/instagram-feed) in the Pet Adopt repository. [docs/plugins.md](https://github.com/muhammadarifftaha/pet-adopt/blob/main/docs/plugins.md#page-builder-blocks) uses its block as an example of a plugin block.
+The package on npm is compiled JavaScript with type declarations; files keep their `'use client'` and `'use server'` first lines. The source is in [`plugins/instagram-feed`](https://github.com/muhammadarifftaha/pet-adopt/tree/main/plugins/instagram-feed) in the Pet Adopt repository. [The plugin guide's page on blocks](https://github.com/muhammadarifftaha/pet-adopt/blob/main/apps/docs/content/docs/developers/plugins/blocks.mdx) uses its block as an example of a plugin block.
 
 | File | What it is |
 | --- | --- |
@@ -264,7 +264,7 @@ Commit `drizzle/` and the regenerated `migrations.ts`. Table and index names mus
 
 **Checks:** `pnpm typecheck` and `pnpm lint` cover this package. The end-to-end backend check (`pnpm check:backend` in `apps/web`) answers Instagram's calls with a fake, so it needs no network and no real account.
 
-**Building the package:** `pnpm pack` in this folder compiles `dist/` first (`build:package`) and writes the tarball. [docs/releasing.md](https://github.com/muhammadarifftaha/pet-adopt/blob/main/docs/releasing.md) says how it is published.
+**Building the package:** `pnpm pack` in this folder compiles `dist/` first (`build:package`) and writes the tarball. [The release runbook](https://github.com/muhammadarifftaha/pet-adopt/blob/main/apps/docs/content/docs/developers/contributing/releasing.mdx) says how it is published.
 
 ## Licence
 

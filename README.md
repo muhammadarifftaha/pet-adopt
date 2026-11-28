@@ -126,7 +126,7 @@ packages/plugin-sdk/      What plugins import (definePlugin, host(), types). Imp
 plugins/form-builder/     The form builder plugin
 plugins/instagram-feed/   The Instagram feed plugin (optional)
 plugins/adoption-tips/    A small example plugin (not published)
-docs/                     Deployment, plugin, theming and release guides
+apps/docs/                The documentation site (Fumadocs): guides for admins and developers
 ```
 
 ### Packages
@@ -142,7 +142,7 @@ Three packages are published to npm from this repository:
 | `@pet-adopt/plugin-instagram-feed` | [`plugins/instagram-feed`](plugins/instagram-feed) | The Instagram feed plugin and its block |
 
 - **Not published:** the web app and `@pet-adopt/ui`. A site is a clone of this repository, so they are source you own. The example plugin ([`plugins/adoption-tips`](plugins/adoption-tips)) stays here for plugin authors to copy.
-- **Versions:** the packages share the project's version. [CHANGELOG.md](CHANGELOG.md) lists what changed, and [docs/releasing.md](docs/releasing.md) is the maintainer's guide to publishing them.
+- **Versions:** the packages share the project's version. [CHANGELOG.md](CHANGELOG.md) lists what changed, and [the release runbook](apps/docs/content/docs/developers/contributing/releasing.mdx) is the maintainer's guide to publishing them.
 - **Installing one in a site:** see [Adding a plugin](#adding-a-plugin).
 
 ### How the pieces fit
@@ -364,7 +364,7 @@ A plugin is an npm package or a local folder that depends only on `@pet-adopt/pl
 - **What it can add:** admin screens, dashboard cards, page builder blocks, its own database tables (with migrations), default email templates and an email sender.
 - **How it reaches the site:** through `host()`, for permissions, rate limits, email, the activity log, encrypted secrets, the privacy policy and redrawing the site's pages.
 
-**[docs/plugins.md](docs/plugins.md)** is the full guide to writing one, including [page builder blocks](docs/plugins.md#page-builder-blocks) (the two halves of a block, `pet-adopt.blocks.ts`, the block's options and the rules for `render` and `css`) and [packaging for npm](docs/plugins.md#packaging-for-npm). [`plugins/adoption-tips`](plugins/adoption-tips) is a small example, [`plugins/form-builder`](plugins/form-builder) a full one, and [`plugins/instagram-feed`](plugins/instagram-feed) one built around a block.
+**[The plugin guide](apps/docs/content/docs/developers/plugins/index.mdx)** covers writing one in full, including [page builder blocks](apps/docs/content/docs/developers/plugins/blocks.mdx) (the two halves of a block, `pet-adopt.blocks.ts`, the block's options and the rules for `render` and `css`) and [packaging for npm](apps/docs/content/docs/developers/plugins/packaging.mdx). [`plugins/adoption-tips`](plugins/adoption-tips) is a small example, [`plugins/form-builder`](plugins/form-builder) a full one, and [`plugins/instagram-feed`](plugins/instagram-feed) one built around a block.
 
 **A plugin from npm, in a site** (from the site's root folder):
 
@@ -400,7 +400,7 @@ After changing a plugin's tables, run `pnpm plugin:generate <folder> <change_nam
 
 ## Production
 
-This is the short version. **[docs/deployment.md](docs/deployment.md)** goes step by step: the reverse proxy and client address settings, hosting a site for someone else, backups, updating and troubleshooting.
+This is the short version. **[The deployment guide](apps/docs/content/docs/developers/deployment/index.mdx)** goes step by step: the reverse proxy and client address settings, hosting a site for someone else, backups, updating and troubleshooting.
 
 1. **Use PostgreSQL.**
    - Set `DATABASE_URL=postgres://...` (Neon, Supabase, your own server).
